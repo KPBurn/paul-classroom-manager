@@ -37,7 +37,6 @@ export const adminNavigation = [
     heading: 'Academic Management',
     items: [
       { label: 'Classrooms', to: '/admin/classrooms', icon: School },
-      { label: 'Subjects', to: '/admin/subjects', icon: BookOpen, phase: 3 },
       { label: 'Competencies', to: '/admin/competencies', icon: Target, phase: 3 },
     ],
   },
