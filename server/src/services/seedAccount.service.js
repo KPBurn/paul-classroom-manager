@@ -4,12 +4,16 @@ import { passwordSchema } from '../validators/auth.validators.js';
 export async function seedAccount({ email, password, firstName, lastName, role, required }) {
   const label = `${role} account`;
 
-  if (!email || !password) {
+  if (!email && !password) {
     if (required) {
       throw new Error(`SEED_${role.toUpperCase()}_EMAIL and SEED_${role.toUpperCase()}_PASSWORD must be set`);
     }
     console.log(`Skipping ${label}: no credentials configured`);
     return;
+  }
+
+  if (!email || !password) {
+    throw new Error(`SEED_${role.toUpperCase()}_EMAIL and SEED_${role.toUpperCase()}_PASSWORD must both be set`);
   }
 
   const passwordCheck = passwordSchema.safeParse(password);

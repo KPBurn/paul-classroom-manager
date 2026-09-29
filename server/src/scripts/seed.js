@@ -1,6 +1,6 @@
 /**
- * Creates the first administrator (and optionally a demo teacher) so there is
- * someone who can sign in. Existing accounts are left untouched.
+ * Creates configured administrator, demo teacher, and demo student accounts.
+ * Existing accounts are left untouched.
  *
  *   npm run seed
  */
@@ -26,9 +26,22 @@ const accounts = [
     role: 'teacher',
     required: false,
   },
+  {
+    email: process.env.SEED_STUDENT_EMAIL,
+    password: process.env.SEED_STUDENT_PASSWORD,
+    firstName: 'Paul',
+    lastName: 'Student',
+    role: 'student',
+    required: false,
+  },
 ];
 
 async function seed() {
+  if (!accounts.some(({ email, password }) => email || password)) {
+    console.log('Skipping account seed: no credentials configured');
+    return;
+  }
+
   assertRequiredEnv();
   await connectDatabase(env.mongodbUri);
   await User.init(); // ensure the unique email index exists

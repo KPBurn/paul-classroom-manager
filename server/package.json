@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "node --watch --env-file-if-exists=.env src/server.js",
     "start": "node --env-file-if-exists=.env src/server.js",
-    "seed": "node --env-file=.env src/scripts/seed.js",
+    "seed": "node --env-file-if-exists=.env src/scripts/seed.js",
     "test": "node --test"
   },
   "dependencies": {

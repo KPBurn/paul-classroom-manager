@@ -6,7 +6,7 @@ services:
     plan: free
     rootDir: server
     buildCommand: npm ci --omit=dev
-    startCommand: npm start
+    startCommand: npm run seed && npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION

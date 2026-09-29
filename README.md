@@ -46,6 +46,7 @@ Then fill in:
 | `JWT_SECRET`              | 32+ random characters: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
 | `SEED_ADMIN_PASSWORD`     | Password for the first admin account (8–72 chars, a letter and a number)          |
 | `SEED_TEACHER_PASSWORD`   | Optional demo teacher account; leave empty to skip                                |
+| `SEED_STUDENT_EMAIL` / `SEED_STUDENT_PASSWORD` | Optional Paul student account; leave both empty to skip |
 
 In Atlas, also allow your IP under **Network Access**.
 
@@ -55,7 +56,7 @@ In Atlas, also allow your IP under **Network Access**.
 # API — http://localhost:5050/api
 cd server
 npm install
-npm run seed    # creates the admin (and demo teacher) from SEED_* values; safe to re-run
+npm run seed    # creates configured admin, demo teacher, and Paul student; safe to re-run
 npm run dev
 
 # Client — http://localhost:5173 (in a second terminal)
@@ -93,8 +94,9 @@ GitHub Pages only serves static files, so the API runs on Render.
 
 1. In [Render](https://render.com): **New → Blueprint**, connect this repository. `render.yaml` defines the service.
 2. When prompted, enter `MONGODB_URI` (the same Atlas string as `server/.env`). `JWT_SECRET` is generated automatically.
-3. In Atlas → **Network Access**, allow `0.0.0.0/0`. Render's free tier has no fixed outgoing IP.
-4. Once deployed, open `https://<service-name>.onrender.com/api/health` and check it says `"database":"connected"`.
+3. To provision the initial admin and optional demo accounts, temporarily add the matching `SEED_*_EMAIL` and `SEED_*_PASSWORD` environment variables in the Render dashboard. The service seeds only missing accounts on startup; remove those variables after the first successful deploy.
+4. In Atlas → **Network Access**, allow Render's outbound IP ranges for the service's region.
+5. Once deployed, open `https://<service-name>.onrender.com/api/health` and check it says `"database":"connected"`.
 
 Free Render services sleep after 15 minutes idle, so the first request after that can take up to a minute.
 
