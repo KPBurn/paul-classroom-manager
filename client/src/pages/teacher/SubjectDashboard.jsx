@@ -93,9 +93,12 @@ export default function SubjectDashboard() {
   return (
     <>
       <div className="mb-4">
-        <Link to="/teacher/subjects" className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800">
+        <Link
+          to={subject ? `/teacher/classrooms/${subject.classroom.id}` : '/teacher/classrooms'}
+          className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800"
+        >
           <ArrowLeft className="size-4" aria-hidden="true" />
-          All subjects
+          {subject ? `Back to ${subject.classroom.name}` : 'My Classrooms'}
         </Link>
       </div>
       {loading ? (

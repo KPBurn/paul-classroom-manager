@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import AnnouncementFeed from '../../components/announcements/AnnouncementFeed.jsx';
 import AnnouncementFormModal from '../../components/announcements/AnnouncementFormModal.jsx';
 import { useAnnouncementActions } from '../../components/announcements/useAnnouncementActions.jsx';
+import ClassroomSubjects from '../../components/classrooms/ClassroomSubjects.jsx';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
@@ -220,6 +221,8 @@ export default function ClassroomDetail() {
               </ul>
             )}
           </section>
+
+          <ClassroomSubjects classroomId={id} canManage={canManage} archived={classroom.archived} />
 
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs" aria-labelledby="class-people">
             <h2 id="class-people" className="flex items-center gap-2 font-semibold text-slate-900">

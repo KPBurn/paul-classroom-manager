@@ -14,7 +14,6 @@ import NotFound from '../pages/shared/NotFound.jsx';
 import Profile from '../pages/shared/Profile.jsx';
 import TeacherAnnouncements from '../pages/teacher/Announcements.jsx';
 import TeacherDashboard from '../pages/teacher/Dashboard.jsx';
-import TeacherSubjects from '../pages/teacher/Subjects.jsx';
 import SubjectDashboard from '../pages/teacher/SubjectDashboard.jsx';
 import StudentMaterials from '../pages/student/Materials.jsx';
 import { ROLES } from '../utils/roles.js';
@@ -85,7 +84,8 @@ export default function AppRoutes() {
         <Route path="announcements" element={<TeacherAnnouncements />} />
         <Route path="classrooms" element={suspense(<MyClassrooms />)} />
         <Route path="classrooms/:id" element={suspense(<ClassroomDetail />)} />
-        <Route path="subjects" element={<TeacherSubjects />} />
+        {/* Subjects are created and opened from their classroom page. */}
+        <Route path="subjects" element={<Navigate to="/teacher/classrooms" replace />} />
         <Route path="subjects/:id" element={<SubjectDashboard />} />
         <Route path="schedule" element={suspense(<TeacherSchedule />)} />
         <Route path="profile" element={<Profile />} />

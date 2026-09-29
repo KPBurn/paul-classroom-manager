@@ -34,7 +34,7 @@ Attendance is recorded automatically when teachers and students join a session r
 
 ### Subjects and class materials
 
-Teachers create a subject (for example, English 101) for an active classroom assigned to them. The classroom's existing name can represent its batch (for example, 2021). The subject dashboard accepts PDFs and other files up to 8 MB; teachers can make each upload available immediately or schedule its release. Active students can see and download materials only while they are members of that active classroom, and the API checks both membership and the release time on every download. Subject files are stored in MongoDB.
+Teachers create a subject (for example, English 101) from an assigned active classroom's page (**My Classrooms → the class → Subjects & materials**) and open it from there to manage its materials. The classroom's existing name can represent its batch (for example, 2021). The subject dashboard accepts PDFs and other files up to 8 MB; teachers can make each upload available immediately or schedule its release. Active students can see and download materials only while they are members of that active classroom, and the API checks both membership and the release time on every download. Subject files are stored in MongoDB.
 
 Administrators can temporarily enable password-free role testing from **Admin → Settings**. This allows any visitor to the login page to enter as an active account of the selected role, including an administrator account. Use only for a controlled test and disable immediately afterward; existing role-test sessions are revoked as soon as the setting is turned off.
 
