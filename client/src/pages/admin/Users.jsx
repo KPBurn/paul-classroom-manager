@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Eye, EyeOff, KeyRound, Pencil, Plus, Search, Trash2, Users as UsersIcon } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, Lock, Pencil, Plus, Search, Trash2, Users as UsersIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
@@ -195,7 +195,7 @@ export default function Users({ role: fixedRole }) {
         {form && (
           <UserForm
             user={form.user}
-            defaultRole={fixedRole}
+            fixedRole={fixedRole}
             isSelf={form.user?.id === currentUser.id}
             onCancel={() => setForm(null)}
             onSaved={onSaved}
@@ -433,7 +433,7 @@ function FormActions({ onCancel, isSubmitting, submitLabel }) {
   );
 }
 
-function UserForm({ user, defaultRole, isSelf, onCancel, onSaved }) {
+function UserForm({ user, fixedRole, isSelf, onCancel, onSaved }) {
   const isEdit = Boolean(user);
   const [serverError, setServerError] = useState('');
 
@@ -451,7 +451,7 @@ function UserForm({ user, defaultRole, isSelf, onCancel, onSaved }) {
           role: user.role,
           status: user.status,
         }
-      : { firstName: '', lastName: '', email: '', password: '', role: defaultRole ?? 'teacher', status: 'active' },
+      : { firstName: '', lastName: '', email: '', password: '', role: fixedRole ?? 'teacher', status: 'active' },
   });
 
   const onSubmit = async (values) => {
@@ -507,13 +507,29 @@ function UserForm({ user, defaultRole, isSelf, onCancel, onSaved }) {
       )}
 
       <div className="grid gap-5 sm:grid-cols-2">
-        <SelectField
-          id="user-role"
-          label="Role"
-          options={ROLE_OPTIONS}
-          error={errors.role?.message}
-          {...register('role', { disabled: isSelf })}
-        />
+        {fixedRole ? (
+          // The Teachers and Students tabs only manage their own role; change roles from All Users.
+          <div>
+            <p id="user-role-label" className="mb-1.5 text-sm font-medium text-slate-700">Role</p>
+            <p
+              aria-labelledby="user-role-label"
+              className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600"
+              title="Change roles from All Users"
+            >
+              {ROLE_LABELS[fixedRole]}
+              <Lock className="size-4 text-slate-400" aria-hidden="true" />
+            </p>
+            <input type="hidden" {...register('role')} />
+          </div>
+        ) : (
+          <SelectField
+            id="user-role"
+            label="Role"
+            options={ROLE_OPTIONS}
+            error={errors.role?.message}
+            {...register('role', { disabled: isSelf })}
+          />
+        )}
         <SelectField
           id="user-status"
           label="Status"
