@@ -880,9 +880,11 @@ export default function SessionRoom() {
   const galleryParticipants = participants
     .map((participant) => ({
       ...participant,
+      // A remote camera track is not reliably muted when the sender turns it off, so it would
+      // keep showing its last frame; rely on the camera state the participant reports instead.
       stream: participant.id === localParticipantId.current
         ? cameraStream
-        : remoteMedia[participant.id]?.cameraStream,
+        : (participant.cameraEnabled ? remoteMedia[participant.id]?.cameraStream : null),
     }))
     .map((participant) => ({
       ...participant,
