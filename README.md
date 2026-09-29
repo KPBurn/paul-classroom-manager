@@ -118,7 +118,7 @@ After that, every push to `master` that changes `client/` redeploys the site (`.
 
 ## Environment variables
 
-**Server** (`server/.env`): `PORT`, `NODE_ENV`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN` (default `1d`), `CLIENT_URL` (comma-separated allowed origins), `TRUST_PROXY` (set to `1` behind Render/Railway/Nginx), `WEBRTC_ICE_SERVERS` (optional JSON array with STUN/TURN definitions), `METERED_TURN_HOST` and `METERED_TURN_API_KEY` (configure both to issue Metered Open Relay ICE credentials through the backend), `SEED_*`. The Metered API key is never sent to the browser; only the ICE server credentials needed by authenticated room participants are returned. Without any TURN server, rooms show a warning because STUN-only connections can fail on restrictive networks.
+**Server** (`server/.env`): `PORT`, `NODE_ENV`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN` (default `1d`), `CLIENT_URL` (comma-separated allowed origins), `TRUST_PROXY` (set to `1` behind Render/Railway/Nginx), `WEBRTC_ICE_SERVERS` (optional JSON array with STUN/TURN definitions), `METERED_TURN_HOST` and `METERED_TURN_API_KEY` (configure both for Metered Open Relay credentials through the backend), `SEED_*`. The Metered API key is never sent to the browser; only the ICE server credentials needed by authenticated room participants are returned. Without TURN credentials, rooms show a warning because STUN-only connections can fail on restrictive networks.
 
 **Client** (`client/.env`): `VITE_API_URL` only. Everything in the client bundle is public, so database credentials and JWT secrets must never go there.
 
