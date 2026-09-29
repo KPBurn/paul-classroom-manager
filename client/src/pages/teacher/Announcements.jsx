@@ -13,9 +13,7 @@ export default function TeacherAnnouncements() {
         title="Announcements"
         description="Updates from your school administrators. Post to your own classes from My Classrooms."
       />
-      <div className="max-w-3xl">
-        <AnnouncementFeed list={list} emptyMessage="New announcements from administrators will appear here." />
-      </div>
+      <AnnouncementFeed list={list} emptyMessage="New announcements from administrators will appear here." />
     </>
   );
 }

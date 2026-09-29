@@ -2,6 +2,7 @@ import { Megaphone, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { AnnouncementDialog } from '../../components/announcements/AnnouncementFeed.jsx';
 import AnnouncementFormModal from '../../components/announcements/AnnouncementFormModal.jsx';
 import { useAnnouncementActions } from '../../components/announcements/useAnnouncementActions.jsx';
 import Alert from '../../components/common/Alert.jsx';
@@ -126,6 +127,8 @@ export default function Announcements() {
 
 function AnnouncementTable({ list, archived, onCreate, renderActions }) {
   const { status, items, pagination, error } = list;
+  const [openId, setOpenId] = useState(null);
+  const opened = items.find((item) => item.id === openId) ?? null;
 
   if (status === 'error') {
     return (
@@ -190,8 +193,14 @@ function AnnouncementTable({ list, archived, onCreate, renderActions }) {
             {items.map((announcement) => (
               <tr key={announcement.id} className="align-top hover:bg-slate-50">
                 <td className="max-w-md px-5 py-3.5">
-                  <p className="font-medium text-slate-900">{announcement.title}</p>
-                  <p className="mt-0.5 line-clamp-1 text-slate-500">{announcement.body}</p>
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(announcement.id)}
+                    className="block w-full text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                  >
+                    <span className="block font-medium text-slate-900 hover:text-indigo-700">{announcement.title}</span>
+                    <span className="mt-0.5 line-clamp-1 text-slate-500">{announcement.body}</span>
+                  </button>
                 </td>
                 <td className="px-5 py-3.5">
                   <span className="inline-flex whitespace-nowrap rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
@@ -216,6 +225,12 @@ function AnnouncementTable({ list, archived, onCreate, renderActions }) {
         itemCount={items.length}
         disabled={status === 'loading'}
         onPageChange={list.setPage}
+      />
+
+      <AnnouncementDialog
+        announcement={opened}
+        onClose={() => setOpenId(null)}
+        actions={opened && <div onClickCapture={() => setOpenId(null)}>{renderActions(opened)}</div>}
       />
     </div>
   );

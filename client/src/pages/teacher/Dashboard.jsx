@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { AnnouncementDialog } from '../../components/announcements/AnnouncementFeed.jsx';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
@@ -42,6 +43,7 @@ export default function TeacherDashboard() {
   const [data, setData] = useState({ sessions: [], classrooms: [], announcements: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [openAnnouncement, setOpenAnnouncement] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -242,13 +244,19 @@ export default function TeacherDashboard() {
                 ) : (
                   <ul className="divide-y divide-slate-100">
                     {data.announcements.map((announcement) => (
-                      <li key={announcement.id} className="px-5 py-3">
-                        <div className="flex items-center gap-2 text-xs text-slate-500">
-                          <span className="rounded-full bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700">{announcement.type}</span>
-                          <time dateTime={announcement.createdAt}>{formatDateTime(announcement.createdAt)}</time>
-                        </div>
-                        <p className="mt-1 text-sm font-medium text-slate-900">{announcement.title}</p>
-                        <p className="mt-0.5 line-clamp-2 text-sm text-slate-600">{announcement.body}</p>
+                      <li key={announcement.id}>
+                        <button
+                          type="button"
+                          onClick={() => setOpenAnnouncement(announcement)}
+                          className="block w-full px-5 py-3 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-600"
+                        >
+                          <span className="flex items-center gap-2 text-xs text-slate-500">
+                            <span className="rounded-full bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700">{announcement.type}</span>
+                            <time dateTime={announcement.createdAt}>{formatDateTime(announcement.createdAt)}</time>
+                          </span>
+                          <span className="mt-1 block text-sm font-medium text-slate-900">{announcement.title}</span>
+                          <span className="mt-0.5 line-clamp-2 text-sm text-slate-600">{announcement.body}</span>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -258,6 +266,7 @@ export default function TeacherDashboard() {
           </div>
         </div>
       )}
+      <AnnouncementDialog announcement={openAnnouncement} onClose={() => setOpenAnnouncement(null)} />
     </>
   );
 }
