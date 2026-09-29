@@ -32,6 +32,10 @@ Scheduling a class updates the classroom's ongoing teacher and student assignmen
 
 Attendance is recorded automatically when teachers and students join a session room during its scheduled time, including arrival status and time attended; assigned people who never join are marked absent after the session ends. Open classrooms also add participant join and leave notices to the room chat.
 
+### Teacher's feedback
+
+Teachers write individual feedback for each student after a lesson from **Teacher's Feedback**: choose a class, then a lesson they taught, then a student. Each record covers what was learned, vocabulary (new words and words used independently), grammar (topic, understanding, accuracy), 1–5 star ratings for fluency, pronunciation and confidence, what the student did well, what needs improvement, a recommendation for the next lesson, and optional notes. Class, date, time and schedule come from the lesson; the book defaults to the one used last for the class. Drafts can be saved incomplete; submitting requires the lesson summary, all three ratings and the three evaluation sections, then moves on to the next student. There is one record per student per lesson. Only the teacher who wrote feedback can edit it; the lesson's other teachers can read it, admins can read all feedback under **Teacher Feedback**, and students have no access.
+
 ### Subjects and class materials
 
 Teachers add materials from an assigned active classroom's page (**My Classrooms → the class → Materials → Add material**), choosing one of the class's subjects (for example, English 101) or creating a new one there. The classroom's existing name can represent its batch (for example, 2021). Each material is one file or image up to 8 MB with an optional title and description; teachers can make it available immediately or schedule its release, and can delete it. PNG, JPEG, GIF and WebP images show thumbnails and, like PDFs, can be previewed in the app; other types (including SVG and HTML, which can run scripts) are only ever served as downloads. Active students can see and download materials only while they are members of that active classroom, and the API checks both membership and the release time on every download. Subject files are stored in MongoDB.
@@ -172,6 +176,11 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | POST   | `/api/sessions/:id/check-in` | Assigned student | Check in during the session |
 | GET    | `/api/sessions/:id/attendance` | Assigned teacher | Read `{ items: [{ student: { id, name, email }, status, checkInAt }] }`; ended sessions acquire absent records when read |
 | PATCH  | `/api/sessions/:id/attendance/:studentId` | Assigned teacher | Correct `{ status: "present" \| "late" \| "absent" }`, returning `{ attendance }` |
+| GET    | `/api/feedback` | Teacher (own); admin (all) | Feedback history. Query: `page`, `limit`, `classroomId`, `studentId`, `teacherId` (admin), `status`, `from`, `to` |
+| GET    | `/api/feedback/lessons/:sessionId` | Lesson teacher; admin | The lesson's students with their feedback status, plus the last book used for the class |
+| GET    | `/api/feedback/:id` | Author; lesson teachers; admin | One feedback record |
+| POST   | `/api/feedback` | Lesson teacher | Create `{ sessionId, studentId, ...content, status: "draft" \| "completed" }` |
+| PATCH  | `/api/feedback/:id` | Author | Update content or submit with `status: "completed"` |
 
 Recurring schedule date ranges are inclusive; `weekdays` uses JavaScript day numbers (`0` Sunday through `6` Saturday) and `timezone` is an IANA timezone. Editing an occurrence replaces its date and times; editing a series applies the selected occurrence's local start/end clock times and title while retaining each occurrence's date. Each session's attendance condition is on by default: check-ins through the first five minutes are present, later in-session check-ins are late, and students who never check in are absent after the session ends. Teachers can turn conditions off for an occurrence; check-ins are still limited to the scheduled session, but all students who check in during it are present regardless of arrival time. Check-in is idempotent. Ended sessions are marked absent when sessions or attendance are read.
 

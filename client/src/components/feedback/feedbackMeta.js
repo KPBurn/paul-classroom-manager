@@ -1,0 +1,83 @@
+export const FEEDBACK_STATUS = {
+  none: { label: 'Not started', style: 'bg-slate-100 text-slate-600' },
+  draft: { label: 'Draft', style: 'bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200' },
+  completed: { label: 'Completed', style: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200' },
+};
+
+export const RATING_LABELS = {
+  1: 'Needs significant improvement',
+  2: 'Needs improvement',
+  3: 'Developing',
+  4: 'Good',
+  5: 'Excellent',
+};
+
+export const SPEAKING_SKILLS = [
+  { key: 'fluency', label: 'Fluency' },
+  { key: 'pronunciation', label: 'Pronunciation' },
+  { key: 'confidence', label: 'Confidence' },
+];
+
+/** Must match REQUIRED_ON_SUBMIT in server/src/services/feedback.service.js. */
+export function missingForSubmit(values) {
+  const errors = {};
+  if (!values.whatWeLearned.trim()) errors.whatWeLearned = 'Describe what you covered in the lesson.';
+  for (const { key, label } of SPEAKING_SKILLS) {
+    if (!values.speaking[key]) errors[`speaking.${key}`] = `Rate ${label.toLowerCase()}.`;
+  }
+  if (!values.didWell.trim()) errors.didWell = 'Describe what the student did well.';
+  if (!values.needsImprovement.trim()) errors.needsImprovement = 'Describe what needs improvement.';
+  if (!values.recommendation.trim()) errors.recommendation = 'Add a recommendation for the next lesson.';
+  return errors;
+}
+
+export const EMPTY_FEEDBACK = {
+  book: '',
+  whatWeLearned: '',
+  vocabulary: { newWords: '', independentWords: '' },
+  grammar: { topic: '', understanding: '', accuracy: '' },
+  speaking: { fluency: null, pronunciation: null, confidence: null },
+  didWell: '',
+  needsImprovement: '',
+  recommendation: '',
+  notes: '',
+};
+
+/** Form values from a saved feedback record. */
+export const valuesFrom = (feedback) => ({
+  book: feedback.book ?? '',
+  whatWeLearned: feedback.whatWeLearned ?? '',
+  vocabulary: { newWords: feedback.vocabulary?.newWords ?? '', independentWords: feedback.vocabulary?.independentWords ?? '' },
+  grammar: {
+    topic: feedback.grammar?.topic ?? '',
+    understanding: feedback.grammar?.understanding ?? '',
+    accuracy: feedback.grammar?.accuracy ?? '',
+  },
+  speaking: {
+    fluency: feedback.speaking?.fluency ?? null,
+    pronunciation: feedback.speaking?.pronunciation ?? null,
+    confidence: feedback.speaking?.confidence ?? null,
+  },
+  didWell: feedback.didWell ?? '',
+  needsImprovement: feedback.needsImprovement ?? '',
+  recommendation: feedback.recommendation ?? '',
+  notes: feedback.notes ?? '',
+});
+
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** "Tue–Thu–Sat" for a weekly series, or the lesson's own weekday. */
+export function schedulePattern(lesson, sessions = []) {
+  const series = lesson.seriesId ? sessions.filter((session) => session.seriesId === lesson.seriesId) : [];
+  const days = [...new Set((series.length ? series : [lesson]).map((session) => new Date(session.startsAt).getDay()))]
+    .sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)); // Monday first
+  return days.map((day) => WEEKDAY_SHORT[day]).join('–');
+}
+
+export const formatLessonDate = (value) => new Date(value).toLocaleDateString([], {
+  weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+});
+export const formatShortDate = (value) => new Date(value).toLocaleDateString([], {
+  weekday: 'short', month: 'short', day: 'numeric',
+});
+export const formatTime = (value) => new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });

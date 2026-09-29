@@ -25,6 +25,10 @@ const StudentLayout = lazy(() => import('../layouts/StudentLayout.jsx'));
 const SessionRoom = lazy(() => import('../pages/shared/SessionRoom.jsx'));
 const MyClassrooms = lazy(() => import('../pages/shared/MyClassrooms.jsx'));
 const ClassroomDetail = lazy(() => import('../pages/shared/ClassroomDetail.jsx'));
+const TeacherFeedback = lazy(() => import('../pages/teacher/Feedback.jsx'));
+const FeedbackForm = lazy(() => import('../pages/teacher/FeedbackForm.jsx'));
+const FeedbackDetail = lazy(() => import('../pages/shared/FeedbackDetail.jsx'));
+const AdminFeedback = lazy(() => import('../pages/admin/Feedback.jsx'));
 const suspense = (element) => <Suspense fallback={<FullPageSpinner />}>{element}</Suspense>;
 
 /** Placeholder routes for sidebar modules that have not been built yet. */
@@ -62,6 +66,8 @@ export default function AppRoutes() {
         <Route path="announcements" element={<Announcements />} />
         <Route path="classrooms" element={suspense(<Classrooms />)} />
         <Route path="schedules" element={suspense(<TeacherSchedule />)} />
+        <Route path="feedback" element={suspense(<AdminFeedback />)} />
+        <Route path="feedback/:id" element={suspense(<FeedbackDetail />)} />
         <Route path="settings" element={<Settings />} />
         {/* Keys stop React reusing one page's filters and search on another. */}
         <Route path="users" element={<Users key="all" />} />
@@ -86,6 +92,9 @@ export default function AppRoutes() {
         {/* Materials are managed from each classroom page; old subject links land there. */}
         <Route path="subjects/*" element={<Navigate to="/teacher/classrooms" replace />} />
         <Route path="schedule" element={suspense(<TeacherSchedule />)} />
+        <Route path="feedback" element={suspense(<TeacherFeedback />)} />
+        <Route path="feedback/lesson/:sessionId/student/:studentId" element={suspense(<FeedbackForm />)} />
+        <Route path="feedback/:id" element={suspense(<FeedbackDetail />)} />
         <Route path="profile" element={<Profile />} />
         {plannedRoutes(teacherNavigation)}
         <Route path="*" element={<Navigate to="/teacher" replace />} />

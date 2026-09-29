@@ -8,6 +8,7 @@ import {
   History,
   LayoutDashboard,
   Megaphone,
+  MessageSquareText,
   School,
   Settings,
   Target,
@@ -45,6 +46,7 @@ export const adminNavigation = [
     items: [
       { label: 'Announcements', to: '/admin/announcements', icon: Megaphone },
       { label: 'Schedules', to: '/admin/schedules', icon: CalendarDays },
+      { label: 'Teacher Feedback', to: '/admin/feedback', icon: MessageSquareText },
       { label: 'Salaries', to: '/admin/salaries', icon: Wallet, phase: 5 },
       { label: 'Activity Logs', to: '/admin/activity-logs', icon: History, phase: 3 },
       { label: 'Settings', to: '/admin/settings', icon: Settings },
@@ -62,6 +64,7 @@ export const teacherNavigation = [
       { label: 'Assessments', to: '/teacher/assessments', icon: ClipboardCheck, phase: 4 },
       { label: 'Scores', to: '/teacher/scores', icon: ChartColumn, phase: 4 },
       { label: 'Schedule', to: '/teacher/schedule', icon: CalendarDays },
+      { label: "Teacher's Feedback", to: '/teacher/feedback', icon: MessageSquareText },
       { label: 'Salary', to: '/teacher/salary', icon: Wallet, phase: 5 },
       { label: 'Profile', to: '/teacher/profile', icon: CircleUser },
     ],
