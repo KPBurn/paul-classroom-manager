@@ -149,6 +149,7 @@ function sessionResult(session, user) {
     classroom: {
       id: String(session.classroom?._id ?? session.classroom),
       name: session.classroom?.name,
+      openAccess: session.classroom?.openAccess ?? false,
     },
     title: session.title,
     startsAt: session.startsAt,
@@ -165,15 +166,17 @@ function sessionResult(session, user) {
 export async function listSessions(user, { view } = {}) {
   let classrooms;
   if (user.role === 'teacher' && !view) {
-    classrooms = await Classroom.find({ teacher: user._id }).select('_id');
+    classrooms = await Classroom.find({ $or: [{ teacher: user._id }, { openAccess: true }] }).select('_id');
   } else if (user.role === 'student' && view === 'mine') {
-    classrooms = await Classroom.find({ students: user._id }).select('_id');
+    classrooms = await Classroom.find({ $or: [{ students: user._id }, { openAccess: true }] }).select('_id');
+  } else if (user.role === 'admin' && !view) {
+    classrooms = await Classroom.find({ openAccess: true }).select('_id');
   } else {
     throw new AppError(403, 'You do not have permission to view these sessions');
   }
   const sessions = await ClassSession.find({ classroom: { $in: classrooms.map(({ _id }) => _id) } })
     .sort({ startsAt: 1 })
-    .populate('classroom', 'name');
+    .populate('classroom', 'name openAccess');
   for (const session of sessions) await ensureAbsences(session);
   return { items: sessions.map((session) => sessionResult(session, user)) };
 }
@@ -181,7 +184,7 @@ export async function listSessions(user, { view } = {}) {
 async function getSession(id) {
   const session = await ClassSession.findById(id).populate({
     path: 'classroom',
-    select: 'name teacher students',
+    select: 'name teacher students openAccess',
     populate: [
       { path: 'teacher', select: 'firstName lastName' },
       { path: 'students', select: 'firstName lastName email' },
@@ -203,8 +206,15 @@ export async function getSessionForParticipant(id, user) {
     && String(session.classroom.teacher?._id ?? session.classroom.teacher) === String(user._id);
   const isStudent = user.role === 'student'
     && session.classroom.students.some((student) => String(student._id ?? student) === String(user._id));
-  if (!isTeacher && !isStudent) throw new AppError(403, 'You are not assigned to this classroom');
+  if (!isTeacher && !isStudent && !session.classroom.openAccess) {
+    throw new AppError(403, 'You are not assigned to this classroom');
+  }
   return session;
+}
+
+export async function getRoomSession(id, user) {
+  const session = await getSessionForParticipant(id, user);
+  return sessionResult(session, user);
 }
 
 function sessionMessageResult(message) {

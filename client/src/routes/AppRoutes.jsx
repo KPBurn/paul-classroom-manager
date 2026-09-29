@@ -61,7 +61,7 @@ export default function AppRoutes() {
       <Route
         path="/sessions/:id/room"
         element={
-          <ProtectedRoute roles={[ROLES.TEACHER, ROLES.STUDENT]}>
+          <ProtectedRoute roles={[ROLES.ADMIN, ROLES.TEACHER, ROLES.STUDENT]}>
             {suspense(<SessionRoom />)}
           </ProtectedRoute>
         }

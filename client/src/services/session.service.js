@@ -11,6 +11,11 @@ export const sessionService = {
     return data.data.items;
   },
 
+  async room(id) {
+    const { data } = await api.get(`/sessions/${id}/room`);
+    return data.data.session;
+  },
+
   async create(session) {
     const { data } = await api.post('/sessions', session);
     return data.data.items;

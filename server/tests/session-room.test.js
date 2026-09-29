@@ -43,6 +43,7 @@ async function setupRoom() {
   const teacher = await createUser({ role: 'teacher' });
   const student = await createUser({ role: 'student' });
   const unrelated = await createUser({ role: 'student' });
+  const admin = await createUser({ role: 'admin' });
   const classroom = await Classroom.create({
     name: 'Session Room',
     teacher: teacher._id,
@@ -57,25 +58,32 @@ async function setupRoom() {
   const teacherToken = await login(teacher);
   const studentToken = await login(student);
   const unrelatedToken = await login(unrelated);
+  const adminToken = await login(admin);
   const teacherSocket = createClient(serverUrl, { auth: { token: teacherToken }, reconnection: false });
   const studentSocket = createClient(serverUrl, { auth: { token: studentToken }, reconnection: false });
   const unrelatedSocket = createClient(serverUrl, { auth: { token: unrelatedToken }, reconnection: false });
+  const adminSocket = createClient(serverUrl, { auth: { token: adminToken }, reconnection: false });
   await Promise.all([
     waitForConnect(teacherSocket),
     waitForConnect(studentSocket),
     waitForConnect(unrelatedSocket),
+    waitForConnect(adminSocket),
   ]);
   return {
     session,
+    classroom,
     teacherSocket,
     studentSocket,
     unrelatedSocket,
+    adminSocket,
     unrelatedToken,
     studentToken,
+    adminToken,
     cleanup: () => {
       teacherSocket.disconnect();
       studentSocket.disconnect();
       unrelatedSocket.disconnect();
+      adminSocket.disconnect();
     },
   };
 }
@@ -87,8 +95,10 @@ describe('session room collaboration', () => {
       teacherSocket,
       studentSocket,
       unrelatedSocket,
+      adminSocket,
       unrelatedToken,
       studentToken,
+      adminToken,
       cleanup,
     } = await setupRoom();
     try {
@@ -99,6 +109,8 @@ describe('session room collaboration', () => {
       assert.equal(studentJoin.participants[0].role, 'teacher');
       const unauthorizedJoin = await emitAck(unrelatedSocket, 'room:join', String(session._id));
       assert.equal(unauthorizedJoin.error, 'You are not assigned to this classroom');
+      const unauthorizedAdminJoin = await emitAck(adminSocket, 'room:join', String(session._id));
+      assert.equal(unauthorizedAdminJoin.error, 'You are not assigned to this classroom');
 
       const updatedParticipant = new Promise((resolve) => {
         teacherSocket.once('room:participant-updated', resolve);
@@ -120,8 +132,58 @@ describe('session room collaboration', () => {
         .get(`/api/sessions/${session.id}/messages`)
         .set(auth(unrelatedToken));
       assert.equal(forbidden.status, 403);
+      const forbiddenRoom = await request(app)
+        .get(`/api/sessions/${session.id}/room`)
+        .set(auth(adminToken));
+      assert.equal(forbiddenRoom.status, 403);
       const invalidMessage = await emitAck(studentSocket, 'room:message', { body: '   ' });
       assert.ok(invalidMessage.error);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('allows every active role into explicitly open classroom rooms', async () => {
+    const {
+      session,
+      classroom,
+      teacherSocket,
+      studentSocket,
+      unrelatedSocket,
+      adminSocket,
+      adminToken,
+      cleanup,
+    } = await setupRoom();
+    try {
+      classroom.openAccess = true;
+      await classroom.save();
+
+      const joins = await Promise.all([
+        emitAck(teacherSocket, 'room:join', String(session._id)),
+        emitAck(studentSocket, 'room:join', String(session._id)),
+        emitAck(unrelatedSocket, 'room:join', String(session._id)),
+        emitAck(adminSocket, 'room:join', String(session._id)),
+      ]);
+      assert.ok(joins.every((result) => !result.error));
+      const allParticipants = await emitAck(adminSocket, 'room:join', String(session._id));
+      assert.equal(allParticipants.participants.length, 4);
+
+      const room = await request(app)
+        .get(`/api/sessions/${session.id}/room`)
+        .set(auth(adminToken));
+      assert.equal(room.status, 200);
+      assert.equal(room.body.data.session.classroom.openAccess, true);
+
+      const adminHistory = await request(app)
+        .get(`/api/sessions/${session.id}/messages`)
+        .set(auth(adminToken));
+      assert.equal(adminHistory.status, 200);
+
+      const adminSessions = await request(app)
+        .get('/api/sessions')
+        .set(auth(adminToken));
+      assert.equal(adminSessions.status, 200);
+      assert.equal(adminSessions.body.data.items[0].id, String(session._id));
     } finally {
       cleanup();
     }

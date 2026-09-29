@@ -10,6 +10,7 @@ import { sessionMessageSchema } from '../validators/session.validators.js';
 
 const roomName = (sessionId) => `session:${sessionId}`;
 const MAX_ROOM_PARTICIPANTS = 12;
+const MAX_OPEN_ROOM_PARTICIPANTS = 20;
 const CHAT_RATE_WINDOW_MS = 10_000;
 const MAX_CHAT_MESSAGES_PER_WINDOW = 10;
 const signalSchema = z.object({
@@ -93,8 +94,8 @@ export function attachSessionSocket(httpServer) {
       next(new Error('Your account is not active. Please sign in again.'));
       return;
     }
-    if (!['teacher', 'student'].includes(user.role)) {
-      next(new Error('Only teachers and students can join a class room.'));
+    if (!['admin', 'teacher', 'student'].includes(user.role)) {
+      next(new Error('Your account cannot join class rooms.'));
       return;
     }
 
@@ -151,8 +152,11 @@ export function attachSessionSocket(httpServer) {
         await leaveRoom();
         const room = roomName(sessionId);
         const state = roomState(rooms, sessionId);
-        if (state.participants.size >= MAX_ROOM_PARTICIPANTS) {
-          throw new AppError(400, 'This prototype supports up to 12 participants in a session room');
+        const participantLimit = session.classroom.openAccess
+          ? MAX_OPEN_ROOM_PARTICIPANTS
+          : MAX_ROOM_PARTICIPANTS;
+        if (state.participants.size >= participantLimit) {
+          throw new AppError(400, `This session room supports up to ${participantLimit} participants`);
         }
         const existingParticipants = [...state.participants.values()];
         const participant = participantResult(socket);

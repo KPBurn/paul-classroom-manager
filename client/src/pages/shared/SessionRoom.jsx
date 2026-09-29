@@ -138,12 +138,10 @@ export default function SessionRoom() {
       setLoading(true);
       setError('');
       try {
-        const [sessions, history] = await Promise.all([
-          sessionService.list(user.role === 'student' ? { view: 'mine' } : {}),
+        const [current, history] = await Promise.all([
+          sessionService.room(id),
           sessionService.messages(id),
         ]);
-        const current = sessions.find((item) => item.id === id);
-        if (!current) throw new Error('This session is not assigned to your account.');
         if (current.status === 'cancelled') throw new Error('This session has been cancelled.');
         if (cancelled) return;
         setSession(current);
@@ -490,7 +488,7 @@ export default function SessionRoom() {
 
   const exitRoom = () => {
     leaveRoom();
-    navigate(user.role === 'teacher' ? '/teacher/schedule' : '/student');
+    navigate(user.role === 'admin' ? '/admin' : user.role === 'teacher' ? '/teacher/schedule' : '/student');
   };
 
   const sharer = participants.find((participant) => participant.id === screenSharerId);
@@ -548,6 +546,9 @@ export default function SessionRoom() {
               <p className="mt-3 text-xs leading-5 text-slate-500">
                 Voice and screen sharing connect directly between browsers. Some school networks may block media; chat will still work.
               </p>
+              {session?.classroom?.openAccess && (
+                <p className="mt-2 text-xs font-medium text-amber-300">Open classroom · up to 20 participants</p>
+              )}
               <p className="mt-5 text-xs text-slate-500">
                 {session?.classroom?.name} · {participants.length} {participants.length === 1 ? 'participant' : 'participants'}
               </p>

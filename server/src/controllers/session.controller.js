@@ -26,6 +26,11 @@ export async function messages(req, res) {
   sendSuccess(res, { data });
 }
 
+export async function room(req, res) {
+  const session = await sessionService.getRoomSession(req.params.id, req.user);
+  sendSuccess(res, { data: { session } });
+}
+
 export async function correctAttendance(req, res) {
   const data = await sessionService.correctAttendance(
     req.params.id,

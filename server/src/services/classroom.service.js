@@ -35,7 +35,7 @@ export async function listClassrooms({ includeArchived = false } = {}, user) {
 
 export async function createClassroom(data, { actor, ipAddress }) {
   const assigned = await assignments(data);
-  const classroom = await Classroom.create({ name: data.name, ...assigned });
+  const classroom = await Classroom.create({ name: data.name, openAccess: data.openAccess, ...assigned });
   await logActivity({
     actorId: actor._id,
     action: 'classroom.created',
@@ -55,6 +55,7 @@ export async function updateClassroom(id, data, { actor, ipAddress }) {
   if (classroom.status === 'archived') throw new AppError(409, 'Archived classrooms cannot be changed');
   const assigned = await assignments(data);
   if (data.name !== undefined) classroom.name = data.name;
+  if (data.openAccess !== undefined) classroom.openAccess = data.openAccess;
   if (assigned.teacher) classroom.teacher = assigned.teacher;
   if (assigned.students) classroom.students = assigned.students;
   await classroom.save();

@@ -7,6 +7,7 @@ import {
   create,
   list,
   messages,
+  room,
   update,
 } from '../controllers/session.controller.js';
 import { authenticateUser } from '../middleware/auth.middleware.js';
@@ -25,9 +26,10 @@ import {
 const router = Router();
 
 router.use(authenticateUser);
-router.get('/', requireRole('teacher', 'student'), validate({ query: listSessionsQuerySchema }), list);
+router.get('/', requireRole('admin', 'teacher', 'student'), validate({ query: listSessionsQuerySchema }), list);
 router.post('/', requireRole('teacher'), validate({ body: createSessionSchema }), create);
-router.get('/:id/messages', requireRole('teacher', 'student'), validate({ params: sessionIdParamsSchema }), messages);
+router.get('/:id/room', validate({ params: sessionIdParamsSchema }), room);
+router.get('/:id/messages', validate({ params: sessionIdParamsSchema }), messages);
 router.post('/:id/check-in', requireRole('student'), validate({ params: sessionIdParamsSchema }), checkIn);
 router.get('/:id/attendance', requireRole('teacher'), validate({ params: sessionIdParamsSchema }), attendance);
 router.patch(

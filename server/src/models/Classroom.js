@@ -5,6 +5,7 @@ const classroomSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true, maxlength: 120 },
     teacher: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     students: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    openAccess: { type: Boolean, default: false, required: true },
     status: { type: String, enum: ['active', 'archived'], default: 'active', required: true },
   },
   {

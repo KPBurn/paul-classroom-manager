@@ -47,7 +47,12 @@ export default function Classrooms() {
 
   const save = async (values) => {
     try {
-      const changes = { name: values.name.trim(), teacherId: values.teacherId, studentIds: values.studentIds };
+      const changes = {
+        name: values.name.trim(),
+        teacherId: values.teacherId,
+        studentIds: values.studentIds,
+        openAccess: values.openAccess,
+      };
       if (form.id) await classroomService.update(form.id, changes);
       else await classroomService.create(changes);
       toast.success(`Classroom ${form.id ? 'updated' : 'created'}.`);
@@ -102,6 +107,9 @@ export default function Classrooms() {
                 <div>
                   <h2 className="font-semibold text-slate-900">
                     {classroom.name}
+                    {classroom.openAccess && (
+                      <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-normal text-amber-800">Open</span>
+                    )}
                     {(classroom.archived || classroom.isArchived || classroom.status === 'archived') && (
                       <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-600">Archived</span>
                     )}
@@ -121,6 +129,7 @@ export default function Classrooms() {
                     name: classroom.name,
                     teacherId: classroom.teacher?.id ?? classroom.teacher,
                     studentIds: classroom.students?.map((student) => student.id ?? student) ?? [],
+                    openAccess: classroom.openAccess ?? false,
                   })}>Edit</Button>
                   <Button variant="secondary" disabled={classroom.archived || classroom.isArchived || classroom.status === 'archived'} onClick={() => setArchiving(classroom)}>
                     <Archive className="size-4" aria-hidden="true" />
@@ -160,6 +169,7 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
   const [name, setName] = useState(initial.name);
   const [teacherId, setTeacherId] = useState(initial.teacherId || '');
   const [studentIds, setStudentIds] = useState(initial.studentIds || []);
+  const [openAccess, setOpenAccess] = useState(initial.openAccess ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -176,7 +186,7 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
     setSaving(true);
     setError('');
     try {
-      await onSave({ name, teacherId, studentIds });
+      await onSave({ name, teacherId, studentIds, openAccess });
     } catch (saveError) {
       setError(getErrorMessage(saveError, 'Unable to save classroom.'));
     } finally {
@@ -209,6 +219,18 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
           ))}
         </div>
       </fieldset>
+      <label className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+        <input
+          type="checkbox"
+          checked={openAccess}
+          onChange={(event) => setOpenAccess(event.target.checked)}
+          className="mt-0.5 size-4 rounded border-amber-400 text-indigo-600 focus:ring-indigo-500"
+        />
+        <span>
+          <span className="block font-medium">Open classroom</span>
+          <span className="mt-0.5 block text-amber-800">Any signed-in active account can join its session rooms. Open rooms support up to 20 participants.</span>
+        </span>
+      </label>
       <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
         <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
         <Button type="submit" isLoading={saving}>{initial.id ? 'Save changes' : 'Create classroom'}</Button>

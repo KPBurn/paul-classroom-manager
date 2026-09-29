@@ -7,12 +7,14 @@ export const createClassroomSchema = z.object({
   name,
   teacherId: objectId,
   studentIds: z.array(objectId).max(500).default([]),
+  openAccess: z.boolean().default(false),
 }).strict();
 
 export const updateClassroomSchema = z.object({
   name: name.optional(),
   teacherId: objectId.optional(),
   studentIds: z.array(objectId).max(500).optional(),
+  openAccess: z.boolean().optional(),
 }).strict().refine((data) => Object.keys(data).length > 0, 'At least one field is required');
 
 export const classroomIdParamsSchema = z.object({ id: objectId });
