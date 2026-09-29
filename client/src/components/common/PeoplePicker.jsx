@@ -1,5 +1,8 @@
+import { X } from 'lucide-react';
 import { useId, useState } from 'react';
 import { matchesSearch, SearchInput } from './ListFilters.jsx';
+
+const SELECTED_PREVIEW = 8;
 
 /**
  * A searchable checkbox list for choosing teachers or students. `people`
@@ -11,6 +14,7 @@ export default function PeoplePicker({ label, people, selectedIds, onChange, loc
   const shown = people.filter((person) => matchesSearch(query, person.firstName, person.lastName, person.email));
   const shownIds = shown.map((person) => person.id);
   const allShownSelected = shownIds.length > 0 && shownIds.every((id) => selectedIds.includes(id));
+  const selectedPeople = people.filter((person) => selectedIds.includes(person.id));
 
   const toggle = (id) => {
     if (lockedIds.includes(id)) return;
@@ -29,7 +33,7 @@ export default function PeoplePicker({ label, people, selectedIds, onChange, loc
         <span className="text-xs font-normal text-slate-500">{selectedIds.length} selected</span>
       </legend>
       <div className="rounded-lg border border-slate-200">
-        {people.length > 6 && (
+        {people.length > 0 && (
           <div className="flex items-center gap-2 border-b border-slate-100 p-1.5">
             <SearchInput
               id={searchId}
@@ -39,7 +43,7 @@ export default function PeoplePicker({ label, people, selectedIds, onChange, loc
               placeholder="Search by name or email"
               className="flex-1"
             />
-            {shown.length > 0 && (
+            {shown.length > 1 && (
               <button
                 type="button"
                 onClick={toggleShown}
@@ -79,6 +83,28 @@ export default function PeoplePicker({ label, people, selectedIds, onChange, loc
           })}
         </div>
       </div>
+      {selectedPeople.length > 0 && (
+        <ul className="mt-1.5 flex flex-wrap gap-1" aria-label={`Selected ${label.toLowerCase()}`}>
+          {selectedPeople.slice(0, SELECTED_PREVIEW).map((person) => (
+            <li key={person.id} className="flex items-center gap-1 rounded-full bg-indigo-50 py-0.5 pl-2 pr-1 text-xs text-indigo-800">
+              {person.firstName} {person.lastName}
+              {!lockedIds.includes(person.id) && (
+                <button
+                  type="button"
+                  onClick={() => toggle(person.id)}
+                  className="flex size-4 items-center justify-center rounded-full hover:bg-indigo-100"
+                  aria-label={`Remove ${person.firstName} ${person.lastName}`}
+                >
+                  <X className="size-3" aria-hidden="true" />
+                </button>
+              )}
+            </li>
+          ))}
+          {selectedPeople.length > SELECTED_PREVIEW && (
+            <li className="px-1 py-0.5 text-xs text-slate-500">+{selectedPeople.length - SELECTED_PREVIEW} more</li>
+          )}
+        </ul>
+      )}
       {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
     </fieldset>
   );

@@ -51,12 +51,12 @@ export default function Classrooms() {
     try {
       const [classItems, teacherList, studentList] = await Promise.all([
         classroomService.list({ includeArchived }),
-        userService.list({ limit: 100, role: 'teacher', status: 'active' }),
-        userService.list({ limit: 100, role: 'student', status: 'active' }),
+        userService.listAll({ role: 'teacher', status: 'active' }),
+        userService.listAll({ role: 'student', status: 'active' }),
       ]);
       setClassrooms(classItems);
-      setTeachers(teacherList.items);
-      setStudents(studentList.items);
+      setTeachers(teacherList);
+      setStudents(studentList);
     } catch (loadError) {
       setError(getErrorMessage(loadError, 'Unable to load classrooms.'));
     } finally {
