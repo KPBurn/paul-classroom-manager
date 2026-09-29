@@ -1,0 +1,239 @@
+import { ClassSession } from '../models/ClassSession.js';
+import { TeacherFeedback } from '../models/TeacherFeedback.js';
+import { AppError } from '../utils/AppError.js';
+import { logActivity } from '../utils/activityLogger.js';
+import { isSessionTeacher } from './session.service.js';
+
+const PERSON_FIELDS = 'firstName lastName email';
+const idOf = (value) => String(value?._id ?? value);
+const nameOf = (person) => (person?.firstName ? `${person.firstName} ${person.lastName}`.trim() : null);
+
+/** What must be filled in before feedback can be submitted; drafts can be saved incomplete. */
+const REQUIRED_ON_SUBMIT = [
+  { field: 'whatWeLearned', message: 'Describe what you covered in the lesson', value: (fb) => fb.whatWeLearned },
+  { field: 'speaking.fluency', message: 'Rate fluency', value: (fb) => fb.speaking?.fluency },
+  { field: 'speaking.pronunciation', message: 'Rate pronunciation', value: (fb) => fb.speaking?.pronunciation },
+  { field: 'speaking.confidence', message: 'Rate confidence', value: (fb) => fb.speaking?.confidence },
+  { field: 'didWell', message: 'Describe what the student did well', value: (fb) => fb.didWell },
+  { field: 'needsImprovement', message: 'Describe what needs improvement', value: (fb) => fb.needsImprovement },
+  { field: 'recommendation', message: 'Add a recommendation for the next lesson', value: (fb) => fb.recommendation },
+];
+
+function assertSubmittable(feedback) {
+  const details = REQUIRED_ON_SUBMIT
+    .filter(({ value }) => {
+      const current = value(feedback);
+      return current === null || current === undefined || (typeof current === 'string' && !current.trim());
+    })
+    .map(({ field, message }) => ({ field, message }));
+  if (details.length) {
+    throw new AppError(400, 'Complete the required fields before submitting', {
+      error: 'Some required feedback is missing',
+      details,
+    });
+  }
+}
+
+async function loadSession(id) {
+  const session = await ClassSession.findById(id)
+    .populate({
+      path: 'classroom',
+      select: 'name teacher teachers students status',
+      populate: { path: 'students', select: PERSON_FIELDS },
+    })
+    .populate('assignedStudents', PERSON_FIELDS);
+  if (!session) throw new AppError(404, 'Lesson not found');
+  return session;
+}
+
+/** The students expected at a lesson: its assignment snapshot, or the classroom roster for older sessions. */
+function lessonStudents(session) {
+  return session.assignedStudents ?? session.classroom?.students ?? [];
+}
+
+const withDetails = (query) => query
+  .populate('teacher', 'firstName lastName')
+  .populate('student', PERSON_FIELDS)
+  .populate('classroom', 'name')
+  .populate('session', 'title startsAt endsAt seriesId status');
+
+function feedbackResult(feedback) {
+  const json = feedback.toJSON();
+  return {
+    ...json,
+    teacher: { id: idOf(feedback.teacher), name: nameOf(feedback.teacher) },
+    student: { id: idOf(feedback.student), name: nameOf(feedback.student), email: feedback.student?.email },
+    classroom: { id: idOf(feedback.classroom), name: feedback.classroom?.name },
+    session: {
+      id: idOf(feedback.session),
+      title: feedback.session?.title,
+      startsAt: feedback.session?.startsAt ?? feedback.lessonAt,
+      endsAt: feedback.session?.endsAt,
+      seriesId: feedback.session?.seriesId ?? null,
+    },
+  };
+}
+
+/** Students of a lesson with their feedback status, for working through a class. */
+export async function getLessonRoster(sessionId, user) {
+  const session = await loadSession(sessionId);
+  if (user.role !== 'admin' && !isSessionTeacher(session, user)) {
+    throw new AppError(403, 'You are not assigned to this lesson');
+  }
+  const [feedback, lastWithBook] = await Promise.all([
+    TeacherFeedback.find({ session: session._id }).populate('teacher', 'firstName lastName'),
+    TeacherFeedback.findOne({ classroom: session.classroom._id, book: { $ne: '' } }).sort({ lessonAt: -1 }).select('book'),
+  ]);
+  const byStudent = new Map(feedback.map((item) => [idOf(item.student), item]));
+
+  return {
+    lesson: {
+      id: idOf(session),
+      title: session.title,
+      startsAt: session.startsAt,
+      endsAt: session.endsAt,
+      status: session.status,
+      seriesId: session.seriesId ?? null,
+      classroom: { id: idOf(session.classroom), name: session.classroom?.name },
+    },
+    // Teachers usually keep the same book across lessons, so offer the last one used.
+    suggestedBook: lastWithBook?.book ?? '',
+    students: lessonStudents(session)
+      .map((student) => {
+        const item = byStudent.get(idOf(student));
+        return {
+          id: idOf(student),
+          name: nameOf(student) ?? 'Student',
+          email: student.email,
+          feedback: item
+            ? {
+                id: idOf(item),
+                status: item.status,
+                teacher: { id: idOf(item.teacher), name: nameOf(item.teacher) },
+                updatedAt: item.updatedAt,
+                submittedAt: item.submittedAt,
+              }
+            : null,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  };
+}
+
+/** Teachers see the feedback they wrote; admins see everyone's. */
+export async function listFeedback({ page, limit, classroomId, studentId, teacherId, status, from, to }, user) {
+  const filter = {};
+  if (user.role === 'teacher') filter.teacher = user._id;
+  else if (teacherId) filter.teacher = teacherId;
+  if (classroomId) filter.classroom = classroomId;
+  if (studentId) filter.student = studentId;
+  if (status) filter.status = status;
+  if (from || to) {
+    filter.lessonAt = {};
+    if (from) filter.lessonAt.$gte = from;
+    if (to) filter.lessonAt.$lte = to;
+  }
+
+  const [items, total] = await Promise.all([
+    withDetails(TeacherFeedback.find(filter)
+      .sort({ lessonAt: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)),
+    TeacherFeedback.countDocuments(filter),
+  ]);
+  return {
+    items: items.map(feedbackResult),
+    pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+  };
+}
+
+async function findFeedback(id) {
+  const feedback = await withDetails(TeacherFeedback.findById(id));
+  if (!feedback) throw new AppError(404, 'Feedback not found');
+  return feedback;
+}
+
+/** The author, the lesson's other teachers and admins can read feedback. */
+export async function getFeedback(id, user) {
+  const feedback = await findFeedback(id);
+  if (user.role === 'admin' || idOf(feedback.teacher) === String(user._id)) return feedbackResult(feedback);
+  const session = await loadSession(idOf(feedback.session));
+  if (isSessionTeacher(session, user)) return feedbackResult(feedback);
+  throw new AppError(403, 'You do not have access to this feedback');
+}
+
+function applyContent(feedback, data) {
+  for (const field of ['book', 'whatWeLearned', 'didWell', 'needsImprovement', 'recommendation', 'notes']) {
+    if (data[field] !== undefined) feedback[field] = data[field];
+  }
+  for (const group of ['vocabulary', 'grammar', 'speaking']) {
+    if (data[group]) {
+      for (const [key, value] of Object.entries(data[group])) feedback[group][key] = value;
+    }
+  }
+}
+
+function applyStatus(feedback, requested) {
+  // Submitted feedback stays submitted when it is edited later.
+  if (requested === 'completed' || feedback.status === 'completed') {
+    assertSubmittable(feedback);
+    if (feedback.status !== 'completed') {
+      feedback.status = 'completed';
+      feedback.submittedAt = new Date();
+    }
+  }
+}
+
+export async function createFeedback({ sessionId, studentId, status, ...content }, { actor, ipAddress }) {
+  const session = await loadSession(sessionId);
+  if (!isSessionTeacher(session, actor)) throw new AppError(403, 'You are not assigned to this lesson');
+  if (session.status === 'cancelled') throw new AppError(400, 'Feedback cannot be written for a cancelled lesson');
+  const student = lessonStudents(session).find((item) => idOf(item) === studentId);
+  if (!student) throw new AppError(400, 'This student is not part of the lesson');
+
+  const existing = await TeacherFeedback.findOne({ session: session._id, student: studentId }).select('_id');
+  if (existing) throw new AppError(409, 'Feedback already exists for this student and lesson');
+
+  const feedback = new TeacherFeedback({
+    teacher: actor._id,
+    student: studentId,
+    classroom: session.classroom._id,
+    session: session._id,
+    lessonAt: session.startsAt,
+  });
+  applyContent(feedback, content);
+  applyStatus(feedback, status);
+  await feedback.save();
+
+  await logActivity({
+    actorId: actor._id,
+    action: feedback.status === 'completed' ? 'feedback.submitted' : 'feedback.drafted',
+    entityType: 'TeacherFeedback',
+    entityId: feedback._id,
+    description: `${actor.fullName} ${feedback.status === 'completed' ? 'submitted' : 'started'} feedback for ${nameOf(student) ?? 'a student'} (${session.title})`,
+    ipAddress,
+  });
+  return feedbackResult(await findFeedback(feedback._id));
+}
+
+export async function updateFeedback(id, { status, ...content }, { actor, ipAddress }) {
+  const feedback = await TeacherFeedback.findById(id);
+  if (!feedback) throw new AppError(404, 'Feedback not found');
+  if (String(feedback.teacher) !== String(actor._id)) {
+    throw new AppError(403, 'Only the teacher who wrote this feedback can change it');
+  }
+  const wasCompleted = feedback.status === 'completed';
+  applyContent(feedback, content);
+  applyStatus(feedback, status);
+  await feedback.save();
+
+  await logActivity({
+    actorId: actor._id,
+    action: !wasCompleted && feedback.status === 'completed' ? 'feedback.submitted' : 'feedback.updated',
+    entityType: 'TeacherFeedback',
+    entityId: feedback._id,
+    description: `${actor.fullName} ${!wasCompleted && feedback.status === 'completed' ? 'submitted' : 'updated'} student feedback`,
+    ipAddress,
+  });
+  return feedbackResult(await findFeedback(feedback._id));
+}
