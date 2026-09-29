@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
+import { AppError } from '../utils/AppError.js';
 import { sendSuccess } from '../utils/apiResponse.js';
 import announcementRoutes from './announcement.routes.js';
 import authRoutes from './auth.routes.js';
@@ -16,10 +17,14 @@ router.get('/', (_req, res) => {
   });
 });
 
-router.get('/health', (_req, res) => {
+router.get('/health', (_req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    return next(new AppError(503, 'Database is unavailable'));
+  }
+
   sendSuccess(res, {
     message: 'API is running',
-    data: { database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' },
+    data: { database: 'connected' },
   });
 });
 

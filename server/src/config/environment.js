@@ -28,7 +28,9 @@ const MIN_JWT_SECRET_LENGTH = 32;
 export function assertRequiredEnv() {
   const problems = [];
 
-  if (env.mongodbUri && /<[^>]*>/.test(env.mongodbUri)) {
+  if (!env.mongodbUri) {
+    problems.push('MONGODB_URI must be set to a reachable MongoDB database');
+  } else if (/<[^>]*>/.test(env.mongodbUri)) {
     const placeholders = env.mongodbUri.match(/<[^>]*>/g).join(', ');
     problems.push(`MONGODB_URI still contains ${placeholders} — replace it (including the < >) with the real value`);
   }

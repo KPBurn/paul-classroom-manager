@@ -12,12 +12,10 @@ afterEach(async () => {
 });
 
 describe('database startup', () => {
-  it('falls back to in-memory MongoDB when no URI is configured', async () => {
+  it('requires a configured MongoDB URI', async () => {
     process.env.MONGODB_URI = '';
 
-    await connectDatabase(undefined);
-
-    assert.equal(mongoose.connection.readyState, 1);
-    assert.ok(mongoose.connection.name.length > 0);
+    await assert.rejects(connectDatabase(undefined), /MONGODB_URI must be configured/);
+    assert.equal(mongoose.connection.readyState, 0);
   });
 });

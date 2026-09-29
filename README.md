@@ -67,7 +67,7 @@ npm run dev
 
 Sign in with the `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` from `server/.env`.
 
-If MongoDB is unavailable in development, the API falls back to an in-memory database and creates this admin account automatically. The account and any other data in that fallback are lost when the API stops. Production does not use the in-memory fallback.
+The API requires a reachable MongoDB database in both development and production. If MongoDB is unavailable, startup fails instead of silently using temporary data. Login checks the submitted email and password against the persisted user record. Create the initial admin in the configured database with `npm run seed` before signing in.
 
 > The API uses port **5050**, not 5000: on Windows, port 5000 is often held by a system service.
 
