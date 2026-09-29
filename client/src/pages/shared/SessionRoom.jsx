@@ -16,6 +16,7 @@ import {
   Video,
   VideoOff,
   Volume2,
+  X,
   UsersRound,
 } from 'lucide-react';
 import Alert from '../../components/common/Alert.jsx';
@@ -103,6 +104,19 @@ function AudioOutput({ stream, onBlocked, elementKey, registerElement }) {
   return <audio ref={audioRef} autoPlay playsInline />;
 }
 
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    const update = () => setMatches(mediaQuery.matches);
+    update();
+    mediaQuery.addEventListener('change', update);
+    return () => mediaQuery.removeEventListener('change', update);
+  }, [query]);
+
+  return matches;
+}
 
 export default function SessionRoom() {
   const { id } = useParams();
@@ -115,6 +129,10 @@ export default function SessionRoom() {
   const [remoteMedia, setRemoteMedia] = useState({});
   const [speakingParticipantIds, setSpeakingParticipantIds] = useState(() => new Set());
   const [activeTab, setActiveTab] = useState('chat');
+  const isPhone = useMediaQuery('(max-width: 639px)');
+  // The side panel starts open where it sits beside the stage, and hidden on small screens.
+  const [panelOpen, setPanelOpen] = useState(() => window.matchMedia('(min-width: 768px)').matches);
+  const [lastSeenMessageId, setLastSeenMessageId] = useState(null);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -204,6 +222,7 @@ export default function SessionRoom() {
         if (cancelled) return;
         setSession(current);
         setMessages(history);
+        setLastSeenMessageId(history.at(-1)?.id ?? null);
         setFiles(sharedFiles);
         setMediaConfigurationWarning(current.iceServersWarning ?? '');
         iceServersRef.current = current.iceServers?.length
@@ -501,7 +520,12 @@ export default function SessionRoom() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, activeTab]);
+  }, [messages, activeTab, panelOpen]);
+
+  const chatVisible = panelOpen && activeTab === 'chat';
+  useEffect(() => {
+    if (chatVisible) setLastSeenMessageId(messages.at(-1)?.id ?? null);
+  }, [chatVisible, messages]);
 
   useEffect(() => {
     if (!connected || muted) {
@@ -878,8 +902,14 @@ export default function SessionRoom() {
   const speakingParticipants = participants.filter((participant) => speakingParticipantIds.has(participant.id));
   const gridColumns = Math.min(
     Math.max(1, galleryParticipants.length),
-    Math.max(1, Math.ceil(Math.sqrt(galleryParticipants.length * (16 / 9)))),
+    isPhone ? 2 : Math.max(1, Math.ceil(Math.sqrt(galleryParticipants.length * (16 / 9)))),
   );
+  const unreadMessages = chatVisible
+    ? 0
+    : messages
+      .slice(messages.findIndex((item) => item.id === lastSeenMessageId) + 1)
+      .filter((item) => item.type !== 'system' && item.sender?.id !== user.id)
+      .length;
   const gridRows = Math.ceil(galleryParticipants.length / gridColumns);
 
   if (loading) return <div className="flex min-h-screen items-center justify-center"><Spinner /></div>;
@@ -904,14 +934,18 @@ export default function SessionRoom() {
             <p className="truncate text-xs text-slate-400">{session?.classroom?.name} · {formatTime(session?.startsAt)}–{formatTime(session?.endsAt)}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className={`flex items-center gap-2 text-xs ${connected ? 'text-emerald-300' : 'text-amber-300'}`}>
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <span
+            className={`flex items-center gap-2 text-xs ${connected ? 'text-emerald-300' : 'text-amber-300'}`}
+            title={connected ? 'Room connected' : 'Connecting'}
+          >
             <span className={`size-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-            {connected ? 'Room connected' : 'Connecting'}
+            <span className="hidden sm:inline">{connected ? 'Room connected' : 'Connecting'}</span>
+            <span className="sr-only sm:hidden">{connected ? 'Room connected' : 'Connecting'}</span>
           </span>
           {speakingParticipants.length > 0 && (
             <span
-              className="flex max-w-48 items-center gap-1.5 truncate rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-200"
+              className="hidden max-w-48 items-center gap-1.5 truncate rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-200 sm:flex"
               role="status"
               aria-live="polite"
             >
@@ -939,7 +973,7 @@ export default function SessionRoom() {
       <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 md:flex-row">
         <section className="relative flex min-h-56 min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
           {screenSharerId ? (
-            <div className="flex min-h-0 min-w-0 flex-1 gap-2 p-2">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2 sm:flex-row">
               <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-lg bg-black">
                 {sharedStream ? (
                   <VideoStage stream={sharedStream} label={sharer?.name ?? 'A participant'} />
@@ -955,13 +989,13 @@ export default function SessionRoom() {
               </div>
               {cameraParticipants.length > 0 && (
                 <div
-                  className="flex w-28 shrink-0 flex-col gap-2 overflow-y-auto sm:w-40 lg:w-48"
+                  className="flex h-20 shrink-0 gap-2 overflow-x-auto sm:h-auto sm:w-40 sm:flex-col sm:overflow-x-visible sm:overflow-y-auto lg:w-48"
                   aria-label="Participant cameras"
                 >
                   {cameraParticipants.map((participant) => (
                     <div
                       key={participant.id}
-                      className={`relative aspect-video min-h-20 shrink-0 overflow-hidden rounded-lg border bg-slate-900 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-slate-700'}`}
+                      className={`relative aspect-video h-full shrink-0 overflow-hidden rounded-lg border bg-slate-900 sm:h-auto sm:min-h-20 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-slate-700'}`}
                     >
                       {participant.stream ? (
                         <VideoStage
@@ -970,14 +1004,14 @@ export default function SessionRoom() {
                           kind="camera"
                         />
                       ) : (
-                        <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-400">
-                          <span className="flex size-10 items-center justify-center rounded-full bg-slate-700 text-sm font-semibold text-slate-100">
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-400 sm:gap-2">
+                          <span className="flex size-8 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-slate-100 sm:size-10 sm:text-sm">
                             {initials(participant.name)}
                           </span>
                           <span className="max-w-full truncate px-2 text-center text-xs font-medium text-slate-100">
                             {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
                           </span>
-                          <span className="text-[10px] text-amber-300">Camera on · waiting for video</span>
+                          <span className="hidden text-[10px] text-amber-300 sm:inline">Camera on · waiting for video</span>
                         </div>
                       )}
                       {participant.isSpeaking && (
@@ -1055,195 +1089,202 @@ export default function SessionRoom() {
           )}
         </section>
 
-        <aside className="flex h-72 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 md:h-auto md:w-80">
-          <div className="flex border-b border-slate-800">
-            <button
-              type="button"
-              onClick={() => setActiveTab('chat')}
-              className={`flex flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-medium ${activeTab === 'chat' ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}
-            >
-              <MessageSquare className="size-4" aria-hidden="true" /> Chat
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('files')}
-              className={`flex flex-1 items-center justify-center gap-2 border-b-2 px-2 py-3 text-sm font-medium ${activeTab === 'files' ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}
-            >
-              <File className="size-4" aria-hidden="true" /> Files
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('people')}
-              className={`flex flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-medium ${activeTab === 'people' ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}
-            >
-              <UsersRound className="size-4" aria-hidden="true" /> People ({participants.length})
-            </button>
-          </div>
-
-          {activeTab === 'chat' ? (
-            <>
-              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
-                {messages.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-slate-500">Messages in this room will appear here.</div>
-                ) : messages.map((item) => item.type === 'system' ? (
-                  <p key={item.id} className="text-center text-xs text-slate-500">
-                    <span>{item.body}</span>
-                    <time className="ml-2">{formatTime(item.createdAt)}</time>
-                  </p>
-                ) : (
-                  <article key={item.id} className="flex gap-2.5">
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[10px] font-semibold text-slate-200">
-                      {initials(item.sender.name)}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline gap-x-2">
-                        <span className="text-xs font-semibold text-slate-200">{item.sender.name}</span>
-                        <time className="text-[10px] text-slate-500">{formatTime(item.createdAt)}</time>
-                      </div>
-                      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-slate-300">{item.body}</p>
-                    </div>
-                  </article>
-                ))}
-                <div ref={messagesEndRef} />
-              </div>
-              <form onSubmit={sendMessage} className="flex items-end gap-2 border-t border-slate-800 p-3">
-                <label className="sr-only" htmlFor="room-message">Message the class</label>
-                <textarea
-                  id="room-message"
-                  rows={1}
-                  maxLength={2000}
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault();
-                      event.currentTarget.form.requestSubmit();
-                    }
-                  }}
-                  placeholder="Message everyone"
-                  disabled={!connected}
-                  className="max-h-24 min-h-10 flex-1 resize-y rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-indigo-400 disabled:opacity-60"
-                />
+        {panelOpen && (
+          <aside
+            id="room-side-panel"
+            className="flex h-[45dvh] min-h-64 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 md:h-auto md:min-h-0 md:w-80"
+          >
+            <div className="flex border-b border-slate-800">
+              {[
+                { tab: 'chat', icon: MessageSquare, label: 'Chat' },
+                { tab: 'files', icon: File, label: 'Files' },
+                { tab: 'people', icon: UsersRound, label: `People (${participants.length})` },
+              ].map(({ tab, icon: Icon, label }) => (
                 <button
-                  type="submit"
-                  disabled={!connected || !message.trim() || sending}
-                  className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-indigo-500 text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label="Send message"
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex flex-auto items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-sm font-medium ${activeTab === tab ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}
                 >
-                  {sending ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
+                  <Icon className="size-4 shrink-0" aria-hidden="true" /> {label}
                 </button>
-              </form>
-            </>
-          ) : activeTab === 'files' ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
-              {canManageRoom && (
-                <section className="space-y-2 rounded-lg border border-slate-700 bg-slate-800/60 p-3">
-                  <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Teacher controls</h2>
-                  <button
-                    type="button"
-                    aria-pressed={roomSettings.screenSharingEnabled}
-                    disabled={!connected || updatingSettings}
-                    onClick={() => toggleRoomSetting('screenSharingEnabled')}
-                    className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-60"
-                  >
-                    Screen sharing
-                    <span className={roomSettings.screenSharingEnabled ? 'text-emerald-300' : 'text-amber-300'}>
-                      {roomSettings.screenSharingEnabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={roomSettings.fileUploadsEnabled}
-                    disabled={!connected || updatingSettings}
-                    onClick={() => toggleRoomSetting('fileUploadsEnabled')}
-                    className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-60"
-                  >
-                    File uploads
-                    <span className={roomSettings.fileUploadsEnabled ? 'text-emerald-300' : 'text-amber-300'}>
-                      {roomSettings.fileUploadsEnabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                  </button>
-                </section>
-              )}
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-sm font-semibold text-slate-200">Shared files</h2>
-                  <p className="mt-1 text-xs text-slate-500">Files are removed when this session ends · 8 MB max</p>
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  onChange={uploadSelectedFile}
-                  aria-label="Choose a file to share"
-                />
-                <Button
-                  variant="secondary"
-                  className="!px-3 !py-2"
-                  disabled={!connected || !roomSettings.fileUploadsEnabled || uploading}
-                  isLoading={uploading}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="size-4" />
-                  <span>{uploading ? 'Uploading' : 'Upload'}</span>
-                </Button>
-              </div>
-              {!roomSettings.fileUploadsEnabled && (
-                <p className="rounded-md bg-amber-400/10 px-3 py-2 text-xs text-amber-200">File uploads are disabled by the teacher.</p>
-              )}
-              <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto" aria-live="polite">
-                {files.length === 0 ? (
-                  <li className="py-6 text-center text-sm text-slate-500">No files have been shared in this session.</li>
-                ) : files.map((item) => (
-                  <li key={item.id} className="flex items-center gap-2 rounded-lg bg-slate-800 p-2.5">
-                    <File className="size-4 shrink-0 text-indigo-300" aria-hidden="true" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm text-slate-200">{item.name}</span>
-                      <span className="block text-xs text-slate-500">
-                        {formatFileSize(item.size)}{item.uploader?.name ? ` · ${item.uploader.name}` : ''}
+              ))}
+              <button
+                type="button"
+                onClick={() => setPanelOpen(false)}
+                className="flex w-11 shrink-0 items-center justify-center border-b-2 border-transparent text-slate-400 hover:text-white"
+                aria-label="Hide chat panel"
+                title="Hide chat panel"
+              >
+                <X className="size-4" aria-hidden="true" />
+              </button>
+            </div>
+  
+            {activeTab === 'chat' ? (
+              <>
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
+                  {messages.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-slate-500">Messages in this room will appear here.</div>
+                  ) : messages.map((item) => item.type === 'system' ? (
+                    <p key={item.id} className="text-center text-xs text-slate-500">
+                      <span>{item.body}</span>
+                      <time className="ml-2">{formatTime(item.createdAt)}</time>
+                    </p>
+                  ) : (
+                    <article key={item.id} className="flex gap-2.5">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[10px] font-semibold text-slate-200">
+                        {initials(item.sender.name)}
                       </span>
-                    </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-baseline gap-x-2">
+                          <span className="text-xs font-semibold text-slate-200">{item.sender.name}</span>
+                          <time className="text-[10px] text-slate-500">{formatTime(item.createdAt)}</time>
+                        </div>
+                        <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-slate-300">{item.body}</p>
+                      </div>
+                    </article>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+                <form onSubmit={sendMessage} className="flex items-end gap-2 border-t border-slate-800 p-3">
+                  <label className="sr-only" htmlFor="room-message">Message the class</label>
+                  <textarea
+                    id="room-message"
+                    rows={1}
+                    maxLength={2000}
+                    value={message}
+                    onChange={(event) => setMessage(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        event.currentTarget.form.requestSubmit();
+                      }
+                    }}
+                    placeholder="Message everyone"
+                    disabled={!connected}
+                    className="max-h-24 min-h-10 flex-1 resize-y rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-indigo-400 disabled:opacity-60"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!connected || !message.trim() || sending}
+                    className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-indigo-500 text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Send message"
+                  >
+                    {sending ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
+                  </button>
+                </form>
+              </>
+            ) : activeTab === 'files' ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+                {canManageRoom && (
+                  <section className="space-y-2 rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+                    <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Teacher controls</h2>
                     <button
                       type="button"
-                      onClick={() => downloadSharedFile(item)}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-md text-slate-300 hover:bg-slate-700 hover:text-white"
-                      aria-label={`Download ${item.name}`}
+                      aria-pressed={roomSettings.screenSharingEnabled}
+                      disabled={!connected || updatingSettings}
+                      onClick={() => toggleRoomSetting('screenSharingEnabled')}
+                      className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-60"
                     >
-                      <Download className="size-4" aria-hidden="true" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              <p className="mb-3 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">In this session</p>
-              <ul className="space-y-1">
-                {participants.map((participant) => (
-                  <li key={participant.id} className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-slate-800">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-semibold text-indigo-200">
-                      {initials(participant.name)}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-slate-200">
-                        {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
+                      Screen sharing
+                      <span className={roomSettings.screenSharingEnabled ? 'text-emerald-300' : 'text-amber-300'}>
+                        {roomSettings.screenSharingEnabled ? 'Enabled' : 'Disabled'}
                       </span>
-                      <span className="block text-xs capitalize text-slate-500">{participant.role}</span>
-                      {speakingParticipantIds.has(participant.id) && (
-                        <span className="mt-0.5 block text-xs font-medium text-emerald-300">Speaking</span>
-                      )}
-                    </span>
-                    {speakingParticipantIds.has(participant.id)
-                      ? <Volume2 className="size-4 text-emerald-300" aria-label="Speaking" />
-                      : participant.muted
-                        ? <MicOff className="size-4 text-slate-500" aria-label="Muted" />
-                        : <Mic className="size-4 text-emerald-400" aria-label="Microphone on" />}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </aside>
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={roomSettings.fileUploadsEnabled}
+                      disabled={!connected || updatingSettings}
+                      onClick={() => toggleRoomSetting('fileUploadsEnabled')}
+                      className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-60"
+                    >
+                      File uploads
+                      <span className={roomSettings.fileUploadsEnabled ? 'text-emerald-300' : 'text-amber-300'}>
+                        {roomSettings.fileUploadsEnabled ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </button>
+                  </section>
+                )}
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-200">Shared files</h2>
+                    <p className="mt-1 text-xs text-slate-500">Files are removed when this session ends · 8 MB max</p>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={uploadSelectedFile}
+                    aria-label="Choose a file to share"
+                  />
+                  <Button
+                    variant="secondary"
+                    className="!px-3 !py-2"
+                    disabled={!connected || !roomSettings.fileUploadsEnabled || uploading}
+                    isLoading={uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Upload className="size-4" />
+                    <span>{uploading ? 'Uploading' : 'Upload'}</span>
+                  </Button>
+                </div>
+                {!roomSettings.fileUploadsEnabled && (
+                  <p className="rounded-md bg-amber-400/10 px-3 py-2 text-xs text-amber-200">File uploads are disabled by the teacher.</p>
+                )}
+                <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto" aria-live="polite">
+                  {files.length === 0 ? (
+                    <li className="py-6 text-center text-sm text-slate-500">No files have been shared in this session.</li>
+                  ) : files.map((item) => (
+                    <li key={item.id} className="flex items-center gap-2 rounded-lg bg-slate-800 p-2.5">
+                      <File className="size-4 shrink-0 text-indigo-300" aria-hidden="true" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm text-slate-200">{item.name}</span>
+                        <span className="block text-xs text-slate-500">
+                          {formatFileSize(item.size)}{item.uploader?.name ? ` · ${item.uploader.name}` : ''}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => downloadSharedFile(item)}
+                        className="flex size-9 shrink-0 items-center justify-center rounded-md text-slate-300 hover:bg-slate-700 hover:text-white"
+                        aria-label={`Download ${item.name}`}
+                      >
+                        <Download className="size-4" aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                <p className="mb-3 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">In this session</p>
+                <ul className="space-y-1">
+                  {participants.map((participant) => (
+                    <li key={participant.id} className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-slate-800">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-semibold text-indigo-200">
+                        {initials(participant.name)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-slate-200">
+                          {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
+                        </span>
+                        <span className="block text-xs capitalize text-slate-500">{participant.role}</span>
+                        {speakingParticipantIds.has(participant.id) && (
+                          <span className="mt-0.5 block text-xs font-medium text-emerald-300">Speaking</span>
+                        )}
+                      </span>
+                      {speakingParticipantIds.has(participant.id)
+                        ? <Volume2 className="size-4 text-emerald-300" aria-label="Speaking" />
+                        : participant.muted
+                          ? <MicOff className="size-4 text-slate-500" aria-label="Muted" />
+                          : <Mic className="size-4 text-emerald-400" aria-label="Microphone on" />}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </aside>
+        )}
       </main>
 
       {(error || mediaError) && (
@@ -1259,10 +1300,10 @@ export default function SessionRoom() {
         </div>
       )}
 
-      <footer className="flex min-h-20 items-center justify-center gap-3 border-t border-slate-800 bg-slate-950 px-4">
+      <footer className="flex min-h-16 items-center justify-center gap-2 border-t border-slate-800 bg-slate-950 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:min-h-20 sm:gap-3 sm:px-4">
         <Button
           variant={muted ? 'secondary' : 'primary'}
-          className={muted ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}
+          className={`!px-3 sm:!px-4 ${muted ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}`}
           disabled={!connected || microphoneBusy}
           isLoading={microphoneBusy}
           onClick={toggleMicrophone}
@@ -1297,7 +1338,7 @@ export default function SessionRoom() {
         )}
         <Button
           variant={cameraStream ? 'primary' : 'secondary'}
-          className={!cameraStream ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}
+          className={`!px-3 sm:!px-4 ${!cameraStream ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}`}
           disabled={!connected || cameraBusy}
           isLoading={cameraBusy}
           onClick={toggleCamera}
@@ -1308,7 +1349,7 @@ export default function SessionRoom() {
         </Button>
         <Button
           variant={screenStream ? 'primary' : 'secondary'}
-          className={!screenStream ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}
+          className={`!px-3 sm:!px-4 ${!screenStream ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}`}
           disabled={!connected || !roomSettings.screenSharingEnabled || Boolean(screenSharerId && screenSharerId !== localParticipantId.current)}
           onClick={toggleScreenShare}
           aria-pressed={Boolean(screenStream)}
@@ -1316,7 +1357,23 @@ export default function SessionRoom() {
           {screenStream ? <ScreenShareOff className="size-4" /> : <MonitorUp className="size-4" />}
           <span className="hidden sm:inline">{screenStream ? 'Stop sharing' : 'Share screen'}</span>
         </Button>
-        <Button variant="danger" onClick={exitRoom} aria-label="Leave class room">
+        <Button
+          variant={panelOpen ? 'primary' : 'secondary'}
+          className={`relative !px-3 sm:!px-4 ${!panelOpen ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}`}
+          onClick={() => setPanelOpen((open) => !open)}
+          aria-pressed={panelOpen}
+          aria-controls="room-side-panel"
+          aria-label={panelOpen ? 'Hide chat' : unreadMessages ? `Show chat, ${unreadMessages} unread` : 'Show chat'}
+        >
+          <MessageSquare className="size-4" />
+          <span className="hidden sm:inline">{panelOpen ? 'Hide chat' : 'Show chat'}</span>
+          {unreadMessages > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+              {unreadMessages > 99 ? '99+' : unreadMessages}
+            </span>
+          )}
+        </Button>
+        <Button variant="danger" className="!px-3 sm:!px-4" onClick={exitRoom} aria-label="Leave class room">
           <PhoneOff className="size-4" />
           <span className="hidden sm:inline">Leave</span>
         </Button>
