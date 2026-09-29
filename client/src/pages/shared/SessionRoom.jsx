@@ -28,6 +28,13 @@ import { tokenStorage } from '../../utils/tokenStorage.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
 const formatTime = (value) => new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+// Each peer connection carries these media sections in this fixed order.
+const MEDIA_SECTIONS = [
+  { kind: 'audio', streamKey: 'audioStream' },
+  { kind: 'video', streamKey: 'cameraStream' },
+  { kind: 'video', streamKey: 'screenStream' },
+  { kind: 'audio', streamKey: 'presentationAudioStream' },
+];
 const formatFileSize = (size) => size < 1024 * 1024
   ? `${Math.max(1, Math.round(size / 1024))} KB`
   : `${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -226,6 +233,23 @@ export default function SessionRoom() {
           });
         };
 
+        const attachTransceivers = (peer, transceivers) => {
+          [peer.audioSender, peer.cameraSender, peer.screenSender, peer.screenAudioSender] = transceivers
+            .map((transceiver) => transceiver.sender);
+          const localTracks = [
+            [peer.audioSender, localAudioStreamRef.current?.getAudioTracks()[0], 'Unable to connect your microphone.'],
+            [peer.cameraSender, cameraStreamRef.current?.getVideoTracks()[0], 'Unable to connect your camera.'],
+            [peer.screenSender, screenStreamRef.current?.getVideoTracks()[0], 'Unable to connect your screen share.'],
+            [peer.screenAudioSender, screenStreamRef.current?.getAudioTracks()[0], 'Unable to connect the shared tab audio.'],
+          ];
+          for (const [sender, track, failureMessage] of localTracks) {
+            if (!track) continue;
+            sender.replaceTrack(track).catch((replaceError) => {
+              setMediaError(readableError(replaceError, failureMessage));
+            });
+          }
+        };
+
         const createPeer = (peerId) => {
           const existing = peersRef.current.get(peerId);
           if (existing) return existing;
@@ -251,50 +275,19 @@ export default function SessionRoom() {
             screenAudioSender: null,
           };
           peersRef.current.set(peerId, peer);
-          const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
-          const cameraTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
-          const screenTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
-          const screenAudioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
-          peer.audioSender = audioTransceiver.sender;
-          peer.cameraSender = cameraTransceiver.sender;
-          peer.screenSender = screenTransceiver.sender;
-          peer.screenAudioSender = screenAudioTransceiver.sender;
-          const remoteStreamKeys = new Map([
-            [audioTransceiver, 'audioStream'],
-            [cameraTransceiver, 'cameraStream'],
-            [screenTransceiver, 'screenStream'],
-            [screenAudioTransceiver, 'presentationAudioStream'],
-          ]);
-          const audioTrack = localAudioStreamRef.current?.getAudioTracks()[0];
-          const cameraTrack = cameraStreamRef.current?.getVideoTracks()[0];
-          const screenTrack = screenStreamRef.current?.getVideoTracks()[0];
-          const screenAudioTrack = screenStreamRef.current?.getAudioTracks()[0];
-          if (audioTrack) {
-            peer.audioSender.replaceTrack(audioTrack).catch((replaceError) => {
-              setMediaError(readableError(replaceError, 'Unable to connect your microphone.'));
-            });
-          }
-          if (cameraTrack) {
-            peer.cameraSender.replaceTrack(cameraTrack).catch((replaceError) => {
-              setMediaError(readableError(replaceError, 'Unable to connect your camera.'));
-            });
-          }
-          if (screenTrack) {
-            peer.screenSender.replaceTrack(screenTrack).catch((replaceError) => {
-              setMediaError(readableError(replaceError, 'Unable to connect your screen share.'));
-            });
-          }
-          if (screenAudioTrack) {
-            peer.screenAudioSender.replaceTrack(screenAudioTrack).catch((replaceError) => {
-              setMediaError(readableError(replaceError, 'Unable to connect the shared tab audio.'));
-            });
+          // Only one side creates the media sections. Browsers do not reuse transceivers made with
+          // addTransceiver for a remote offer, so if both sides created them, each side's media
+          // would arrive on unexpected transceivers and be dropped. The other side adopts the
+          // offered transceivers in handleSignal.
+          if (socket.id < peerId) {
+            attachTransceivers(peer, MEDIA_SECTIONS.map(({ kind }) => pc.addTransceiver(kind, { direction: 'sendrecv' })));
           }
 
           pc.onicecandidate = ({ candidate }) => {
             if (candidate) relay(peerId, { candidate: candidate.toJSON() });
           };
           pc.ontrack = ({ track, transceiver }) => {
-            const key = remoteStreamKeys.get(transceiver);
+            const key = MEDIA_SECTIONS[pc.getTransceivers().indexOf(transceiver)]?.streamKey;
             if (!key) return;
             const stream = new MediaStream([track]);
             const updateStream = (nextStream) => {
@@ -349,6 +342,11 @@ export default function SessionRoom() {
                 await peer.pc.addIceCandidate(queuedCandidate);
               }
               if (description.type === 'offer') {
+                if (!peer.audioSender) {
+                  const transceivers = peer.pc.getTransceivers();
+                  for (const transceiver of transceivers) transceiver.direction = 'sendrecv';
+                  attachTransceivers(peer, transceivers);
+                }
                 await peer.pc.setLocalDescription();
                 relay(from, { description: peer.pc.localDescription.toJSON() });
               }
@@ -455,8 +453,8 @@ export default function SessionRoom() {
               track.stop();
             }
             Promise.all([...peersRef.current.values()].flatMap((peer) => [
-              peer.screenSender.replaceTrack(null),
-              peer.screenAudioSender.replaceTrack(null),
+              peer.screenSender?.replaceTrack(null),
+              peer.screenAudioSender?.replaceTrack(null),
             ]))
               .catch((replaceError) => {
                 setMediaError(readableError(replaceError, 'Unable to stop your screen share.'));
@@ -613,7 +611,7 @@ export default function SessionRoom() {
         }
         const track = stream.getAudioTracks()[0];
         track.enabled = true;
-        await Promise.all([...peersRef.current.values()].map((peer) => peer.audioSender.replaceTrack(track)));
+        await Promise.all([...peersRef.current.values()].map((peer) => peer.audioSender?.replaceTrack(track)));
         setMuted(false);
         const response = await emitAck(socketRef.current, 'room:microphone', false);
         if (response?.error) throw new Error(response.error);
@@ -648,7 +646,7 @@ export default function SessionRoom() {
         track.stop();
       });
       try {
-        await Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(null)));
+        await Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender?.replaceTrack(null)));
         await emitAck(socketRef.current, 'room:camera', false);
         setMediaError('');
       } catch (cameraError) {
@@ -676,21 +674,21 @@ export default function SessionRoom() {
         if (cameraStreamRef.current !== stream) return;
         cameraStreamRef.current = null;
         setCameraStream(null);
-        Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(null)))
+        Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender?.replaceTrack(null)))
           .then(() => emitAck(socketRef.current, 'room:camera', false))
           .catch((replaceError) => {
             setMediaError(readableError(replaceError, 'Unable to stop your camera or update your camera status.'));
           });
       };
 
-      await Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(track)));
+      await Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender?.replaceTrack(track)));
       await emitAck(socketRef.current, 'room:camera', true);
       cameraStreamRef.current = stream;
       setCameraStream(stream);
       setMediaError('');
     } catch (cameraError) {
       const cleanupResults = await Promise.allSettled(
-        [...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(null)),
+        [...peersRef.current.values()].map((peer) => peer.cameraSender?.replaceTrack(null)),
       );
       stream?.getTracks().forEach((track) => track.stop());
       try {
@@ -726,8 +724,8 @@ export default function SessionRoom() {
         track.stop();
       }
       await Promise.all([...peersRef.current.values()].flatMap((peer) => [
-        peer.screenSender.replaceTrack(null),
-        peer.screenAudioSender.replaceTrack(null),
+        peer.screenSender?.replaceTrack(null),
+        peer.screenAudioSender?.replaceTrack(null),
       ]));
       socketRef.current?.emit('room:screen-stop');
       return;
@@ -761,8 +759,8 @@ export default function SessionRoom() {
         setScreenStream(null);
         for (const audioTrack of stream.getAudioTracks()) audioTrack.onended = null;
         Promise.all([...peersRef.current.values()].flatMap((peer) => [
-          peer.screenSender.replaceTrack(null),
-          peer.screenAudioSender.replaceTrack(null),
+          peer.screenSender?.replaceTrack(null),
+          peer.screenAudioSender?.replaceTrack(null),
         ]))
           .catch((replaceError) => {
             setMediaError(readableError(replaceError, 'Unable to stop your screen share.'));
@@ -771,8 +769,8 @@ export default function SessionRoom() {
       };
       const sharedAudioTrack = stream.getAudioTracks()[0];
       await Promise.all([...peersRef.current.values()].flatMap((peer) => [
-        peer.screenSender.replaceTrack(track),
-        peer.screenAudioSender.replaceTrack(sharedAudioTrack ?? null),
+        peer.screenSender?.replaceTrack(track),
+        peer.screenAudioSender?.replaceTrack(sharedAudioTrack ?? null),
       ]));
       setMediaError(sharedAudioTrack
         ? ''
