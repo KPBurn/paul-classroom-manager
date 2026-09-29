@@ -32,13 +32,14 @@ const roomSettingsSchema = z.object({
 }).strict().refine((settings) => Object.keys(settings).length > 0);
 
 function participantResult(socket) {
-  const { user, muted = true } = socket.data;
+  const { user, muted = true, cameraEnabled = false } = socket.data;
   return {
     id: socket.id,
     userId: String(user._id),
     name: `${user.firstName} ${user.lastName}`,
     role: user.role,
     muted,
+    cameraEnabled,
   };
 }
 
@@ -210,6 +211,7 @@ export function attachSessionSocket(httpServer) {
         socket.data.sessionOpenAccess = session.classroom.openAccess;
         socket.data.muted = true;
         socket.data.speaking = false;
+        socket.data.cameraEnabled = false;
         socket.join(room);
         state.participants.set(socket.id, participant);
         socket.to(room).emit('room:participant-joined', participant);
@@ -275,6 +277,19 @@ export function attachSessionSocket(httpServer) {
         socket.data.speaking = false;
         io.to(roomName(sessionId)).emit('room:participant-speaking', { participantId: socket.id, speaking: false });
       }
+      const participant = participantResult(socket);
+      rooms.get(sessionId)?.participants.set(socket.id, participant);
+      io.to(roomName(sessionId)).emit('room:participant-updated', participant);
+      ack?.({ success: true });
+    });
+
+    socket.on('room:camera', (cameraEnabled, ack) => {
+      const sessionId = socket.data.sessionId;
+      if (!sessionId || typeof cameraEnabled !== 'boolean') {
+        ack?.({ error: 'Join the session before changing camera status' });
+        return;
+      }
+      socket.data.cameraEnabled = cameraEnabled;
       const participant = participantResult(socket);
       rooms.get(sessionId)?.participants.set(socket.id, participant);
       io.to(roomName(sessionId)).emit('room:participant-updated', participant);

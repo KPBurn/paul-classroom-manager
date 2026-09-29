@@ -230,6 +230,25 @@ describe('session room collaboration', () => {
     }
   });
 
+  it('broadcasts camera state so participants can distinguish a missing feed from a camera that is off', async () => {
+    const { session, teacherSocket, studentSocket, unrelatedSocket, cleanup } = await setupRoom();
+    try {
+      await emitAck(teacherSocket, 'room:join', String(session._id));
+      await emitAck(studentSocket, 'room:join', String(session._id));
+
+      assert.ok((await emitAck(unrelatedSocket, 'room:camera', true)).error);
+      const cameraOn = waitForEvent(teacherSocket, 'room:participant-updated');
+      assert.deepEqual(await emitAck(studentSocket, 'room:camera', true), { success: true });
+      assert.equal((await cameraOn).cameraEnabled, true);
+
+      const cameraOff = waitForEvent(teacherSocket, 'room:participant-updated');
+      assert.deepEqual(await emitAck(studentSocket, 'room:camera', false), { success: true });
+      assert.equal((await cameraOff).cameraEnabled, false);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it('allows every active role into explicitly open classroom rooms', async () => {
     const {
       session,

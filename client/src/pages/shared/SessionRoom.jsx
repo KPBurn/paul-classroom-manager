@@ -644,6 +644,7 @@ export default function SessionRoom() {
       });
       try {
         await Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(null)));
+        await emitAck(socketRef.current, 'room:camera', false);
         setMediaError('');
       } catch (cameraError) {
         setMediaError(readableError(cameraError, 'Unable to turn off your camera.'));
@@ -671,17 +672,33 @@ export default function SessionRoom() {
         cameraStreamRef.current = null;
         setCameraStream(null);
         Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(null)))
+          .then(() => emitAck(socketRef.current, 'room:camera', false))
           .catch((replaceError) => {
-            setMediaError(readableError(replaceError, 'Unable to stop your camera.'));
+            setMediaError(readableError(replaceError, 'Unable to stop your camera or update your camera status.'));
           });
       };
 
       await Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(track)));
+      await emitAck(socketRef.current, 'room:camera', true);
       cameraStreamRef.current = stream;
       setCameraStream(stream);
       setMediaError('');
     } catch (cameraError) {
+      const cleanupResults = await Promise.allSettled(
+        [...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(null)),
+      );
       stream?.getTracks().forEach((track) => track.stop());
+      try {
+        if (socketRef.current?.connected) await emitAck(socketRef.current, 'room:camera', false);
+      } catch (statusError) {
+        setMediaError(readableError(statusError, 'Unable to update your camera status.'));
+        return;
+      }
+      const cleanupFailure = cleanupResults.find((result) => result.status === 'rejected');
+      if (cleanupFailure) {
+        setMediaError(readableError(cleanupFailure.reason, 'Unable to stop the camera after a media setup failure.'));
+        return;
+      }
       setMediaError(
         cameraError.name === 'NotAllowedError'
           ? 'Camera access was denied. Allow camera access in your browser settings and try again.'
@@ -868,7 +885,8 @@ export default function SessionRoom() {
       ...participant,
       isSpeaking: speakingParticipantIds.has(participant.id),
     }));
-  const cameraParticipants = galleryParticipants.filter((participant) => participant.stream);
+  const cameraParticipants = galleryParticipants.filter((participant) =>
+    participant.stream || participant.cameraEnabled);
   const speakingParticipants = participants.filter((participant) => speakingParticipantIds.has(participant.id));
   const gridColumns = Math.min(
     Math.max(1, galleryParticipants.length),
@@ -957,11 +975,23 @@ export default function SessionRoom() {
                       key={participant.id}
                       className={`relative aspect-video min-h-20 shrink-0 overflow-hidden rounded-lg border bg-slate-900 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-slate-700'}`}
                     >
-                      <VideoStage
-                        stream={participant.stream}
-                        label={`${participant.name}${participant.id === localParticipantId.current ? ' (You)' : ''}`}
-                        kind="camera"
-                      />
+                      {participant.stream ? (
+                        <VideoStage
+                          stream={participant.stream}
+                          label={`${participant.name}${participant.id === localParticipantId.current ? ' (You)' : ''}`}
+                          kind="camera"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-400">
+                          <span className="flex size-10 items-center justify-center rounded-full bg-slate-700 text-sm font-semibold text-slate-100">
+                            {initials(participant.name)}
+                          </span>
+                          <span className="max-w-full truncate px-2 text-center text-xs font-medium text-slate-100">
+                            {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
+                          </span>
+                          <span className="text-[10px] text-amber-300">Camera on · waiting for video</span>
+                        </div>
+                      )}
                       {participant.isSpeaking && (
                         <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-md bg-emerald-500/90 px-1.5 py-1 text-[10px] font-semibold text-white">
                           <Volume2 className="size-3" aria-hidden="true" />
@@ -1000,7 +1030,9 @@ export default function SessionRoom() {
                       <span className="max-w-full truncate px-2 text-xs font-medium text-slate-100">
                         {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
                       </span>
-                      <span className="text-xs">Camera off</span>
+                      <span className={`text-xs ${participant.cameraEnabled ? 'text-amber-300' : ''}`}>
+                        {participant.cameraEnabled ? 'Camera on · waiting for video' : 'Camera off'}
+                      </span>
                     </div>
                   )}
                   {participant.isSpeaking && (
