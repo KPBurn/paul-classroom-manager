@@ -47,12 +47,19 @@ export function AuthProvider({ children }) {
     [clearSession],
   );
 
-  const login = useCallback(async (credentials) => {
-    const { user: signedInUser, token } = await authService.login(credentials);
+  const saveLogin = useCallback(({ user: signedInUser, token }) => {
     tokenStorage.set(token);
     setUser(signedInUser);
     return signedInUser;
   }, []);
+
+  const login = useCallback(async (credentials) => {
+    return saveLogin(await authService.login(credentials));
+  }, [saveLogin]);
+
+  const loginWithTestRole = useCallback(async (role) => {
+    return saveLogin(await authService.loginWithTestRole(role));
+  }, [saveLogin]);
 
   const logout = useCallback(async () => {
     try {
@@ -65,8 +72,8 @@ export function AuthProvider({ children }) {
   }, [clearSession]);
 
   const value = useMemo(
-    () => ({ user, isAuthenticated: Boolean(user), isLoading, login, logout }),
-    [user, isLoading, login, logout],
+    () => ({ user, isAuthenticated: Boolean(user), isLoading, login, loginWithTestRole, logout }),
+    [user, isLoading, login, loginWithTestRole, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,15 +1,17 @@
 import { Router } from 'express';
 import { PERMISSIONS } from '../config/permissions.js';
-import { login, logout, me, register } from '../controllers/auth.controller.js';
+import { login, loginWithTestRole, logout, me, register, roleTestingStatus } from '../controllers/auth.controller.js';
 import { authenticateUser } from '../middleware/auth.middleware.js';
 import { loginLimiter } from '../middleware/rateLimit.middleware.js';
 import { requirePermission } from '../middleware/role.middleware.js';
 import { validate } from '../middleware/validation.middleware.js';
-import { loginSchema, registerSchema } from '../validators/auth.validators.js';
+import { loginSchema, registerSchema, roleTestLoginSchema } from '../validators/auth.validators.js';
 
 const router = Router();
 
 router.post('/login', loginLimiter, validate({ body: loginSchema }), login);
+router.get('/test-login/status', roleTestingStatus);
+router.post('/test-login', loginLimiter, validate({ body: roleTestLoginSchema }), loginWithTestRole);
 
 // Accounts are provisioned by administrators — there is no public sign-up.
 router.post(

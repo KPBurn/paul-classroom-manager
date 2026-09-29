@@ -19,6 +19,10 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required').max(128),
 });
 
+export const roleTestLoginSchema = z.object({
+  role: z.enum(USER_ROLES),
+});
+
 export const registerSchema = z.object({
   firstName: nameSchema('First name'),
   lastName: nameSchema('Last name'),

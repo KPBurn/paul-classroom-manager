@@ -48,7 +48,7 @@ export const adminNavigation = [
       { label: 'Schedules', to: '/admin/schedules', icon: CalendarDays },
       { label: 'Salaries', to: '/admin/salaries', icon: Wallet, phase: 5 },
       { label: 'Activity Logs', to: '/admin/activity-logs', icon: History, phase: 3 },
-      { label: 'Settings', to: '/admin/settings', icon: Settings, phase: 6 },
+      { label: 'Settings', to: '/admin/settings', icon: Settings },
     ],
   },
 ];

@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Eye, EyeOff, GraduationCap } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -12,6 +12,7 @@ import TextField from '../../components/common/TextField.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { homePathFor } from '../../utils/roles.js';
+import { authService } from '../../services/auth.service.js';
 
 const loginSchema = z.object({
   email: z.string().trim().min(1, 'Email is required').pipe(z.email('Enter a valid email address')),
@@ -22,11 +23,32 @@ const devCredentialsAvailable =
   import.meta.env.DEV && import.meta.env.VITE_DEV_LOGIN_EMAIL && import.meta.env.VITE_DEV_LOGIN_PASSWORD;
 
 export default function Login({ onClose }) {
-  const { login } = useAuth();
+  const { login, loginWithTestRole } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [showPassword, setShowPassword] = useState(false);
   const [serverError, setServerError] = useState('');
+  const [roleTestingEnabled, setRoleTestingEnabled] = useState(false);
+  const [roleTestingLoading, setRoleTestingLoading] = useState(true);
+  const [selectedRole, setSelectedRole] = useState('student');
+  const [testLoginSubmitting, setTestLoginSubmitting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    authService.roleTestingStatus()
+      .then((enabled) => {
+        if (!cancelled) setRoleTestingEnabled(enabled);
+      })
+      .catch((error) => {
+        if (!cancelled) setServerError(getErrorMessage(error, 'Unable to check temporary role testing status.'));
+      })
+      .finally(() => {
+        if (!cancelled) setRoleTestingLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const {
     register,
@@ -57,6 +79,20 @@ export default function Login({ onClose }) {
     }
   };
 
+  const onTestLogin = async () => {
+    setServerError('');
+    setTestLoginSubmitting(true);
+    try {
+      const user = await loginWithTestRole(selectedRole);
+      toast.success(`Testing as ${user.role}: ${user.firstName}`);
+      navigate(homePathFor(user.role), { replace: true });
+    } catch (error) {
+      setServerError(getErrorMessage(error, 'Unable to start a temporary role test session.'));
+    } finally {
+      setTestLoginSubmitting(false);
+    }
+  };
+
   return (
     <Modal
       open
@@ -73,6 +109,38 @@ export default function Login({ onClose }) {
       </div>
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
         {serverError && <Alert tone="error">{serverError}</Alert>}
+
+        {!roleTestingLoading && roleTestingEnabled && (
+          <section className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
+            <div>
+              <h2 className="text-sm font-semibold text-amber-950">Temporary role testing is on</h2>
+              <p className="mt-1 text-xs leading-5 text-amber-900">
+                This test session uses an active account for the selected role and can access its data.
+              </p>
+            </div>
+            <label htmlFor="test-role" className="block text-sm font-medium text-slate-700">Test as</label>
+            <select
+              id="test-role"
+              value={selectedRole}
+              onChange={(event) => setSelectedRole(event.target.value)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            >
+              <option value="student">Student</option>
+              <option value="teacher">Teacher</option>
+              <option value="admin">Administrator</option>
+            </select>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              isLoading={testLoginSubmitting}
+              disabled={isSubmitting}
+              onClick={onTestLogin}
+            >
+              Test as {selectedRole === 'admin' ? 'Administrator' : selectedRole}
+            </Button>
+          </section>
+        )}
 
         <TextField
           id="email"

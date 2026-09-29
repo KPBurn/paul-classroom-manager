@@ -32,6 +32,8 @@ Scheduling a class updates the classroom's ongoing teacher and student assignmen
 
 Attendance is recorded automatically when teachers and students join a session room during its scheduled time, including arrival status and time attended; assigned people who never join are marked absent after the session ends. Open classrooms also add participant join and leave notices to the room chat.
 
+Administrators can temporarily enable password-free role testing from **Admin → Settings**. This allows any visitor to the login page to enter as an active account of the selected role, including an administrator account. Use only for a controlled test and disable immediately afterward; existing role-test sessions are revoked as soon as the setting is turned off.
+
 ## Getting started
 
 ### 1. Configure the server

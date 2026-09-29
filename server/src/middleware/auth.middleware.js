@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { User } from '../models/User.js';
+import { SystemSettings } from '../models/SystemSettings.js';
 import { AppError } from '../utils/AppError.js';
 import { verifyToken } from '../utils/jwt.js';
 
@@ -34,6 +35,12 @@ export async function authenticateUser(req, _res, next) {
   // Tokens issued before a password reset carry an older version.
   if ((payload.ver ?? 0) !== (user.tokenVersion ?? 0)) {
     throw new AppError(401, 'Your session is invalid or has expired. Please sign in again.');
+  }
+  if (payload.roleTestSession) {
+    const settings = await SystemSettings.findById('system').select('roleTestingEnabled').lean();
+    if (!settings?.roleTestingEnabled) {
+      throw new AppError(401, 'Temporary role testing has been disabled. Please sign in with your account.');
+    }
   }
 
   req.user = user;

@@ -15,6 +15,7 @@ import {
   Upload,
   Video,
   VideoOff,
+  Volume2,
   UsersRound,
 } from 'lucide-react';
 import Alert from '../../components/common/Alert.jsx';
@@ -60,16 +61,16 @@ function VideoStage({ stream, label, muted = true, kind = 'screen' }) {
   }, [stream]);
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col items-center justify-center">
+    <div className="relative flex h-full min-h-0 w-full items-center justify-center">
       <video
         ref={videoRef}
         autoPlay
         muted={muted}
         playsInline
         aria-label={kind === 'screen' ? `Screen shared by ${label}` : `Camera video from ${label}`}
-        className="max-h-full max-w-full rounded-lg object-contain"
+        className={kind === 'camera' ? 'h-full w-full object-cover' : 'max-h-full max-w-full rounded-lg object-contain'}
       />
-      <p className="absolute bottom-4 left-4 rounded-md bg-black/60 px-3 py-1.5 text-sm text-white">
+      <p className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-md bg-black/70 px-2.5 py-1 text-xs font-medium text-white">
         {kind === 'screen' ? `${label} is sharing their screen` : label}
       </p>
     </div>
@@ -104,6 +105,7 @@ export default function SessionRoom() {
   const [files, setFiles] = useState([]);
   const [participants, setParticipants] = useState([]);
   const [remoteMedia, setRemoteMedia] = useState({});
+  const [speakingParticipantIds, setSpeakingParticipantIds] = useState(() => new Set());
   const [activeTab, setActiveTab] = useState('chat');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -131,6 +133,7 @@ export default function SessionRoom() {
   const audioElementsRef = useRef(new Map());
   const fileInputRef = useRef(null);
   const localParticipantId = useRef(null);
+  const cameraPromptedForSessionRef = useRef(false);
   const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const mountedRef = useRef(false);
   const refreshFiles = useCallback(async () => {
@@ -375,6 +378,7 @@ export default function SessionRoom() {
         });
         socket.on('disconnect', () => {
           setConnected(false);
+          cameraPromptedForSessionRef.current = false;
           setMuted(true);
           setScreenSharerId(null);
           setParticipants([]);
@@ -479,6 +483,69 @@ export default function SessionRoom() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, activeTab]);
 
+  useEffect(() => {
+    cameraPromptedForSessionRef.current = false;
+  }, [id]);
+
+  useEffect(() => {
+    if (
+      !connected
+      || user.role !== 'student'
+      || cameraPromptedForSessionRef.current
+      || !participants.some((participant) => participant.id === localParticipantId.current)
+    ) return;
+    cameraPromptedForSessionRef.current = true;
+    toggleCamera();
+  }, [connected, participants, user.role]);
+
+  useEffect(() => {
+    if (!connected) {
+      setSpeakingParticipantIds(new Set());
+      return undefined;
+    }
+    let stopped = false;
+    const detectSpeakers = async () => {
+      const activeIds = new Set();
+      const checks = [...peersRef.current.entries()].map(async ([participantId, peer]) => {
+        const participant = participants.find((item) => item.id === participantId);
+        const stats = await peer.pc.getStats();
+        for (const report of stats.values()) {
+          const isAudio = report.kind === 'audio' || report.mediaType === 'audio';
+          const isActiveAudio = report.type === 'inbound-rtp' || report.type === 'outbound-rtp' || report.type === 'media-source';
+          const speakerId = report.type === 'inbound-rtp' ? participantId : localParticipantId.current;
+          const speakerMuted = speakerId === localParticipantId.current ? muted : participant?.muted;
+          if (
+            isAudio
+            && isActiveAudio
+            && report.audioLevel >= 0.035
+            && speakerId
+            && !speakerMuted
+          ) {
+            activeIds.add(speakerId);
+          }
+        }
+      });
+      await Promise.all(checks);
+      if (stopped) return;
+      setSpeakingParticipantIds((current) => {
+        if (current.size === activeIds.size && [...current].every((participantId) => activeIds.has(participantId))) {
+          return current;
+        }
+        return activeIds;
+      });
+    };
+    const interval = window.setInterval(() => {
+      detectSpeakers().catch((statsError) => {
+        const messageText = readableError(statsError, 'Unable to detect active speakers.');
+        setMediaError((current) => current === messageText ? current : messageText);
+      });
+    }, 500);
+    return () => {
+      stopped = true;
+      window.clearInterval(interval);
+    };
+  }, [connected, muted, participants]);
+
   const toggleMicrophone = async () => {
     if (!connected) return;
     if (muted && !navigator.mediaDevices?.getUserMedia) {
@@ -566,6 +633,7 @@ export default function SessionRoom() {
             setMediaError(readableError(replaceError, 'Unable to stop your camera.'));
           });
       };
+
       await Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(track)));
       cameraStreamRef.current = stream;
       setCameraStream(stream);
@@ -754,7 +822,11 @@ export default function SessionRoom() {
         ? cameraStream
         : remoteMedia[participant.id]?.cameraStream,
     }))
-    .filter((participant) => participant.stream);
+    .filter((participant) => participant.stream)
+    .map((participant) => ({
+      ...participant,
+      isSpeaking: speakingParticipantIds.has(participant.id),
+    }));
 
   if (loading) return <div className="flex min-h-screen items-center justify-center"><Spinner /></div>;
   if (error && !session) {
@@ -791,33 +863,54 @@ export default function SessionRoom() {
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 md:flex-row">
-        <section className="relative flex min-h-56 flex-1 items-center justify-center overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+        <section className="relative flex min-h-56 flex-1 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
           {sharedStream ? (
             <>
-              <VideoStage stream={sharedStream} label={sharer?.name ?? 'A participant'} />
-              {cameraParticipants.length > 0 && (
-              <div className="absolute right-3 top-3 z-10 flex max-w-[55%] gap-2 overflow-x-auto">
-                {cameraParticipants.map((participant) => (
-                  <div key={participant.id} className="relative h-24 w-36 shrink-0 overflow-hidden rounded-lg border border-slate-600 bg-slate-950">
-                    <VideoStage
-                      stream={participant.stream}
-                      label={participant.name}
-                      kind="camera"
-                    />
-                  </div>
-                ))}
+              <div className="relative flex min-h-0 flex-1 items-center justify-center">
+                <VideoStage stream={sharedStream} label={sharer?.name ?? 'A participant'} />
               </div>
+              {cameraParticipants.length > 0 && (
+                <div
+                  className="flex max-h-36 shrink-0 gap-2 overflow-x-auto border-t border-slate-800 bg-slate-950/70 p-2"
+                  aria-label="Participant camera gallery"
+                >
+                  {cameraParticipants.map((participant) => (
+                    <div
+                      key={participant.id}
+                      className={`relative h-24 w-36 shrink-0 overflow-hidden rounded-lg border bg-slate-950 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-slate-700'}`}
+                    >
+                      <VideoStage
+                        stream={participant.stream}
+                        label={`${participant.name}${participant.id === localParticipantId.current ? ' (You)' : ''}`}
+                        kind="camera"
+                      />
+                      {participant.isSpeaking && (
+                        <span className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-emerald-500/90 px-1.5 py-1 text-[10px] font-semibold text-white">
+                          <Volume2 className="size-3" aria-hidden="true" /> Speaking
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
             </>
           ) : cameraParticipants.length > 0 ? (
-            <div className="grid h-full w-full auto-rows-fr grid-cols-1 gap-3 p-3 sm:grid-cols-2">
+            <div className="grid min-h-0 w-full flex-1 auto-rows-[minmax(11rem,1fr)] content-start grid-cols-1 gap-3 overflow-y-auto p-3 sm:grid-cols-2 xl:grid-cols-3">
               {cameraParticipants.map((participant) => (
-                <div key={participant.id} className="relative min-h-0 overflow-hidden rounded-lg bg-slate-950">
+                <div
+                  key={participant.id}
+                  className={`relative min-h-44 overflow-hidden rounded-lg border bg-slate-950 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-slate-800'}`}
+                >
                   <VideoStage
                     stream={participant.stream}
                     label={`${participant.name}${participant.id === localParticipantId.current ? ' (You)' : ''}`}
                     kind="camera"
                   />
+                  {participant.isSpeaking && (
+                    <span className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-emerald-500/90 px-2 py-1 text-xs font-semibold text-white">
+                      <Volume2 className="size-3.5" aria-hidden="true" /> Speaking
+                    </span>
+                  )}
                 </div>
               ))}
             </div>

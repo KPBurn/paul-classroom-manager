@@ -6,6 +6,16 @@ export async function login(req, res) {
   sendSuccess(res, { message: 'Login successful', data });
 }
 
+export async function roleTestingStatus(_req, res) {
+  const data = await authService.getRoleTestingStatus();
+  sendSuccess(res, { data });
+}
+
+export async function loginWithTestRole(req, res) {
+  const data = await authService.loginWithTestRole(req.body.role, { ipAddress: req.ip });
+  sendSuccess(res, { message: 'Temporary role test login successful', data });
+}
+
 export async function register(req, res) {
   const user = await authService.register(req.body, { actor: req.user, ipAddress: req.ip });
   sendSuccess(res, { status: 201, message: 'User created successfully', data: { user } });

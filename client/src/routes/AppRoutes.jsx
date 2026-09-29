@@ -7,6 +7,7 @@ import TeacherLayout from '../layouts/TeacherLayout.jsx';
 import Announcements from '../pages/admin/Announcements.jsx';
 import AdminDashboard from '../pages/admin/Dashboard.jsx';
 import Users from '../pages/admin/Users.jsx';
+import Settings from '../pages/admin/Settings.jsx';
 import ComingSoon from '../pages/shared/ComingSoon.jsx';
 import LandingPage from '../pages/shared/LandingPage.jsx';
 import NotFound from '../pages/shared/NotFound.jsx';
@@ -59,6 +60,7 @@ export default function AppRoutes() {
         <Route path="announcements" element={<Announcements />} />
         <Route path="classrooms" element={suspense(<Classrooms />)} />
         <Route path="schedules" element={suspense(<TeacherSchedule />)} />
+        <Route path="settings" element={<Settings />} />
         {/* Keys stop React reusing one page's filters and search on another. */}
         <Route path="users" element={<Users key="all" />} />
         <Route path="teachers" element={<Users key="teacher" role={ROLES.TEACHER} />} />
