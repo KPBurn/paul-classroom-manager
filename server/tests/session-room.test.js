@@ -25,6 +25,13 @@ const waitForConnect = (socket) => new Promise((resolve, reject) => {
   socket.once('connect', resolve);
   socket.once('connect_error', reject);
 });
+const waitForEvent = (socket, event) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${event}`)), 1_000);
+  socket.once(event, (payload) => {
+    clearTimeout(timer);
+    resolve(payload);
+  });
+});
 const emitAck = (socket, event, ...args) => new Promise((resolve) => {
   socket.emit(event, ...args, resolve);
 });
@@ -96,7 +103,7 @@ async function setupRoom() {
         studentSocket,
         unrelatedSocket,
         adminSocket,
-      ].map((socket) => emitAck(socket, 'room:leave')));
+      ].filter((socket) => socket.connected).map((socket) => emitAck(socket, 'room:leave')));
       teacherSocket.disconnect();
       coTeacherSocket.disconnect();
       studentSocket.disconnect();
@@ -177,6 +184,47 @@ describe('session room collaboration', () => {
       assert.equal(adminRoom.body.data.session.canManageRoom, true);
       const invalidMessage = await emitAck(studentSocket, 'room:message', { body: '   ' });
       assert.ok(invalidMessage.error);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('relays speaking state to the room and clears it when muted', async () => {
+    const { session, teacherSocket, studentSocket, unrelatedSocket, cleanup } = await setupRoom();
+    try {
+      await emitAck(teacherSocket, 'room:join', String(session._id));
+      await emitAck(studentSocket, 'room:join', String(session._id));
+
+      assert.ok((await emitAck(studentSocket, 'room:speaking', true)).error);
+      assert.ok((await emitAck(unrelatedSocket, 'room:speaking', false)).error);
+
+      assert.deepEqual(await emitAck(studentSocket, 'room:microphone', false), { success: true });
+      const started = waitForEvent(teacherSocket, 'room:participant-speaking');
+      assert.deepEqual(await emitAck(studentSocket, 'room:speaking', true), { success: true });
+      assert.deepEqual(await started, { participantId: studentSocket.id, speaking: true });
+
+      const stopped = waitForEvent(teacherSocket, 'room:participant-speaking');
+      assert.deepEqual(await emitAck(studentSocket, 'room:microphone', true), { success: true });
+      assert.deepEqual(await stopped, { participantId: studentSocket.id, speaking: false });
+      assert.ok((await emitAck(studentSocket, 'room:speaking', true)).error);
+
+      await emitAck(studentSocket, 'room:microphone', false);
+      const speakingBeforeLeave = waitForEvent(teacherSocket, 'room:participant-speaking');
+      await emitAck(studentSocket, 'room:speaking', true);
+      assert.deepEqual(await speakingBeforeLeave, { participantId: studentSocket.id, speaking: true });
+      const stoppedOnLeave = waitForEvent(teacherSocket, 'room:participant-speaking');
+      assert.deepEqual(await emitAck(studentSocket, 'room:leave'), { success: true });
+      assert.deepEqual(await stoppedOnLeave, { participantId: studentSocket.id, speaking: false });
+
+      await emitAck(studentSocket, 'room:join', String(session._id));
+      await emitAck(studentSocket, 'room:microphone', false);
+      const speakingBeforeDisconnect = waitForEvent(teacherSocket, 'room:participant-speaking');
+      await emitAck(studentSocket, 'room:speaking', true);
+      assert.deepEqual(await speakingBeforeDisconnect, { participantId: studentSocket.id, speaking: true });
+      const stoppedOnDisconnect = waitForEvent(teacherSocket, 'room:participant-speaking');
+      const disconnectedParticipantId = studentSocket.id;
+      studentSocket.disconnect();
+      assert.deepEqual(await stoppedOnDisconnect, { participantId: disconnectedParticipantId, speaking: false });
     } finally {
       await cleanup();
     }

@@ -77,27 +77,11 @@ function VideoStage({ stream, label, muted = true, kind = 'screen' }) {
   );
 }
 
-function AudioOutput({
-  stream,
-  onBlocked,
-  elementKey,
-  registerElement,
-  registerAudioContext,
-  participantId,
-  onSpeakingChange,
-  detectSpeech = false,
-}) {
+function AudioOutput({ stream, onBlocked, elementKey, registerElement }) {
   const audioRef = useRef(null);
 
   useEffect(() => {
     registerElement(elementKey, audioRef.current);
-    let context;
-    let source;
-    let analyser;
-    let silentGain;
-    let interval;
-    let speaking = false;
-    let active = true;
     if (audioRef.current) {
       audioRef.current.srcObject = stream;
       audioRef.current.play().catch((error) => {
@@ -106,62 +90,12 @@ function AudioOutput({
           : 'Unable to play participant audio.');
       });
     }
-    if (detectSpeech && typeof window.AudioContext === 'function') {
-      try {
-        context = new window.AudioContext();
-        analyser = context.createAnalyser();
-        analyser.fftSize = 512;
-        source = context.createMediaStreamSource(stream);
-        silentGain = context.createGain();
-        silentGain.gain.value = 0;
-        source.connect(analyser);
-        analyser.connect(silentGain);
-        silentGain.connect(context.destination);
-        registerAudioContext(elementKey, context);
-        const samples = new Uint8Array(analyser.fftSize);
-        interval = window.setInterval(() => {
-          analyser.getByteTimeDomainData(samples);
-          let sum = 0;
-          for (const sample of samples) {
-            const normalized = (sample - 128) / 128;
-            sum += normalized * normalized;
-          }
-          const nextSpeaking = Math.sqrt(sum / samples.length) >= 0.012;
-          if (speaking !== nextSpeaking) {
-            speaking = nextSpeaking;
-            onSpeakingChange(participantId, nextSpeaking);
-          }
-        }, 100);
-        context.resume().catch((audioError) => {
-          if (audioError.name === 'NotAllowedError') {
-            onBlocked('Click Enable room audio so this device can detect when participants are speaking.');
-          } else {
-            onBlocked('Unable to monitor participant audio activity.');
-          }
-        });
-      } catch (audioError) {
-        onBlocked(readableError(audioError, 'Unable to monitor participant audio activity.'));
-      }
-    }
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-      if (speaking) onSpeakingChange(participantId, false);
-      registerAudioContext(elementKey, null);
-      registerElement(elementKey, null);
-      source?.disconnect();
-      analyser?.disconnect();
-      silentGain?.disconnect();
-      if (context && context.state !== 'closed') {
-        context.close().catch((audioError) => {
-          onBlocked(readableError(audioError, 'Unable to close participant audio monitor.'));
-        });
-      }
-    };
-  }, [detectSpeech, elementKey, onBlocked, onSpeakingChange, participantId, registerAudioContext, registerElement, stream]);
+    return () => registerElement(elementKey, null);
+  }, [elementKey, onBlocked, registerElement, stream]);
 
   return <audio ref={audioRef} autoPlay playsInline />;
 }
+
 
 export default function SessionRoom() {
   const { id } = useParams();
@@ -199,10 +133,9 @@ export default function SessionRoom() {
   const screenStreamRef = useRef(null);
   const messagesEndRef = useRef(null);
   const audioElementsRef = useRef(new Map());
-  const audioContextsRef = useRef(new Map());
   const fileInputRef = useRef(null);
   const localParticipantId = useRef(null);
-  const micLevelRef = useRef(0);
+  const localSpeakingRef = useRef(false);
   const cameraPromptedForSessionRef = useRef(false);
   const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const mountedRef = useRef(false);
@@ -212,10 +145,6 @@ export default function SessionRoom() {
   const registerAudioElement = useCallback((key, element) => {
     if (element) audioElementsRef.current.set(key, element);
     else audioElementsRef.current.delete(key);
-  }, []);
-  const registerAudioContext = useCallback((key, context) => {
-    if (context) audioContextsRef.current.set(key, context);
-    else audioContextsRef.current.delete(key);
   }, []);
   const setParticipantSpeaking = useCallback((participantId, speaking) => {
     setSpeakingParticipantIds((current) => {
@@ -496,6 +425,9 @@ export default function SessionRoom() {
           setParticipants((current) => current.map((item) => item.id === participant.id ? participant : item));
           if (participant.muted) setParticipantSpeaking(participant.id, false);
         });
+        socket.on('room:participant-speaking', ({ participantId, speaking }) => {
+          setParticipantSpeaking(participantId, speaking);
+        });
         socket.on('room:participant-left', ({ participantId }) => {
           setParticipants((current) => current.filter((item) => item.id !== participantId));
           setParticipantSpeaking(participantId, false);
@@ -585,7 +517,7 @@ export default function SessionRoom() {
 
   useEffect(() => {
     if (!connected || muted) {
-      micLevelRef.current = 0;
+      localSpeakingRef.current = false;
       setMicLevel(0);
       return undefined;
     }
@@ -612,8 +544,18 @@ export default function SessionRoom() {
             sum += normalized * normalized;
           }
           const level = Math.min(1, Math.sqrt(sum / samples.length) * 5);
-          micLevelRef.current = level;
           setMicLevel(level);
+          const nextSpeaking = localSpeakingRef.current
+            ? level >= 0.035
+            : level >= 0.06;
+          if (nextSpeaking !== localSpeakingRef.current) {
+            localSpeakingRef.current = nextSpeaking;
+            socketRef.current?.emit('room:speaking', nextSpeaking, (response) => {
+              if (response?.error) {
+                setMediaError(readableError(new Error(response.error), 'Unable to notify the room about microphone activity.'));
+              }
+            });
+          }
         }, 100);
       })
       .catch((audioError) => {
@@ -630,7 +572,10 @@ export default function SessionRoom() {
           setMediaError(readableError(audioError, 'Unable to close microphone level monitor.'));
         });
       }
-      micLevelRef.current = 0;
+      if (localSpeakingRef.current) {
+        localSpeakingRef.current = false;
+        socketRef.current?.emit('room:speaking', false);
+      }
       setMicLevel(0);
     };
   }, [connected, muted]);
@@ -638,7 +583,7 @@ export default function SessionRoom() {
   useEffect(() => {
     const localId = localParticipantId.current;
     if (!localId) return;
-    setParticipantSpeaking(localId, micLevel >= 0.06);
+    setParticipantSpeaking(localId, localSpeakingRef.current);
   }, [micLevel, setParticipantSpeaking]);
 
   const toggleMicrophone = async () => {
@@ -897,10 +842,7 @@ export default function SessionRoom() {
 
   const enableRoomAudio = async () => {
     try {
-      await Promise.all([
-        ...[...audioElementsRef.current.values()].map((element) => element.play()),
-        ...[...audioContextsRef.current.values()].map((context) => context.resume()),
-      ]);
+      await Promise.all([...audioElementsRef.current.values()].map((element) => element.play()));
       setAudioNeedsGesture(false);
       setMediaError('');
     } catch (playError) {
@@ -913,19 +855,24 @@ export default function SessionRoom() {
   const sharedStream = screenSharerId === localParticipantId.current
     ? screenStream
     : remoteMedia[screenSharerId]?.screenStream;
-  const cameraParticipants = participants
+  const galleryParticipants = participants
     .map((participant) => ({
       ...participant,
       stream: participant.id === localParticipantId.current
         ? cameraStream
         : remoteMedia[participant.id]?.cameraStream,
     }))
-    .filter((participant) => participant.stream)
     .map((participant) => ({
       ...participant,
       isSpeaking: speakingParticipantIds.has(participant.id),
     }));
+  const cameraParticipants = galleryParticipants.filter((participant) => participant.stream);
   const speakingParticipants = participants.filter((participant) => speakingParticipantIds.has(participant.id));
+  const gridColumns = Math.min(
+    Math.max(1, galleryParticipants.length),
+    Math.max(1, Math.ceil(Math.sqrt(galleryParticipants.length * (16 / 9)))),
+  );
+  const gridRows = Math.ceil(galleryParticipants.length / gridColumns);
 
   if (loading) return <div className="flex min-h-screen items-center justify-center"><Spinner /></div>;
   if (error && !session) {
@@ -976,21 +923,31 @@ export default function SessionRoom() {
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 md:flex-row">
-        <section className="relative flex min-h-56 flex-1 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
-          {sharedStream ? (
-            <>
-              <div className="relative flex min-h-0 flex-1 items-center justify-center">
-                <VideoStage stream={sharedStream} label={sharer?.name ?? 'A participant'} />
+        <section className="relative flex min-h-56 min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+          {screenSharerId ? (
+            <div className="flex min-h-0 min-w-0 flex-1 gap-2 p-2">
+              <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-lg bg-black">
+                {sharedStream ? (
+                  <VideoStage stream={sharedStream} label={sharer?.name ?? 'A participant'} />
+                ) : (
+                  <div className="px-6 text-center">
+                    <MonitorUp className="mx-auto size-10 text-indigo-300" aria-hidden="true" />
+                    <p className="mt-3 text-sm font-medium text-white">
+                      {sharer?.name ?? 'The presenter'} is sharing their screen
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">Connecting to the presentation…</p>
+                  </div>
+                )}
               </div>
               {cameraParticipants.length > 0 && (
                 <div
-                  className="flex max-h-36 shrink-0 gap-2 overflow-x-auto border-t border-slate-800 bg-slate-950/70 p-2"
-                  aria-label="Participant camera gallery"
+                  className="flex w-28 shrink-0 flex-col gap-2 overflow-y-auto sm:w-40 lg:w-48"
+                  aria-label="Participant cameras"
                 >
                   {cameraParticipants.map((participant) => (
                     <div
                       key={participant.id}
-                      className={`relative h-24 w-36 shrink-0 overflow-hidden rounded-lg border bg-slate-950 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-slate-700'}`}
+                      className={`relative aspect-video min-h-20 shrink-0 overflow-hidden rounded-lg border bg-slate-900 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-slate-700'}`}
                     >
                       <VideoStage
                         stream={participant.stream}
@@ -998,27 +955,46 @@ export default function SessionRoom() {
                         kind="camera"
                       />
                       {participant.isSpeaking && (
-                        <span className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-emerald-500/90 px-1.5 py-1 text-[10px] font-semibold text-white">
-                          <Volume2 className="size-3" aria-hidden="true" /> Speaking
+                        <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-md bg-emerald-500/90 px-1.5 py-1 text-[10px] font-semibold text-white">
+                          <Volume2 className="size-3" aria-hidden="true" />
                         </span>
                       )}
                     </div>
                   ))}
                 </div>
               )}
-            </>
-          ) : cameraParticipants.length > 0 ? (
-            <div className="grid min-h-0 w-full flex-1 auto-rows-[minmax(11rem,1fr)] content-start grid-cols-1 gap-3 overflow-y-auto p-3 sm:grid-cols-2 xl:grid-cols-3">
-              {cameraParticipants.map((participant) => (
+            </div>
+          ) : galleryParticipants.length > 0 ? (
+            <div
+              className="grid min-h-0 w-full flex-1 gap-2 overflow-y-auto p-2 sm:gap-3 sm:p-3"
+              style={{
+                gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
+                gridTemplateRows: `repeat(${gridRows}, minmax(8rem, 1fr))`,
+              }}
+              aria-label="Classroom participants"
+            >
+              {galleryParticipants.map((participant) => (
                 <div
                   key={participant.id}
-                  className={`relative min-h-44 overflow-hidden rounded-lg border bg-slate-950 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-slate-800'}`}
+                  className={`relative min-h-0 min-w-0 overflow-hidden rounded-lg border bg-slate-900 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-slate-800'}`}
                 >
-                  <VideoStage
-                    stream={participant.stream}
-                    label={`${participant.name}${participant.id === localParticipantId.current ? ' (You)' : ''}`}
-                    kind="camera"
-                  />
+                  {participant.stream ? (
+                    <VideoStage
+                      stream={participant.stream}
+                      label={`${participant.name}${participant.id === localParticipantId.current ? ' (You)' : ''}`}
+                      kind="camera"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-400">
+                      <span className="flex size-12 items-center justify-center rounded-full bg-slate-700 text-sm font-semibold text-slate-100">
+                        {initials(participant.name)}
+                      </span>
+                      <span className="max-w-full truncate px-2 text-xs font-medium text-slate-100">
+                        {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
+                      </span>
+                      <span className="text-xs">Camera off</span>
+                    </div>
+                  )}
                   {participant.isSpeaking && (
                     <span className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-emerald-500/90 px-2 py-1 text-xs font-semibold text-white">
                       <Volume2 className="size-3.5" aria-hidden="true" /> Speaking
@@ -1328,10 +1304,6 @@ export default function SessionRoom() {
                 stream={media.audioStream}
                 onBlocked={handleAudioBlocked}
                 registerElement={registerAudioElement}
-                registerAudioContext={registerAudioContext}
-                participantId={participantId}
-                onSpeakingChange={setParticipantSpeaking}
-                detectSpeech
               />
             )}
             {media.presentationAudioStream && (
@@ -1340,7 +1312,6 @@ export default function SessionRoom() {
                 stream={media.presentationAudioStream}
                 onBlocked={handleAudioBlocked}
                 registerElement={registerAudioElement}
-                registerAudioContext={registerAudioContext}
               />
             )}
           </Fragment>

@@ -131,6 +131,10 @@ export function attachSessionSocket(httpServer) {
       const room = roomName(sessionId);
       let activity = null;
       let leaveError = null;
+      if (socket.data.speaking) {
+        io.to(room).emit('room:participant-speaking', { participantId: socket.id, speaking: false });
+        socket.data.speaking = false;
+      }
       if (state) {
         const participant = state.participants.get(socket.id);
         state.participants.delete(socket.id);
@@ -205,6 +209,7 @@ export function attachSessionSocket(httpServer) {
         socket.data.sessionId = sessionId;
         socket.data.sessionOpenAccess = session.classroom.openAccess;
         socket.data.muted = true;
+        socket.data.speaking = false;
         socket.join(room);
         state.participants.set(socket.id, participant);
         socket.to(room).emit('room:participant-joined', participant);
@@ -266,9 +271,33 @@ export function attachSessionSocket(httpServer) {
         return;
       }
       socket.data.muted = muted;
+      if (muted && socket.data.speaking) {
+        socket.data.speaking = false;
+        io.to(roomName(sessionId)).emit('room:participant-speaking', { participantId: socket.id, speaking: false });
+      }
       const participant = participantResult(socket);
       rooms.get(sessionId)?.participants.set(socket.id, participant);
       io.to(roomName(sessionId)).emit('room:participant-updated', participant);
+      ack?.({ success: true });
+    });
+
+    socket.on('room:speaking', (speaking, ack) => {
+      const sessionId = socket.data.sessionId;
+      if (!sessionId || typeof speaking !== 'boolean') {
+        ack?.({ error: 'Join the session before reporting microphone activity' });
+        return;
+      }
+      if (speaking && socket.data.muted !== false) {
+        ack?.({ error: 'Unmute your microphone before reporting speech' });
+        return;
+      }
+      if (socket.data.speaking !== speaking) {
+        socket.data.speaking = speaking;
+        io.to(roomName(sessionId)).emit('room:participant-speaking', {
+          participantId: socket.id,
+          speaking,
+        });
+      }
       ack?.({ success: true });
     });
 
