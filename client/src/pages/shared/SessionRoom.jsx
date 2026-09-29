@@ -144,7 +144,6 @@ export default function SessionRoom() {
   const fileInputRef = useRef(null);
   const localParticipantId = useRef(null);
   const localSpeakingRef = useRef(false);
-  const cameraPromptedForSessionRef = useRef(false);
   const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const mountedRef = useRef(false);
   const refreshFiles = useCallback(async () => {
@@ -395,7 +394,6 @@ export default function SessionRoom() {
         });
         socket.on('disconnect', () => {
           setConnected(false);
-          cameraPromptedForSessionRef.current = false;
           setMuted(true);
           setScreenSharerId(null);
           setParticipants([]);
@@ -504,21 +502,6 @@ export default function SessionRoom() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, activeTab]);
-
-  useEffect(() => {
-    cameraPromptedForSessionRef.current = false;
-  }, [id]);
-
-  useEffect(() => {
-    if (
-      !connected
-      || user.role !== 'student'
-      || cameraPromptedForSessionRef.current
-      || !participants.some((participant) => participant.id === localParticipantId.current)
-    ) return;
-    cameraPromptedForSessionRef.current = true;
-    toggleCamera();
-  }, [connected, participants, user.role]);
 
   useEffect(() => {
     if (!connected || muted) {
