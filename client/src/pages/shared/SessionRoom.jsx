@@ -77,11 +77,27 @@ function VideoStage({ stream, label, muted = true, kind = 'screen' }) {
   );
 }
 
-function AudioOutput({ stream, onBlocked, elementKey, registerElement }) {
+function AudioOutput({
+  stream,
+  onBlocked,
+  elementKey,
+  registerElement,
+  registerAudioContext,
+  participantId,
+  onSpeakingChange,
+  detectSpeech = false,
+}) {
   const audioRef = useRef(null);
 
   useEffect(() => {
     registerElement(elementKey, audioRef.current);
+    let context;
+    let source;
+    let analyser;
+    let silentGain;
+    let interval;
+    let speaking = false;
+    let active = true;
     if (audioRef.current) {
       audioRef.current.srcObject = stream;
       audioRef.current.play().catch((error) => {
@@ -90,8 +106,59 @@ function AudioOutput({ stream, onBlocked, elementKey, registerElement }) {
           : 'Unable to play participant audio.');
       });
     }
-    return () => registerElement(elementKey, null);
-  }, [elementKey, onBlocked, registerElement, stream]);
+    if (detectSpeech && typeof window.AudioContext === 'function') {
+      try {
+        context = new window.AudioContext();
+        analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        source = context.createMediaStreamSource(stream);
+        silentGain = context.createGain();
+        silentGain.gain.value = 0;
+        source.connect(analyser);
+        analyser.connect(silentGain);
+        silentGain.connect(context.destination);
+        registerAudioContext(elementKey, context);
+        const samples = new Uint8Array(analyser.fftSize);
+        interval = window.setInterval(() => {
+          analyser.getByteTimeDomainData(samples);
+          let sum = 0;
+          for (const sample of samples) {
+            const normalized = (sample - 128) / 128;
+            sum += normalized * normalized;
+          }
+          const nextSpeaking = Math.sqrt(sum / samples.length) >= 0.012;
+          if (speaking !== nextSpeaking) {
+            speaking = nextSpeaking;
+            onSpeakingChange(participantId, nextSpeaking);
+          }
+        }, 100);
+        context.resume().catch((audioError) => {
+          if (audioError.name === 'NotAllowedError') {
+            onBlocked('Click Enable room audio so this device can detect when participants are speaking.');
+          } else {
+            onBlocked('Unable to monitor participant audio activity.');
+          }
+        });
+      } catch (audioError) {
+        onBlocked(readableError(audioError, 'Unable to monitor participant audio activity.'));
+      }
+    }
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      if (speaking) onSpeakingChange(participantId, false);
+      registerAudioContext(elementKey, null);
+      registerElement(elementKey, null);
+      source?.disconnect();
+      analyser?.disconnect();
+      silentGain?.disconnect();
+      if (context && context.state !== 'closed') {
+        context.close().catch((audioError) => {
+          onBlocked(readableError(audioError, 'Unable to close participant audio monitor.'));
+        });
+      }
+    };
+  }, [detectSpeech, elementKey, onBlocked, onSpeakingChange, participantId, registerAudioContext, registerElement, stream]);
 
   return <audio ref={audioRef} autoPlay playsInline />;
 }
@@ -132,10 +199,10 @@ export default function SessionRoom() {
   const screenStreamRef = useRef(null);
   const messagesEndRef = useRef(null);
   const audioElementsRef = useRef(new Map());
+  const audioContextsRef = useRef(new Map());
   const fileInputRef = useRef(null);
   const localParticipantId = useRef(null);
   const micLevelRef = useRef(0);
-  const audioStatsRef = useRef(new Map());
   const cameraPromptedForSessionRef = useRef(false);
   const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const mountedRef = useRef(false);
@@ -145,6 +212,19 @@ export default function SessionRoom() {
   const registerAudioElement = useCallback((key, element) => {
     if (element) audioElementsRef.current.set(key, element);
     else audioElementsRef.current.delete(key);
+  }, []);
+  const registerAudioContext = useCallback((key, context) => {
+    if (context) audioContextsRef.current.set(key, context);
+    else audioContextsRef.current.delete(key);
+  }, []);
+  const setParticipantSpeaking = useCallback((participantId, speaking) => {
+    setSpeakingParticipantIds((current) => {
+      if (current.has(participantId) === speaking) return current;
+      const next = new Set(current);
+      if (speaking) next.add(participantId);
+      else next.delete(participantId);
+      return next;
+    });
   }, []);
   const handleAudioBlocked = useCallback((messageText) => {
     setAudioNeedsGesture(true);
@@ -414,9 +494,11 @@ export default function SessionRoom() {
         });
         socket.on('room:participant-updated', (participant) => {
           setParticipants((current) => current.map((item) => item.id === participant.id ? participant : item));
+          if (participant.muted) setParticipantSpeaking(participant.id, false);
         });
         socket.on('room:participant-left', ({ participantId }) => {
           setParticipants((current) => current.filter((item) => item.id !== participantId));
+          setParticipantSpeaking(participantId, false);
           setScreenSharerId((currentId) => currentId === participantId ? null : currentId);
           closePeer(participantId);
         });
@@ -502,70 +584,6 @@ export default function SessionRoom() {
   }, [connected, participants, user.role]);
 
   useEffect(() => {
-    if (!connected) {
-      setSpeakingParticipantIds(new Set());
-      return undefined;
-    }
-    let stopped = false;
-    const detectSpeakers = async () => {
-      const activeIds = new Set();
-      const checks = [...peersRef.current.entries()].map(async ([participantId, peer]) => {
-        const participant = participants.find((item) => item.id === participantId);
-        const stats = await peer.pc.getStats();
-        for (const report of stats.values()) {
-          const isAudio = report.kind === 'audio' || report.mediaType === 'audio';
-          const isInboundAudio = report.type === 'inbound-rtp';
-          if (!isAudio || !isInboundAudio) continue;
-
-          const previous = audioStatsRef.current.get(report.id);
-          let level = report.audioLevel;
-          if (
-            !Number.isFinite(level)
-            && previous
-            && Number.isFinite(report.totalAudioEnergy)
-            && Number.isFinite(report.totalSamplesDuration)
-          ) {
-            const energyDelta = report.totalAudioEnergy - previous.energy;
-            const durationDelta = report.totalSamplesDuration - previous.duration;
-            if (energyDelta >= 0 && durationDelta > 0) {
-              level = Math.sqrt(energyDelta / durationDelta);
-            }
-          }
-          if (Number.isFinite(report.totalAudioEnergy) && Number.isFinite(report.totalSamplesDuration)) {
-            audioStatsRef.current.set(report.id, {
-              energy: report.totalAudioEnergy,
-              duration: report.totalSamplesDuration,
-            });
-          }
-          if (level >= 0.035 && !participant?.muted) {
-            activeIds.add(participantId);
-          }
-        }
-      });
-      await Promise.all(checks);
-      if (stopped) return;
-      setSpeakingParticipantIds((current) => {
-        const localId = localParticipantId.current;
-        if (localId && micLevelRef.current >= 0.06) activeIds.add(localId);
-        if (current.size === activeIds.size && [...current].every((participantId) => activeIds.has(participantId))) {
-          return current;
-        }
-        return activeIds;
-      });
-    };
-    const interval = window.setInterval(() => {
-      detectSpeakers().catch((statsError) => {
-        const messageText = readableError(statsError, 'Unable to detect active speakers.');
-        setMediaError((current) => current === messageText ? current : messageText);
-      });
-    }, 500);
-    return () => {
-      stopped = true;
-      window.clearInterval(interval);
-    };
-  }, [connected, participants]);
-
-  useEffect(() => {
     if (!connected || muted) {
       micLevelRef.current = 0;
       setMicLevel(0);
@@ -620,15 +638,8 @@ export default function SessionRoom() {
   useEffect(() => {
     const localId = localParticipantId.current;
     if (!localId) return;
-    setSpeakingParticipantIds((current) => {
-      const speaking = micLevel >= 0.06;
-      if (current.has(localId) === speaking) return current;
-      const next = new Set(current);
-      if (speaking) next.add(localId);
-      else next.delete(localId);
-      return next;
-    });
-  }, [micLevel]);
+    setParticipantSpeaking(localId, micLevel >= 0.06);
+  }, [micLevel, setParticipantSpeaking]);
 
   const toggleMicrophone = async () => {
     if (!connected) return;
@@ -886,7 +897,10 @@ export default function SessionRoom() {
 
   const enableRoomAudio = async () => {
     try {
-      await Promise.all([...audioElementsRef.current.values()].map((element) => element.play()));
+      await Promise.all([
+        ...[...audioElementsRef.current.values()].map((element) => element.play()),
+        ...[...audioContextsRef.current.values()].map((context) => context.resume()),
+      ]);
       setAudioNeedsGesture(false);
       setMediaError('');
     } catch (playError) {
@@ -911,6 +925,7 @@ export default function SessionRoom() {
       ...participant,
       isSpeaking: speakingParticipantIds.has(participant.id),
     }));
+  const speakingParticipants = participants.filter((participant) => speakingParticipantIds.has(participant.id));
 
   if (loading) return <div className="flex min-h-screen items-center justify-center"><Spinner /></div>;
   if (error && !session) {
@@ -939,6 +954,20 @@ export default function SessionRoom() {
             <span className={`size-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
             {connected ? 'Room connected' : 'Connecting'}
           </span>
+          {speakingParticipants.length > 0 && (
+            <span
+              className="flex max-w-48 items-center gap-1.5 truncate rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-200"
+              role="status"
+              aria-live="polite"
+            >
+              <Volume2 className="size-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">
+                {speakingParticipants.length === 1
+                  ? `${speakingParticipants[0].name} is speaking`
+                  : `${speakingParticipants.length} people speaking`}
+              </span>
+            </span>
+          )}
           <Button variant="ghost" className="!px-3 !py-2 text-slate-300" onClick={exitRoom} aria-label="Leave class room">
             <ArrowLeft className="size-4" />
             <span className="hidden sm:inline">Leave</span>
@@ -1196,10 +1225,15 @@ export default function SessionRoom() {
                         {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
                       </span>
                       <span className="block text-xs capitalize text-slate-500">{participant.role}</span>
+                      {speakingParticipantIds.has(participant.id) && (
+                        <span className="mt-0.5 block text-xs font-medium text-emerald-300">Speaking</span>
+                      )}
                     </span>
-                    {participant.muted
-                      ? <MicOff className="size-4 text-slate-500" aria-label="Muted" />
-                      : <Mic className="size-4 text-emerald-400" aria-label="Microphone on" />}
+                    {speakingParticipantIds.has(participant.id)
+                      ? <Volume2 className="size-4 text-emerald-300" aria-label="Speaking" />
+                      : participant.muted
+                        ? <MicOff className="size-4 text-slate-500" aria-label="Muted" />
+                        : <Mic className="size-4 text-emerald-400" aria-label="Microphone on" />}
                   </li>
                 ))}
               </ul>
@@ -1294,6 +1328,10 @@ export default function SessionRoom() {
                 stream={media.audioStream}
                 onBlocked={handleAudioBlocked}
                 registerElement={registerAudioElement}
+                registerAudioContext={registerAudioContext}
+                participantId={participantId}
+                onSpeakingChange={setParticipantSpeaking}
+                detectSpeech
               />
             )}
             {media.presentationAudioStream && (
@@ -1302,6 +1340,7 @@ export default function SessionRoom() {
                 stream={media.presentationAudioStream}
                 onBlocked={handleAudioBlocked}
                 registerElement={registerAudioElement}
+                registerAudioContext={registerAudioContext}
               />
             )}
           </Fragment>
