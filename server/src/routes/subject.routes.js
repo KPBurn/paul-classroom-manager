@@ -1,5 +1,5 @@
 import express, { Router } from 'express';
-import { list, create, get, uploadMaterial, downloadMaterial } from '../controllers/subject.controller.js';
+import { list, create, get, uploadMaterial, downloadMaterial, deleteMaterial } from '../controllers/subject.controller.js';
 import { authenticateUser } from '../middleware/auth.middleware.js';
 import { requireRole } from '../middleware/role.middleware.js';
 import { validate } from '../middleware/validation.middleware.js';
@@ -27,6 +27,12 @@ router.get(
   requireRole('teacher', 'student'),
   validate({ params: subjectMaterialParamsSchema }),
   downloadMaterial,
+);
+router.delete(
+  '/:id/materials/:materialId',
+  requireRole('teacher'),
+  validate({ params: subjectMaterialParamsSchema }),
+  deleteMaterial,
 );
 
 export default router;

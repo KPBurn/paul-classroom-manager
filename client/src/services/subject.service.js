@@ -16,11 +16,14 @@ export const subjectService = {
     return data.data.subject;
   },
 
-  async uploadMaterial(id, file, availableAt) {
+  async uploadMaterial(id, file, { availableAt, title, description } = {}) {
     const { data } = await api.post(`/subjects/${id}/materials`, file, {
       headers: {
         'Content-Type': 'application/octet-stream',
         'X-File-Name': encodeURIComponent(file.name),
+        ...(file.type && { 'X-File-Type': file.type }),
+        ...(title && { 'X-Material-Title': encodeURIComponent(title) }),
+        ...(description && { 'X-Material-Description': encodeURIComponent(description) }),
         ...(availableAt && { 'X-Available-At': availableAt }),
       },
     });
@@ -32,5 +35,9 @@ export const subjectService = {
       responseType: 'blob',
     });
     return data;
+  },
+
+  async deleteMaterial(subjectId, materialId) {
+    await api.delete(`/subjects/${subjectId}/materials/${materialId}`);
   },
 };

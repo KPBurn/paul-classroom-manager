@@ -1,6 +1,12 @@
 import * as subjectService from '../services/subject.service.js';
 import { AppError } from '../utils/AppError.js';
-import { MAX_UPLOAD_FILE_SIZE, getSafeFileName } from '../utils/file.js';
+import {
+  MAX_UPLOAD_FILE_SIZE,
+  PREVIEWABLE_CONTENT_TYPES,
+  getOptionalTextHeader,
+  getSafeContentType,
+  getSafeFileName,
+} from '../utils/file.js';
 import { sendSuccess } from '../utils/apiResponse.js';
 
 export async function list(req, res) {
@@ -40,16 +46,31 @@ export async function uploadMaterial(req, res) {
 
   const material = await subjectService.createSubjectMaterial(
     req.params.id,
-    { name: getSafeFileName(req.get('x-file-name')), data: req.body, availableAt },
+    {
+      name: getSafeFileName(req.get('x-file-name')),
+      title: getOptionalTextHeader(req.get('x-material-title'), 'material title', 180),
+      description: getOptionalTextHeader(req.get('x-material-description'), 'material description', 1000),
+      contentType: getSafeContentType(req.get('x-file-type')),
+      data: req.body,
+      availableAt,
+    },
     req.user,
   );
   sendSuccess(res, { status: 201, message: 'Material uploaded successfully', data: { material } });
 }
 
+export async function deleteMaterial(req, res) {
+  await subjectService.deleteSubjectMaterial(req.params.id, req.params.materialId, {
+    actor: req.user,
+    ipAddress: req.ip,
+  });
+  sendSuccess(res, { message: 'Material deleted successfully' });
+}
+
 export async function downloadMaterial(req, res) {
   const material = await subjectService.getSubjectMaterial(req.params.id, req.params.materialId, req.user);
   res.set({
-    'Content-Type': 'application/octet-stream',
+    'Content-Type': PREVIEWABLE_CONTENT_TYPES.has(material.contentType) ? material.contentType : 'application/octet-stream',
     'Content-Length': String(material.data.length),
     'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(material.name)}`,
     'X-Content-Type-Options': 'nosniff',

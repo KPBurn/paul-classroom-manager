@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import AnnouncementFeed from '../../components/announcements/AnnouncementFeed.jsx';
 import AnnouncementFormModal from '../../components/announcements/AnnouncementFormModal.jsx';
 import { useAnnouncementActions } from '../../components/announcements/useAnnouncementActions.jsx';
-import ClassroomSubjects from '../../components/classrooms/ClassroomSubjects.jsx';
+import ClassroomMaterials from '../../components/materials/ClassroomMaterials.jsx';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
@@ -142,7 +142,8 @@ export default function ClassroomDetail() {
       </header>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <section className="min-w-0 lg:col-span-2" aria-labelledby="class-announcements">
+        <div className="min-w-0 space-y-8 lg:col-span-2">
+        <section aria-labelledby="class-announcements">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 id="class-announcements" className="text-sm font-semibold uppercase tracking-wider text-slate-500">
               Class announcements
@@ -180,6 +181,9 @@ export default function ClassroomDetail() {
             )}
           />
         </section>
+
+        <ClassroomMaterials classroomId={id} canManage={canManage} archived={classroom.archived} />
+        </div>
 
         {/* On small screens the aside's cards join the page flow so upcoming sessions (and Join) come first. */}
         <aside className="contents lg:block lg:space-y-6">
@@ -221,8 +225,6 @@ export default function ClassroomDetail() {
               </ul>
             )}
           </section>
-
-          <ClassroomSubjects classroomId={id} canManage={canManage} archived={classroom.archived} />
 
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs" aria-labelledby="class-people">
             <h2 id="class-people" className="flex items-center gap-2 font-semibold text-slate-900">

@@ -123,4 +123,57 @@ describe('subject materials', () => {
     assert.equal(badRelease.status, 400);
     assert.equal(await SubjectMaterial.countDocuments(), 0);
   });
+
+  it('stores titles and file types, previews safe images, and lets the teacher remove materials', async () => {
+    const teacher = await createUser({ role: 'teacher' });
+    const student = await createUser({ role: 'student' });
+    const teacherToken = await login(teacher);
+    const studentToken = await login(student);
+    const classroom = await Classroom.create({ name: 'Grade 5', teacher: teacher._id, students: [student._id] });
+    const subject = await Subject.create({ name: 'Science', classroom: classroom._id, createdBy: teacher._id });
+    const upload = (fileName, fileType, extra = {}) => {
+      const req = request(app)
+        .post(`/api/subjects/${subject.id}/materials`)
+        .set(auth(teacherToken))
+        .set('Content-Type', 'application/octet-stream')
+        .set('X-File-Name', fileName)
+        .set('X-File-Type', fileType);
+      for (const [header, value] of Object.entries(extra)) req.set(header, value);
+      return req.send(Buffer.from('file bytes'));
+    };
+
+    const image = await upload('leaf.png', 'image/png', {
+      'X-Material-Title': encodeURIComponent('Leaf diagram'),
+      'X-Material-Description': encodeURIComponent('Label each part before Friday.'),
+    });
+    assert.equal(image.status, 201);
+    assert.equal(image.body.data.material.title, 'Leaf diagram');
+    assert.equal(image.body.data.material.description, 'Label each part before Friday.');
+    assert.equal(image.body.data.material.contentType, 'image/png');
+
+    const imageDownload = await request(app)
+      .get(`/api/subjects/${subject.id}/materials/${image.body.data.material.id}`)
+      .set(auth(studentToken));
+    assert.equal(imageDownload.headers['content-type'], 'image/png');
+
+    // Script-capable types are stored but only ever served as downloads.
+    const svg = await upload('drawing.svg', 'image/svg+xml');
+    assert.equal(svg.body.data.material.contentType, 'image/svg+xml');
+    const svgDownload = await request(app)
+      .get(`/api/subjects/${subject.id}/materials/${svg.body.data.material.id}`)
+      .set(auth(studentToken));
+    assert.equal(svgDownload.headers['content-type'], 'application/octet-stream');
+    const badType = await upload('notes.txt', 'not a type');
+    assert.equal(badType.body.data.material.contentType, 'application/octet-stream');
+
+    const studentDelete = await request(app)
+      .delete(`/api/subjects/${subject.id}/materials/${image.body.data.material.id}`)
+      .set(auth(studentToken));
+    assert.equal(studentDelete.status, 403);
+    const teacherDelete = await request(app)
+      .delete(`/api/subjects/${subject.id}/materials/${image.body.data.material.id}`)
+      .set(auth(teacherToken));
+    assert.equal(teacherDelete.status, 200);
+    assert.equal(await SubjectMaterial.exists({ _id: image.body.data.material.id }), null);
+  });
 });

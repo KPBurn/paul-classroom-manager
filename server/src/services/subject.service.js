@@ -19,6 +19,9 @@ function subjectMaterialResult(material, includeUploader = false) {
   return {
     id: String(material._id),
     name: material.name,
+    title: material.title ?? '',
+    description: material.description ?? '',
+    contentType: material.contentType ?? 'application/octet-stream',
     size: material.size,
     availableAt: material.availableAt,
     uploadedAt: material.createdAt,
@@ -140,7 +143,7 @@ export async function getSubject(id, user) {
   return subjectResult(subject, materials.map((material) => subjectMaterialResult(material, true)));
 }
 
-export async function createSubjectMaterial(id, { name, data, availableAt }, user) {
+export async function createSubjectMaterial(id, { name, title, description, contentType, data, availableAt }, user) {
   const subject = await loadSubject(id, user);
   if (user.role !== 'teacher') {
     throw new AppError(403, 'Only assigned teachers can upload subject materials');
@@ -150,12 +153,32 @@ export async function createSubjectMaterial(id, { name, data, availableAt }, use
     subject: subject._id,
     uploader: user._id,
     name,
+    title,
+    description,
+    contentType,
     size: data.length,
     data,
     availableAt: availableAt ?? new Date(),
   });
   await material.populate('uploader', 'firstName lastName');
   return subjectMaterialResult(material, true);
+}
+
+export async function deleteSubjectMaterial(id, materialId, { actor, ipAddress }) {
+  const subject = await loadSubject(id, actor);
+  if (actor.role !== 'teacher') {
+    throw new AppError(403, 'Only assigned teachers can remove subject materials');
+  }
+  const material = await SubjectMaterial.findOneAndDelete({ _id: materialId, subject: subject._id });
+  if (!material) throw new AppError(404, 'Material not found');
+  await logActivity({
+    actorId: actor._id,
+    action: 'subject.material-deleted',
+    entityType: 'Subject',
+    entityId: subject._id,
+    description: `${actor.fullName} removed "${material.title || material.name}" from "${subject.name}"`,
+    ipAddress,
+  });
 }
 
 export async function getSubjectMaterial(id, materialId, user) {
