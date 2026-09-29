@@ -1,19 +1,61 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, Plus, UsersRound } from 'lucide-react';
+import { CalendarDays, CalendarX, Clock3, Pencil, Plus, Repeat, UsersRound, Video } from 'lucide-react';
 import toast from 'react-hot-toast';
+import ActionMenu from '../../components/common/ActionMenu.jsx';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
+import { FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
 import Modal from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
+import PeoplePicker from '../../components/common/PeoplePicker.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
 import { SelectField } from '../../components/common/TextField.jsx';
 import { classroomService } from '../../services/classroom.service.js';
 import { sessionService } from '../../services/session.service.js';
 import { useAuth } from '../../hooks/useAuth.js';
+import { useNow } from '../../hooks/useNow.js';
 import { ROLES } from '../../utils/roles.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import {
+  formatTime,
+  isJoinable,
+  isSameLocalDay,
+  PHASE_LABELS,
+  PHASE_STYLES,
+  sessionPhase,
+} from '../../utils/sessionTiming.js';
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const PAGE_SIZE = 40;
+const smallButton = '!px-2.5 !py-1.5 text-xs';
+const WHEN_OPTIONS = [
+  { value: 'upcoming', label: 'Upcoming' },
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: 'Next 7 days' },
+  { value: 'past', label: 'Past' },
+  { value: 'all', label: 'All dates' },
+];
+const STATUS_OPTIONS = [
+  { value: '', label: 'Any status' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
+/** "Today", "Tomorrow", or a weekday and date for schedule group headings. */
+function dayLabel(value, now) {
+  if (isSameLocalDay(value, now)) return 'Today';
+  if (isSameLocalDay(value, now + 24 * 60 * 60 * 1000)) return 'Tomorrow';
+  if (isSameLocalDay(value, now - 24 * 60 * 60 * 1000)) return 'Yesterday';
+  const date = new Date(value);
+  return date.toLocaleDateString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(date.getFullYear() !== new Date(now).getFullYear() && { year: 'numeric' }),
+  });
+}
 
 const WEEKDAYS = [
   { value: 0, label: 'Sunday' },
@@ -58,6 +100,16 @@ export default function TeacherSchedule() {
   const [cancelScope, setCancelScope] = useState('occurrence');
   const [busy, setBusy] = useState(false);
   const [attendanceSettingsId, setAttendanceSettingsId] = useState(null);
+  const [query, setQuery] = useState('');
+  const [when, setWhen] = useState('upcoming');
+  const [classroomFilter, setClassroomFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const now = useNow();
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [query, when, classroomFilter, statusFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,6 +163,53 @@ export default function TeacherSchedule() {
     }
   };
 
+  const classroomOptions = [
+    { value: '', label: 'All classrooms' },
+    ...[...new Map(sessions.map((session) => [session.classroom?.id, session.classroom?.name])).entries()]
+      .filter(([classroomId]) => classroomId)
+      .sort((a, b) => (a[1] ?? '').localeCompare(b[1] ?? ''))
+      .map(([value, label]) => ({ value, label })),
+  ];
+  const filtered = sessions
+    .map((session) => ({ ...session, phase: sessionPhase(session, now) }))
+    .filter((session) => {
+      const startsAt = new Date(session.startsAt).getTime();
+      const endsAt = new Date(session.endsAt).getTime();
+      const inRange = {
+        upcoming: endsAt > now,
+        today: isSameLocalDay(startsAt, now),
+        week: endsAt > now && startsAt - now <= WEEK_MS,
+        past: endsAt <= now,
+        all: true,
+      }[when];
+      const statusMatches = !statusFilter
+        || (statusFilter === 'cancelled') === (session.status === 'cancelled');
+      return inRange
+        && statusMatches
+        && (!classroomFilter || session.classroom?.id === classroomFilter)
+        && matchesSearch(
+          query,
+          session.title,
+          session.classroom?.name,
+          session.assignments?.teachers?.map((teacher) => teacher.name),
+        );
+    })
+    .sort((a, b) => (when === 'past' ? -1 : 1) * (new Date(a.startsAt) - new Date(b.startsAt)));
+  const visible = filtered.slice(0, visibleCount);
+  const days = [];
+  for (const session of visible) {
+    const key = new Date(session.startsAt).toDateString();
+    if (days.at(-1)?.key !== key) days.push({ key, date: session.startsAt, sessions: [] });
+    days.at(-1).sessions.push(session);
+  }
+  const hasFilters = Boolean(query || classroomFilter || statusFilter || when !== 'upcoming');
+  const clearFilters = () => {
+    setQuery('');
+    setClassroomFilter('');
+    setStatusFilter('');
+    setWhen('upcoming');
+  };
+
   return (
     <>
       <PageHeader
@@ -126,75 +225,141 @@ export default function TeacherSchedule() {
         }
       />
       {!classrooms.length && !loading && (
-        <Alert>{isAdmin
-          ? 'Create an active classroom before scheduling classes.'
-          : 'Your administrator needs to assign you to a classroom before you can schedule a session.'}</Alert>
+        <div className="mb-3">
+          <Alert>{isAdmin
+            ? 'Create an active classroom before scheduling classes.'
+            : 'Your administrator needs to assign you to a classroom before you can schedule a session.'}</Alert>
+        </div>
       )}
-      {error && <Alert tone="error">{error}</Alert>}
-      {loading ? <div className="flex justify-center py-16"><Spinner /></div> : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          {sessions.length === 0 ? (
-            <p className="px-6 py-14 text-center text-sm text-slate-500">No sessions scheduled yet.</p>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {sessions.map((session) => (
-                <li key={session.id} className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex gap-3">
-                    <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                      <CalendarDays className="size-5" aria-hidden="true" />
-                    </span>
-                    <div>
-                      <h2 className="font-semibold text-slate-900">{session.title}</h2>
-                      <p className="text-sm text-slate-600">{session.classroom?.name ?? 'Classroom'}</p>
-                      {session.assignments && (
-                        <p className="mt-1 text-xs text-slate-500">
-                          Teachers: {session.assignments.teachers.map((teacher) => teacher.name ?? 'Teacher').join(', ') || 'None'}
-                          <span className="mx-2 text-slate-300">·</span>
-                          {session.assignments.students.length} assigned students
-                        </p>
-                      )}
-                      <p className="mt-1 text-sm text-slate-500">{dateTime(session.startsAt)} – {new Date(session.endsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Attendance conditions: {session.attendanceConditionEnabled === false ? 'Off · joining during class is Present' : 'On · joining after 5 minutes is Late'}
+
+      <ListToolbar count={loading ? undefined : filtered.length} noun="session">
+        <SearchInput
+          id="schedule-search"
+          label="Search sessions"
+          value={query}
+          onChange={setQuery}
+          placeholder="Search title, class or teacher"
+          className="sm:w-72"
+        />
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+          <FilterSelect id="schedule-when" label="Dates" value={when} onChange={setWhen} options={WHEN_OPTIONS} className="sm:w-36" />
+          <FilterSelect id="schedule-status" label="Status" value={statusFilter} onChange={setStatusFilter} options={STATUS_OPTIONS} className="sm:w-36" />
+          <FilterSelect id="schedule-classroom" label="Classroom" value={classroomFilter} onChange={setClassroomFilter} options={classroomOptions} className="col-span-2 sm:w-48" />
+        </div>
+      </ListToolbar>
+
+      {error && <div className="mb-3"><Alert tone="error">{error}</Alert></div>}
+      {loading ? <div className="flex justify-center py-16"><Spinner /></div> : filtered.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+          <CalendarDays className="mx-auto size-7 text-slate-400" aria-hidden="true" />
+          <p className="mt-2 text-sm font-medium text-slate-900">
+            {sessions.length === 0 ? 'No sessions scheduled yet' : 'No sessions match your filters'}
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            {sessions.length === 0 ? 'Create a schedule to see it here.' : 'Try another search, date range or classroom.'}
+          </p>
+          {hasFilters && sessions.length > 0 && (
+            <Button variant="secondary" className="mt-4" onClick={clearFilters}>Clear filters</Button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {days.map((day) => (
+            <section key={day.key} aria-label={dayLabel(day.date, now)}>
+              <h2 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wider text-slate-500">{dayLabel(day.date, now)}</h2>
+              <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-xs">
+                {day.sessions.map((session) => {
+                  const cancelled = session.status === 'cancelled';
+                  const joinable = isJoinable(session.phase) || session.phase === 'closed';
+                  const teacherNames = session.assignments?.teachers?.map((teacher) => teacher.name ?? 'Teacher').join(', ');
+                  return (
+                    <li
+                      key={session.id}
+                      className={`grid gap-2 px-4 py-3 sm:grid-cols-[6.5rem_minmax(0,1fr)_auto] sm:items-center sm:gap-4 ${cancelled ? 'bg-slate-50/70' : ''}`}
+                    >
+                      <p className={`text-sm font-semibold tabular-nums ${cancelled ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
+                        {formatTime(session.startsAt)}
+                        <span className="font-normal text-slate-500"> – {formatTime(session.endsAt)}</span>
                       </p>
-                      {session.status === 'cancelled' && <span className="mt-1 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">Cancelled</span>}
-                    </div>
-                  </div>
-                  {session.status !== 'cancelled' && (
-                    <div className="flex flex-wrap gap-2">
-                      <Button onClick={() => navigate(`/sessions/${session.id}/room`)}>
-                        Open class room
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        role="switch"
-                        aria-checked={session.attendanceConditionEnabled !== false}
-                        aria-label={`Attendance conditions ${session.attendanceConditionEnabled === false ? 'off' : 'on'} for ${session.title}`}
-                        disabled={attendanceSettingsId === session.id}
-                        isLoading={attendanceSettingsId === session.id}
-                        onClick={() => toggleAttendanceCondition(session)}
-                      >
-                        Conditions {session.attendanceConditionEnabled === false ? 'Off' : 'On'}
-                      </Button>
-                      <Button variant="secondary" onClick={() => setAttendanceSession(session)}>
-                        <UsersRound className="size-4" aria-hidden="true" />
-                        Attendance
-                      </Button>
-                      <Button variant="secondary" onClick={() => setEditSession(session)}>Edit</Button>
-                      <Button variant="secondary" onClick={() => {
-                        setCancelScope('occurrence');
-                        setCancelSession(session);
-                      }}>Cancel</Button>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                          <p className={`truncate font-medium ${cancelled ? 'text-slate-500' : 'text-slate-900'}`}>{session.title}</p>
+                          {session.phase !== 'upcoming' && (
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${PHASE_STYLES[session.phase]}`}>
+                              {PHASE_LABELS[session.phase]}
+                            </span>
+                          )}
+                          {session.seriesId && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500" title="Part of a weekly series">
+                              <Repeat className="size-3" aria-hidden="true" /> Weekly
+                            </span>
+                          )}
+                          {session.attendanceConditionEnabled === false && !cancelled && (
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600" title="Everyone who joins during class is marked Present">
+                              No late rule
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 truncate text-xs text-slate-500">
+                          {session.classroom?.name ?? 'Classroom'}
+                          {teacherNames && <> · {teacherNames}</>}
+                          {session.assignments && <> · {session.assignments.students.length} students</>}
+                        </p>
+                      </div>
+                      {!cancelled && (
+                        <div className="flex items-center gap-2 sm:justify-end">
+                          {joinable && (
+                            <Button
+                              className={smallButton}
+                              variant={session.phase === 'live' ? 'primary' : 'secondary'}
+                              onClick={() => navigate(`/sessions/${session.id}/room`)}
+                            >
+                              <Video className="size-3.5" aria-hidden="true" /> Join
+                            </Button>
+                          )}
+                          <Button variant="secondary" className={smallButton} onClick={() => setAttendanceSession(session)}>
+                            <UsersRound className="size-3.5" aria-hidden="true" /> Attendance
+                          </Button>
+                          <ActionMenu
+                            label={`More actions for ${session.title}`}
+                            items={[
+                              { label: 'Edit session', icon: Pencil, onClick: () => setEditSession(session) },
+                              {
+                                label: session.attendanceConditionEnabled === false ? 'Turn late rule on' : 'Turn late rule off',
+                                icon: Clock3,
+                                disabled: attendanceSettingsId === session.id,
+                                onClick: () => toggleAttendanceCondition(session),
+                              },
+                              {
+                                label: session.seriesId ? 'Cancel session or series' : 'Cancel session',
+                                icon: CalendarX,
+                                danger: true,
+                                onClick: () => {
+                                  setCancelScope('occurrence');
+                                  setCancelSession(session);
+                                },
+                              },
+                            ]}
+                          />
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+          {filtered.length > visible.length && (
+            <div className="flex justify-center">
+              <Button variant="secondary" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
+                Show more ({filtered.length - visible.length} left)
+              </Button>
+            </div>
           )}
         </div>
       )}
 
-      <Modal open={formOpen} onClose={() => setFormOpen(false)} title="Create Sessions" description="Attendance is recorded automatically when participants join the class room during the session.">
+      <Modal open={formOpen} onClose={() => setFormOpen(false)} title="Create Sessions" description="Attendance is recorded automatically when participants join the class room during the session." size="max-w-3xl">
         <SessionForm
           classrooms={classrooms}
           actor={user}
@@ -400,18 +565,6 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
     };
   }, [classroomId, classrooms]);
 
-  const toggleTeacher = (id) => {
-    if (actor.role === ROLES.TEACHER && id === actor.id) return;
-    setTeacherIds((current) => current.includes(id)
-      ? current.filter((value) => value !== id)
-      : [...current, id]);
-  };
-  const toggleStudent = (id) => {
-    setStudentIds((current) => current.includes(id)
-      ? current.filter((value) => value !== id)
-      : [...current, id]);
-  };
-
   const submit = async (event) => {
     event.preventDefault();
     if (!classroomId || !title.trim() || !teacherIds.length || startTime >= endTime) {
@@ -458,79 +611,35 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
   return (
     <form onSubmit={submit} className="space-y-4">
       {error && <Alert tone="error">{error}</Alert>}
-      <SelectField id="session-classroom" label="Classroom" value={classroomId} onChange={(event) => setClassroomId(event.target.value)} options={classrooms.map((room) => ({ value: room.id, label: room.name }))} />
-      <fieldset disabled={loadingOptions} className="space-y-3 rounded-lg border border-slate-200 p-3 disabled:opacity-60">
-        <legend className="px-1 text-sm font-medium text-slate-700">Classroom assignments</legend>
-        <p className="text-xs text-slate-500">Saving this schedule updates the classroom’s assigned teachers and student roster.</p>
-        <div>
-          <h3 className="mb-2 text-sm font-medium text-slate-700">Teachers</h3>
-          <div className="max-h-36 space-y-2 overflow-y-auto">
-            {teachers.map((teacher) => (
-              <label key={teacher.id} className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={teacherIds.includes(teacher.id)}
-                  disabled={actor.role === ROLES.TEACHER && teacher.id === actor.id}
-                  onChange={() => toggleTeacher(teacher.id)}
-                  className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                <span>{teacher.firstName} {teacher.lastName} <span className="text-slate-400">({teacher.email})</span></span>
-                {actor.role === ROLES.TEACHER && teacher.id === actor.id && <span className="text-xs text-slate-500">You</span>}
-              </label>
-            ))}
-            {teachers.length === 0 && !loadingOptions && <p className="text-sm text-slate-500">No active teachers are available.</p>}
-          </div>
-        </div>
-        <div>
-          <h3 className="mb-2 text-sm font-medium text-slate-700">Active students</h3>
-          <div className="max-h-40 space-y-2 overflow-y-auto">
-            {students.map((student) => (
-              <label key={student.id} className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={studentIds.includes(student.id)}
-                  onChange={() => toggleStudent(student.id)}
-                  className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                <span>{student.firstName} {student.lastName} <span className="text-slate-400">({student.email})</span></span>
-              </label>
-            ))}
-            {students.length === 0 && !loadingOptions && <p className="text-sm text-slate-500">No active students are available.</p>}
-          </div>
-        </div>
-      </fieldset>
-      <label className="block text-sm font-medium text-slate-700">Session title
-        <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
-      </label>
-      <SelectField id="session-type" label="Schedule type" value={mode} onChange={(event) => setMode(event.target.value)} options={[{ value: 'single', label: 'One-time session' }, { value: 'recurring', label: 'Recurring weekly sessions' }]} />
-      {mode === 'single' ? (
-        <label className="block text-sm font-medium text-slate-700">Date
-          <input type="date" min={localDate} value={date} onChange={(event) => setDate(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
-        </label>
-      ) : (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-sm font-medium text-slate-700">First date
-              <input type="date" min={localDate} value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
-            </label>
-            <label className="block text-sm font-medium text-slate-700">Last date
-              <input type="date" min={startDate} value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
-            </label>
-          </div>
-          <fieldset>
-            <legend className="mb-2 text-sm font-medium text-slate-700">Repeat on</legend>
-            <div className="flex flex-wrap gap-2">
-              {WEEKDAYS.map((day) => (
-                <label key={day.value} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-2 text-sm">
-                  <input type="checkbox" checked={weekdays.includes(day.value)} onChange={() => toggleDay(day.value)} />
-                  {day.label.slice(0, 3)}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        </>
-      )}
       <div className="grid gap-4 sm:grid-cols-2">
+        <SelectField id="session-classroom" label="Classroom" value={classroomId} onChange={(event) => setClassroomId(event.target.value)} options={classrooms.map((room) => ({ value: room.id, label: room.name }))} />
+        <label className="block text-sm font-medium text-slate-700">Session title
+          <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder="e.g. Math – Fractions" className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" required />
+        </label>
+      </div>
+      <fieldset disabled={loadingOptions} className="disabled:opacity-60">
+        <legend className="sr-only">Classroom assignments</legend>
+        <div className="grid gap-4 md:grid-cols-2">
+          <PeoplePicker
+            label="Teachers"
+            people={teachers}
+            selectedIds={teacherIds}
+            onChange={setTeacherIds}
+            lockedIds={actor.role === ROLES.TEACHER ? [actor.id] : []}
+            emptyMessage={loadingOptions ? 'Loading…' : 'No active teachers are available.'}
+          />
+          <PeoplePicker
+            label="Students"
+            people={students}
+            selectedIds={studentIds}
+            onChange={setStudentIds}
+            emptyMessage={loadingOptions ? 'Loading…' : 'No active students are available.'}
+          />
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">Saving this schedule updates the classroom’s assigned teachers and student roster.</p>
+      </fieldset>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <SelectField id="session-type" label="Schedule type" value={mode} onChange={(event) => setMode(event.target.value)} options={[{ value: 'single', label: 'One-time session' }, { value: 'recurring', label: 'Weekly sessions' }]} />
         <label className="block text-sm font-medium text-slate-700">Starts
           <input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
         </label>
@@ -538,6 +647,39 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
           <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
         </label>
       </div>
+      {mode === 'single' ? (
+        <label className="block text-sm font-medium text-slate-700 sm:w-1/3 sm:pr-3">Date
+          <input type="date" min={localDate} value={date} onChange={(event) => setDate(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
+        </label>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-3">
+          <label className="block text-sm font-medium text-slate-700">First date
+            <input type="date" min={localDate} value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
+          </label>
+          <label className="block text-sm font-medium text-slate-700">Last date
+            <input type="date" min={startDate} value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
+          </label>
+          <fieldset className="sm:col-span-3">
+            <legend className="mb-1.5 text-sm font-medium text-slate-700">Repeat on</legend>
+            <div className="flex flex-wrap gap-1.5">
+              {WEEKDAYS.map((day) => (
+                <label
+                  key={day.value}
+                  className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition ${weekdays.includes(day.value) ? 'border-indigo-300 bg-indigo-50 text-indigo-800' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={weekdays.includes(day.value)}
+                    onChange={() => toggleDay(day.value)}
+                    className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  {day.label.slice(0, 3)}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+      )}
       <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
         <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
         <Button type="submit" isLoading={saving || loadingOptions} disabled={Boolean(error) || loadingOptions}>
