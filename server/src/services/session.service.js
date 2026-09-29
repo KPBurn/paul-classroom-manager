@@ -273,6 +273,7 @@ function sessionResult(session, user) {
       fileUploadsEnabled: session.fileUploadsEnabled ?? true,
     },
     status: session.status,
+    endedAt: session.endedAt ?? null,
     seriesId: session.seriesId,
     assignments: {
       teachers: (session.assignedTeachers ?? classroomTeacherIds(session.classroom ?? {})).map((teacher) => ({
@@ -391,8 +392,18 @@ export async function getSessionForParticipant(id, user) {
   return session;
 }
 
+/** Teachers can always enter; others are kept out of ended classes and after being removed. */
+export function assertCanEnterRoom(session, user) {
+  if (canManageSession(session, user)) return;
+  if (session.endedAt) throw new AppError(403, 'The teacher has ended this class.');
+  if ((session.removedParticipants ?? []).some((id) => String(id._id ?? id) === String(user._id))) {
+    throw new AppError(403, 'You were removed from this class by the teacher.');
+  }
+}
+
 export async function getRoomSession(id, user) {
   const session = await getSessionForParticipant(id, user);
+  assertCanEnterRoom(session, user);
   const iceServers = env.meteredTurnHost
     ? await fetchMeteredTurnIceServers(env.meteredTurnHost, env.meteredTurnApiKey)
     : env.iceServers;
@@ -425,6 +436,50 @@ export async function updateRoomSettings(id, settings, user) {
     screenSharingEnabled: session.screenSharingEnabled,
     fileUploadsEnabled: session.fileUploadsEnabled,
   };
+}
+
+export async function removedRoomParticipants(id) {
+  const session = await ClassSession.findById(id).populate('removedParticipants', 'firstName lastName');
+  return (session?.removedParticipants ?? []).map((person) => ({
+    userId: String(person._id),
+    name: `${person.firstName} ${person.lastName}`.trim(),
+  }));
+}
+
+export async function removeRoomParticipant(id, target, user) {
+  const session = await getSession(id);
+  assertAssignedTeacher(session, user);
+  if (canManageSession(session, target)) throw new AppError(400, 'Teachers cannot be removed from the room');
+  await ClassSession.updateOne({ _id: session._id }, { $addToSet: { removedParticipants: target._id } });
+  await logActivity({
+    actorId: user._id,
+    action: 'session.participant-removed',
+    entityType: 'ClassSession',
+    entityId: session._id,
+    description: `${user.fullName} removed ${target.fullName} from "${session.title}"`,
+  });
+  return removedRoomParticipants(id);
+}
+
+export async function readmitRoomParticipant(id, userId, user) {
+  const session = await getSession(id);
+  assertAssignedTeacher(session, user);
+  await ClassSession.updateOne({ _id: session._id }, { $pull: { removedParticipants: userId } });
+  return removedRoomParticipants(id);
+}
+
+export async function setRoomEnded(id, ended, user) {
+  const session = await getSession(id);
+  assertAssignedTeacher(session, user);
+  session.endedAt = ended ? new Date() : null;
+  await session.save();
+  await logActivity({
+    actorId: user._id,
+    action: ended ? 'session.room-ended' : 'session.room-reopened',
+    entityType: 'ClassSession',
+    entityId: session._id,
+    description: `${user.fullName} ${ended ? 'ended' : 'reopened'} the class "${session.title}"`,
+  });
 }
 
 function sessionFileResult(file) {

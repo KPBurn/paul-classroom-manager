@@ -40,6 +40,8 @@ function participantResult(socket) {
     role: user.role,
     muted,
     cameraEnabled,
+    // Teachers of the session and admins run the room and cannot be moderated.
+    moderator: Boolean(socket.data.canManageRoom),
   };
 }
 
@@ -159,11 +161,15 @@ export function attachSessionSocket(httpServer) {
       }
       socket.data.sessionId = null;
       socket.data.sessionOpenAccess = false;
+      socket.data.canManageRoom = false;
       socket.leave(room);
       socket.to(room).emit('room:participant-left', { participantId: socket.id });
       if (activity) io.to(room).emit('room:message', activity);
       if (leaveError) throw leaveError;
     }
+
+    // Moderation makes other participants leave, which needs their own leave handling.
+    socket.data.leaveRoom = leaveRoom;
 
     socket.on('room:join', async (sessionId, ack) => {
       try {
@@ -172,6 +178,14 @@ export function attachSessionSocket(httpServer) {
         }
         const session = await sessionService.getSessionForParticipant(sessionId, socket.data.user);
         if (session.status === 'cancelled') throw new AppError(400, 'This session has been cancelled');
+        sessionService.assertCanEnterRoom(session, socket.data.user);
+        const canManageRoom = sessionService.canManageSession(session, socket.data.user);
+        const moderation = canManageRoom
+          ? {
+              classEnded: Boolean(session.endedAt),
+              removedParticipants: await sessionService.removedRoomParticipants(sessionId),
+            }
+          : {};
         if (socket.data.sessionId === sessionId) {
           const state = roomState(rooms, sessionId);
           ack?.({
@@ -181,12 +195,14 @@ export function attachSessionSocket(httpServer) {
               screenSharingEnabled: session.screenSharingEnabled ?? true,
               fileUploadsEnabled: session.fileUploadsEnabled ?? true,
             },
-            canManageRoom: sessionService.canManageSession(session, socket.data.user),
+            canManageRoom,
+            ...moderation,
           });
           return;
         }
 
         await leaveRoom();
+        socket.data.canManageRoom = canManageRoom;
         const room = roomName(sessionId);
         const state = roomState(rooms, sessionId);
         state.screenSharingEnabled = session.screenSharingEnabled ?? true;
@@ -230,7 +246,8 @@ export function attachSessionSocket(httpServer) {
             screenSharingEnabled: state.screenSharingEnabled,
             fileUploadsEnabled: state.fileUploadsEnabled,
           },
-          canManageRoom: sessionService.canManageSession(session, socket.data.user),
+          canManageRoom,
+          ...moderation,
         });
       } catch (error) {
         replyWithError(ack, error, 'Unable to join this session');
@@ -377,6 +394,118 @@ export function attachSessionSocket(httpServer) {
       }
       socket.to(roomName(sessionId)).emit('room:files-changed');
       ack?.({ success: true });
+    });
+
+    const moderatedSessionId = () => {
+      const sessionId = socket.data.sessionId;
+      if (!sessionId || !rooms.has(sessionId)) throw new AppError(400, 'Join the session before moderating it');
+      if (!socket.data.canManageRoom) throw new AppError(403, 'Only the class teacher can do that');
+      return sessionId;
+    };
+    const socketsInRoom = (sessionId) => [...io.sockets.sockets.values()]
+      .filter((item) => item.data.sessionId === sessionId);
+    const moderatableTarget = (sessionId, participantId) => {
+      const target = typeof participantId === 'string' ? io.sockets.sockets.get(participantId) : null;
+      if (!target || target.data.sessionId !== sessionId) throw new AppError(404, 'That participant is not in this session');
+      if (target.data.canManageRoom) throw new AppError(400, 'Teachers cannot be moderated');
+      return target;
+    };
+    const emitToManagers = (sessionId, event, payload) => {
+      for (const item of socketsInRoom(sessionId)) {
+        if (item.data.canManageRoom) item.emit(event, payload);
+      }
+    };
+    const forceMute = (target) => {
+      const sessionId = target.data.sessionId;
+      if (target.data.muted !== false) return;
+      target.data.muted = true;
+      if (target.data.speaking) {
+        target.data.speaking = false;
+        io.to(roomName(sessionId)).emit('room:participant-speaking', { participantId: target.id, speaking: false });
+      }
+      const participant = participantResult(target);
+      rooms.get(sessionId)?.participants.set(target.id, participant);
+      io.to(roomName(sessionId)).emit('room:participant-updated', participant);
+      target.emit('room:force-muted', { by: socket.data.user.fullName });
+    };
+
+    socket.on('room:mute-participant', (participantId, ack) => {
+      try {
+        forceMute(moderatableTarget(moderatedSessionId(), participantId));
+        ack?.({ success: true });
+      } catch (error) {
+        replyWithError(ack, error, 'Unable to mute that participant');
+      }
+    });
+
+    socket.on('room:mute-all', (ack) => {
+      try {
+        const sessionId = moderatedSessionId();
+        for (const target of socketsInRoom(sessionId)) {
+          if (!target.data.canManageRoom) forceMute(target);
+        }
+        ack?.({ success: true });
+      } catch (error) {
+        replyWithError(ack, error, 'Unable to mute the class');
+      }
+    });
+
+    socket.on('room:remove-participant', async (participantId, ack) => {
+      try {
+        const sessionId = moderatedSessionId();
+        const target = moderatableTarget(sessionId, participantId);
+        const removedUser = target.data.user;
+        const removedParticipants = await sessionService.removeRoomParticipant(sessionId, removedUser, socket.data.user);
+        // Remove every tab the person has open in this room.
+        for (const item of socketsInRoom(sessionId)) {
+          if (String(item.data.user._id) !== String(removedUser._id)) continue;
+          await item.data.leaveRoom();
+          item.emit('room:removed', { by: socket.data.user.fullName });
+        }
+        emitToManagers(sessionId, 'room:removed-updated', removedParticipants);
+        ack?.({ success: true, removedParticipants });
+      } catch (error) {
+        replyWithError(ack, error, 'Unable to remove that participant');
+      }
+    });
+
+    socket.on('room:readmit-participant', async (userId, ack) => {
+      try {
+        const sessionId = moderatedSessionId();
+        if (typeof userId !== 'string' || !mongoose.isValidObjectId(userId)) throw new AppError(400, 'Invalid participant');
+        const removedParticipants = await sessionService.readmitRoomParticipant(sessionId, userId, socket.data.user);
+        emitToManagers(sessionId, 'room:removed-updated', removedParticipants);
+        ack?.({ success: true, removedParticipants });
+      } catch (error) {
+        replyWithError(ack, error, 'Unable to allow that participant back');
+      }
+    });
+
+    socket.on('room:end', async (ack) => {
+      try {
+        const sessionId = moderatedSessionId();
+        await sessionService.setRoomEnded(sessionId, true, socket.data.user);
+        // Reply before clearing the room: the teacher who ended it leaves too.
+        ack?.({ success: true });
+        const endedBy = socket.data.user.fullName;
+        for (const item of socketsInRoom(sessionId)) {
+          await item.data.leaveRoom().catch((error) => console.error('Unable to record a participant leaving', error));
+          item.emit('room:ended', { by: endedBy });
+        }
+      } catch (error) {
+        replyWithError(ack, error, 'Unable to end the class');
+      }
+    });
+
+    socket.on('room:reopen', async (ack) => {
+      try {
+        const sessionId = moderatedSessionId();
+        await sessionService.setRoomEnded(sessionId, false, socket.data.user);
+        emitToManagers(sessionId, 'room:reopened', { by: socket.data.user.fullName });
+        ack?.({ success: true });
+      } catch (error) {
+        replyWithError(ack, error, 'Unable to reopen the class');
+      }
     });
 
     socket.on('rtc:signal', (input, ack) => {

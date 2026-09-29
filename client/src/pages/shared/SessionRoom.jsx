@@ -17,10 +17,17 @@ import {
   VideoOff,
   Volume2,
   X,
+  CircleStop,
+  LogOut,
+  Undo2,
+  UserX,
   UsersRound,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
+import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
+import Modal from '../../components/common/Modal.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { sessionService } from '../../services/session.service.js';
@@ -148,6 +155,13 @@ export default function SessionRoom() {
   const [mediaConfigurationWarning, setMediaConfigurationWarning] = useState('');
   const [roomSettings, setRoomSettings] = useState({ screenSharingEnabled: true, fileUploadsEnabled: true });
   const [canManageRoom, setCanManageRoom] = useState(false);
+  const [classEnded, setClassEnded] = useState(false);
+  const [removedParticipants, setRemovedParticipants] = useState([]);
+  const [pendingRemoval, setPendingRemoval] = useState(null);
+  const [leaveChoiceOpen, setLeaveChoiceOpen] = useState(false);
+  const [moderating, setModerating] = useState(false);
+  // Shown instead of the room after a teacher removes you or ends the class.
+  const [exitNotice, setExitNotice] = useState(null);
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [updatingSettings, setUpdatingSettings] = useState(false);
@@ -406,6 +420,8 @@ export default function SessionRoom() {
             setScreenSharerId(result.screenSharerId);
             setRoomSettings(result.roomSettings ?? { screenSharingEnabled: true, fileUploadsEnabled: true });
             setCanManageRoom(Boolean(result.canManageRoom));
+            setClassEnded(Boolean(result.classEnded));
+            setRemovedParticipants(result.removedParticipants ?? []);
             for (const participant of result.participants) createPeer(participant.id);
           } catch (joinError) {
             setError(readableError(joinError, 'Unable to join this session.'));
@@ -478,6 +494,34 @@ export default function SessionRoom() {
                 setMediaError(readableError(replaceError, 'Unable to stop your screen share.'));
               });
           }
+        });
+        socket.on('room:force-muted', ({ by } = {}) => {
+          for (const track of localAudioStreamRef.current?.getAudioTracks() ?? []) track.enabled = false;
+          setMuted(true);
+          toast(`${by ?? 'The teacher'} muted your microphone.`, { icon: '🔇' });
+        });
+        socket.on('room:removed', ({ by } = {}) => {
+          setExitNotice({
+            title: 'You were removed from the class',
+            message: `${by ?? 'The teacher'} removed you from this session. Ask your teacher if you think this was a mistake.`,
+          });
+          leaveRoom();
+        });
+        socket.on('room:ended', ({ by } = {}) => {
+          const endedByYou = by === `${user.firstName} ${user.lastName}`;
+          setExitNotice({
+            title: 'The class has ended',
+            message: endedByYou
+              ? 'You ended the class for everyone. Students cannot rejoin unless you reopen it from the room.'
+              : `${by ?? 'The teacher'} ended the class for everyone.`,
+          });
+          leaveRoom();
+        });
+        socket.on('room:removed-updated', (removed) => {
+          setRemovedParticipants(Array.isArray(removed) ? removed : []);
+        });
+        socket.on('room:reopened', () => {
+          setClassEnded(false);
         });
         socket.on('room:files-changed', () => {
           refreshFiles().catch((refreshError) => {
@@ -867,7 +911,59 @@ export default function SessionRoom() {
 
   const exitRoom = () => {
     leaveRoom();
-    navigate(user.role === 'admin' ? '/admin' : user.role === 'teacher' ? '/teacher/schedule' : '/student');
+    navigate(user.role === 'admin' ? '/admin' : user.role === 'teacher' ? '/teacher' : '/student');
+  };
+  // Teachers choose between leaving and ending the class for everyone.
+  const requestLeave = () => {
+    if (canManageRoom) setLeaveChoiceOpen(true);
+    else exitRoom();
+  };
+
+  /** Sends a teacher moderation request; returns the server reply, or null after showing the error. */
+  const moderate = async (failureMessage, event, ...args) => {
+    setModerating(true);
+    try {
+      return await emitAck(socketRef.current, event, ...args);
+    } catch (moderationError) {
+      toast.error(readableError(moderationError, failureMessage));
+      return null;
+    } finally {
+      setModerating(false);
+    }
+  };
+  const muteParticipant = async (participant) => {
+    if (await moderate('Unable to mute that participant.', 'room:mute-participant', participant.id)) {
+      toast.success(`${participant.name} was muted.`);
+    }
+  };
+  const muteEveryone = async () => {
+    if (await moderate('Unable to mute the class.', 'room:mute-all')) toast.success('Students were muted.');
+  };
+  const removeParticipant = async () => {
+    const participant = pendingRemoval;
+    const response = await moderate('Unable to remove that participant.', 'room:remove-participant', participant.id);
+    setPendingRemoval(null);
+    if (response) {
+      setRemovedParticipants(response.removedParticipants ?? []);
+      toast.success(`${participant.name} was removed from the class.`);
+    }
+  };
+  const readmitParticipant = async (person) => {
+    const response = await moderate('Unable to allow them back.', 'room:readmit-participant', person.userId);
+    if (response) {
+      setRemovedParticipants(response.removedParticipants ?? []);
+      toast.success(`${person.name} can join again.`);
+    }
+  };
+  const endClassForEveryone = async () => {
+    setLeaveChoiceOpen(false);
+    await moderate('Unable to end the class.', 'room:end');
+  };
+  const reopenClass = async () => {
+    if (await moderate('Unable to reopen the class.', 'room:reopen')) {
+      setClassEnded(false);
+      toast.success('The class is open to students again.');
+    }
   };
 
   const enableRoomAudio = async () => {
@@ -922,6 +1018,22 @@ export default function SessionRoom() {
       </main>
     );
   }
+  if (exitNotice) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center bg-slate-950 px-6 text-slate-100">
+        <div className="max-w-md text-center">
+          <span className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-slate-800 text-indigo-300">
+            <LogOut className="size-7" aria-hidden="true" />
+          </span>
+          <h1 className="mt-5 text-xl font-semibold">{exitNotice.title}</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-400">{exitNotice.message}</p>
+          <Button className="mt-6" onClick={exitRoom}>
+            <ArrowLeft className="size-4" /> Back to dashboard
+          </Button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-slate-950 text-slate-100">
@@ -958,7 +1070,7 @@ export default function SessionRoom() {
               </span>
             </span>
           )}
-          <Button variant="ghost" className="!px-3 !py-2 text-slate-300" onClick={exitRoom} aria-label="Leave class room">
+          <Button variant="ghost" className="!px-3 !py-2 text-slate-300" onClick={requestLeave} aria-label="Leave class room">
             <ArrowLeft className="size-4" />
             <span className="hidden sm:inline">Leave</span>
           </Button>
@@ -968,6 +1080,15 @@ export default function SessionRoom() {
       {mediaConfigurationWarning && (
         <div className="px-3 pt-3">
           <Alert tone="info">{mediaConfigurationWarning}</Alert>
+        </div>
+      )}
+
+      {canManageRoom && classEnded && (
+        <div className="px-3 pt-3">
+          <div className="flex flex-col gap-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+            <p>You ended this class earlier. Students cannot join until you reopen it.</p>
+            <Button className="shrink-0 !px-3 !py-2" onClick={reopenClass} disabled={moderating}>Reopen class</Button>
+          </div>
         </div>
       )}
 
@@ -1258,9 +1379,25 @@ export default function SessionRoom() {
               </div>
             ) : (
               <div className="min-h-0 flex-1 overflow-y-auto p-3">
-                <p className="mb-3 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">In this session</p>
+                <div className="mb-3 flex items-center justify-between gap-2 px-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">In this session</p>
+                  {canManageRoom && participants.some((participant) => !participant.moderator && !participant.muted
+                    && participant.id !== localParticipantId.current) && (
+                    <button
+                      type="button"
+                      onClick={muteEveryone}
+                      disabled={moderating}
+                      className="flex items-center gap-1.5 rounded-md border border-slate-700 px-2 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      <MicOff className="size-3.5" aria-hidden="true" /> Mute all
+                    </button>
+                  )}
+                </div>
                 <ul className="space-y-1">
-                  {participants.map((participant) => (
+                  {participants.map((participant) => {
+                    const canModerate = canManageRoom && !participant.moderator
+                      && participant.id !== localParticipantId.current;
+                    return (
                     <li key={participant.id} className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-slate-800">
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-semibold text-indigo-200">
                         {initials(participant.name)}
@@ -1279,9 +1416,56 @@ export default function SessionRoom() {
                         : participant.muted
                           ? <MicOff className="size-4 text-slate-500" aria-label="Muted" />
                           : <Mic className="size-4 text-emerald-400" aria-label="Microphone on" />}
+                      {canModerate && (
+                        <span className="flex shrink-0 items-center gap-0.5">
+                          {!participant.muted && (
+                            <button
+                              type="button"
+                              onClick={() => muteParticipant(participant)}
+                              disabled={moderating}
+                              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-50"
+                              aria-label={`Mute ${participant.name}`}
+                              title="Mute"
+                            >
+                              <MicOff className="size-4" aria-hidden="true" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setPendingRemoval(participant)}
+                            disabled={moderating}
+                            className="rounded-md p-1.5 text-slate-400 hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
+                            aria-label={`Remove ${participant.name} from the class`}
+                            title="Remove from class"
+                          >
+                            <UserX className="size-4" aria-hidden="true" />
+                          </button>
+                        </span>
+                      )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
+                {canManageRoom && removedParticipants.length > 0 && (
+                  <>
+                    <p className="mb-2 mt-5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Removed from class</p>
+                    <ul className="space-y-1">
+                      {removedParticipants.map((person) => (
+                        <li key={person.userId} className="flex items-center gap-3 rounded-lg px-2 py-2">
+                          <span className="min-w-0 flex-1 truncate text-sm text-slate-400">{person.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => readmitParticipant(person)}
+                            disabled={moderating}
+                            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-indigo-300 hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            <Undo2 className="size-3.5" aria-hidden="true" /> Allow back
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
               </div>
             )}
           </aside>
@@ -1374,11 +1558,49 @@ export default function SessionRoom() {
             </span>
           )}
         </Button>
-        <Button variant="danger" className="!px-3 sm:!px-4" onClick={exitRoom} aria-label="Leave class room">
+        <Button variant="danger" className="!px-3 sm:!px-4" onClick={requestLeave} aria-label="Leave class room">
           <PhoneOff className="size-4" />
           <span className="hidden sm:inline">Leave</span>
         </Button>
       </footer>
+
+      <Modal
+        open={leaveChoiceOpen}
+        onClose={() => setLeaveChoiceOpen(false)}
+        title="Leave the class?"
+        description="You can leave and let the class continue, or end it for everyone."
+        size="max-w-md"
+      >
+        <div className="flex flex-col gap-2">
+          <Button variant="secondary" onClick={exitRoom} className="justify-start">
+            <LogOut className="size-4" aria-hidden="true" /> Leave the class
+          </Button>
+          <Button variant="danger" onClick={endClassForEveryone} isLoading={moderating} className="justify-start">
+            <CircleStop className="size-4" aria-hidden="true" /> End class for everyone
+          </Button>
+          <p className="mt-1 text-xs text-slate-500">
+            Ending removes everyone from the room. Students cannot rejoin until a teacher reopens the class.
+          </p>
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(pendingRemoval)}
+        title="Remove from the class?"
+        message={
+          pendingRemoval && (
+            <p>
+              <span className="font-medium text-slate-900">{pendingRemoval.name}</span> will be removed from this
+              session and cannot rejoin unless you allow them back from the People tab.
+            </p>
+          )
+        }
+        confirmLabel="Remove"
+        confirmVariant="danger"
+        isLoading={moderating}
+        onConfirm={removeParticipant}
+        onCancel={() => setPendingRemoval(null)}
+      />
 
       {Object.entries(remoteMedia).map(([participantId, media]) => {
         const participant = participants.find((item) => item.id === participantId);

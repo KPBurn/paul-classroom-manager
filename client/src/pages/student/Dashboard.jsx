@@ -102,10 +102,13 @@ export default function StudentDashboard() {
                     <p className="text-sm text-slate-600">{session.classroom?.name}</p>
                     <p className="mt-1 text-sm text-slate-500">{formatDate(session.startsAt)} · {formatTime(session.startsAt)}–{formatTime(session.endsAt)}</p>
                     {session.status === 'cancelled' && <p className="mt-1 text-sm font-medium text-slate-500">Cancelled</p>}
+                    {session.status !== 'cancelled' && session.endedAt && (
+                      <p className="mt-1 text-sm font-medium text-slate-500">The teacher ended this class</p>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-3 sm:justify-end">
-                  {session.status !== 'cancelled' && (
+                  {session.status !== 'cancelled' && !session.endedAt && (
                     <Button variant="secondary" onClick={() => navigate(`/sessions/${session.id}/room`)}>
                       Open class room
                     </Button>

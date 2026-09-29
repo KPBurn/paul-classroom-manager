@@ -25,6 +25,10 @@ const classSessionSchema = new mongoose.Schema(
     attendanceConditionEnabled: { type: Boolean, default: true, required: true },
     screenSharingEnabled: { type: Boolean, default: true, required: true },
     fileUploadsEnabled: { type: Boolean, default: true, required: true },
+    // Set when a teacher ends the class for everyone; only teachers can enter until it is reopened.
+    endedAt: { type: Date, default: null },
+    // People a teacher removed from the room; they cannot rejoin this session unless allowed back.
+    removedParticipants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     seriesId: { type: String, default: null, index: true },
     timezone: { type: String, default: 'UTC' },
     status: { type: String, enum: ['scheduled', 'cancelled'], default: 'scheduled', required: true },

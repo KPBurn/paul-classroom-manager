@@ -400,3 +400,89 @@ describe('session room collaboration', () => {
     }
   });
 });
+
+describe('teacher room moderation', () => {
+  it('lets the teacher mute students but not teachers, and not the other way round', async () => {
+    const { session, teacherSocket, coTeacherSocket, studentSocket, cleanup } = await setupRoom();
+    try {
+      const sessionId = String(session._id);
+      await emitAck(teacherSocket, 'room:join', sessionId);
+      await emitAck(coTeacherSocket, 'room:join', sessionId);
+      await emitAck(studentSocket, 'room:join', sessionId);
+      await emitAck(studentSocket, 'room:microphone', false);
+
+      const studentMute = await emitAck(studentSocket, 'room:mute-participant', teacherSocket.id);
+      assert.equal(studentMute.error, 'Only the class teacher can do that');
+      const teacherMute = await emitAck(teacherSocket, 'room:mute-participant', coTeacherSocket.id);
+      assert.equal(teacherMute.error, 'Teachers cannot be moderated');
+
+      const forceMuted = waitForEvent(studentSocket, 'room:force-muted');
+      const updated = waitForEvent(teacherSocket, 'room:participant-updated');
+      assert.deepEqual(await emitAck(teacherSocket, 'room:mute-participant', studentSocket.id), { success: true });
+      assert.ok((await forceMuted).by);
+      assert.equal((await updated).muted, true);
+
+      await emitAck(studentSocket, 'room:microphone', false);
+      const mutedAgain = waitForEvent(studentSocket, 'room:force-muted');
+      assert.deepEqual(await emitAck(teacherSocket, 'room:mute-all'), { success: true });
+      await mutedAgain;
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('removes a participant until the teacher allows them back', async () => {
+    const { session, student, teacherSocket, studentSocket, studentToken, cleanup } = await setupRoom();
+    try {
+      const sessionId = String(session._id);
+      await emitAck(teacherSocket, 'room:join', sessionId);
+      await emitAck(studentSocket, 'room:join', sessionId);
+
+      const removed = waitForEvent(studentSocket, 'room:removed');
+      const left = waitForEvent(teacherSocket, 'room:participant-left');
+      const result = await emitAck(teacherSocket, 'room:remove-participant', studentSocket.id);
+      assert.equal(result.success, true);
+      assert.deepEqual(result.removedParticipants.map((person) => person.userId), [String(student._id)]);
+      await removed;
+      await left;
+
+      const rejoin = await emitAck(studentSocket, 'room:join', sessionId);
+      assert.equal(rejoin.error, 'You were removed from this class by the teacher.');
+      const roomPage = await request(app).get(`/api/sessions/${sessionId}/room`).set(auth(studentToken));
+      assert.equal(roomPage.status, 403);
+
+      const readmitted = await emitAck(teacherSocket, 'room:readmit-participant', String(student._id));
+      assert.deepEqual(readmitted.removedParticipants, []);
+      const back = await emitAck(studentSocket, 'room:join', sessionId);
+      assert.equal(back.error, undefined);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('ends the class for everyone and keeps students out until a teacher reopens it', async () => {
+    const { session, teacherSocket, studentSocket, cleanup } = await setupRoom();
+    try {
+      const sessionId = String(session._id);
+      await emitAck(teacherSocket, 'room:join', sessionId);
+      await emitAck(studentSocket, 'room:join', sessionId);
+
+      const studentEnded = waitForEvent(studentSocket, 'room:ended');
+      const teacherEnded = waitForEvent(teacherSocket, 'room:ended');
+      assert.deepEqual(await emitAck(teacherSocket, 'room:end'), { success: true });
+      await Promise.all([studentEnded, teacherEnded]);
+      assert.ok((await ClassSession.findById(sessionId)).endedAt);
+
+      const blocked = await emitAck(studentSocket, 'room:join', sessionId);
+      assert.equal(blocked.error, 'The teacher has ended this class.');
+
+      const teacherBack = await emitAck(teacherSocket, 'room:join', sessionId);
+      assert.equal(teacherBack.classEnded, true);
+      assert.deepEqual(await emitAck(teacherSocket, 'room:reopen'), { success: true });
+      const studentBack = await emitAck(studentSocket, 'room:join', sessionId);
+      assert.equal(studentBack.error, undefined);
+    } finally {
+      await cleanup();
+    }
+  });
+});
