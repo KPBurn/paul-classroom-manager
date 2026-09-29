@@ -59,6 +59,7 @@ export const teacherNavigation = [
       { label: 'Dashboard', to: '/teacher', icon: LayoutDashboard, end: true },
       { label: 'Announcements', to: '/teacher/announcements', icon: Megaphone },
       { label: 'My Classrooms', to: '/teacher/classrooms', icon: School },
+      { label: 'Subjects', to: '/teacher/subjects', icon: BookOpen },
       { label: 'Students', to: '/teacher/students', icon: GraduationCap, phase: 4 },
       { label: 'Assessments', to: '/teacher/assessments', icon: ClipboardCheck, phase: 4 },
       { label: 'Scores', to: '/teacher/scores', icon: ChartColumn, phase: 4 },
@@ -74,6 +75,7 @@ export const studentNavigation = [
     items: [
       { label: 'Attendance', to: '/student', icon: CalendarCheck, end: true },
       { label: 'My Classrooms', to: '/student/classrooms', icon: School },
+      { label: 'Materials', to: '/student/materials', icon: BookOpen },
     ],
   },
 ];

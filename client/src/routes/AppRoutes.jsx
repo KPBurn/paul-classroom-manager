@@ -14,6 +14,9 @@ import NotFound from '../pages/shared/NotFound.jsx';
 import Profile from '../pages/shared/Profile.jsx';
 import TeacherAnnouncements from '../pages/teacher/Announcements.jsx';
 import TeacherDashboard from '../pages/teacher/Dashboard.jsx';
+import TeacherSubjects from '../pages/teacher/Subjects.jsx';
+import SubjectDashboard from '../pages/teacher/SubjectDashboard.jsx';
+import StudentMaterials from '../pages/student/Materials.jsx';
 import { ROLES } from '../utils/roles.js';
 import { GuestRoute, ProtectedRoute } from './ProtectedRoute.jsx';
 
@@ -82,6 +85,8 @@ export default function AppRoutes() {
         <Route path="announcements" element={<TeacherAnnouncements />} />
         <Route path="classrooms" element={suspense(<MyClassrooms />)} />
         <Route path="classrooms/:id" element={suspense(<ClassroomDetail />)} />
+        <Route path="subjects" element={<TeacherSubjects />} />
+        <Route path="subjects/:id" element={<SubjectDashboard />} />
         <Route path="schedule" element={suspense(<TeacherSchedule />)} />
         <Route path="profile" element={<Profile />} />
         {plannedRoutes(teacherNavigation)}
@@ -99,6 +104,7 @@ export default function AppRoutes() {
         <Route index element={suspense(<StudentDashboard />)} />
         <Route path="classrooms" element={suspense(<MyClassrooms />)} />
         <Route path="classrooms/:id" element={suspense(<ClassroomDetail />)} />
+        <Route path="materials" element={<StudentMaterials />} />
         {plannedRoutes(studentNavigation)}
         <Route path="*" element={<Navigate to="/student" replace />} />
       </Route>

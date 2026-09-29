@@ -7,6 +7,7 @@ import authRoutes from './auth.routes.js';
 import classroomRoutes from './classroom.routes.js';
 import sessionRoutes from './session.routes.js';
 import systemSettingsRoutes from './systemSettings.routes.js';
+import subjectRoutes from './subject.routes.js';
 import userRoutes from './user.routes.js';
 
 const router = Router();
@@ -32,6 +33,7 @@ router.get('/health', (_req, res, next) => {
 router.use('/auth', authRoutes);
 router.use('/announcements', announcementRoutes);
 router.use('/classrooms', classroomRoutes);
+router.use('/subjects', subjectRoutes);
 router.use('/sessions', sessionRoutes);
 router.use('/system-settings', systemSettingsRoutes);
 router.use('/users', userRoutes);

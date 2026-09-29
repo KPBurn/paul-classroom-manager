@@ -1,23 +1,7 @@
 import * as sessionService from '../services/session.service.js';
 import { sendSuccess } from '../utils/apiResponse.js';
 import { AppError } from '../utils/AppError.js';
-
-const MAX_SESSION_FILE_SIZE = 8 * 1024 * 1024;
-
-function getSafeFileName(header) {
-  if (typeof header !== 'string' || header.length > 600) {
-    throw new AppError(400, 'A valid file name is required');
-  }
-  let decoded;
-  try {
-    decoded = decodeURIComponent(header);
-  } catch {
-    throw new AppError(400, 'A valid file name is required');
-  }
-  const name = decoded.split(/[\\/]/).pop().replace(/[\u0000-\u001f\u007f]/g, '').trim();
-  if (!name || name.length > 180) throw new AppError(400, 'File name must be between 1 and 180 characters');
-  return name;
-}
+import { MAX_UPLOAD_FILE_SIZE, getSafeFileName } from '../utils/file.js';
 
 export async function list(req, res) {
   const data = await sessionService.listSessions(req.user, req.validatedQuery);
@@ -58,7 +42,7 @@ export async function uploadFile(req, res) {
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
     throw new AppError(400, 'Choose a file to upload');
   }
-  if (req.body.length > MAX_SESSION_FILE_SIZE) {
+  if (req.body.length > MAX_UPLOAD_FILE_SIZE) {
     throw new AppError(413, 'Files must be 8 MB or smaller');
   }
   const file = await sessionService.createSessionFile(

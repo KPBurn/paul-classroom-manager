@@ -19,8 +19,8 @@ server/   Express REST API — the only thing that talks to MongoDB
 | ----- | -------------------------------------------------------------------- | ------ |
 | 1     | Project setup, environment config, API connection                    | ✅ Done |
 | 2     | Authentication, password hashing, JWT, RBAC, protected routes        | ✅ Done |
-| 3     | Admin dashboard and CRUD (users, students, classrooms, …)        | Users and multiple-teacher classroom assignments done; subjects, competencies, activity logs and reporting remain |
-| 4     | Teacher modules (classrooms, students, schedule, assessments, scores) | Admins and teachers can schedule sessions, assign active co-teachers and students to classrooms, and review attendance; assessments and scores remain |
+| 3     | Admin dashboard and CRUD (users, students, classrooms, …)        | Users and multiple-teacher classroom assignments done; admin subject management, competencies, activity logs and reporting remain |
+| 4     | Teacher modules (classrooms, subjects, students, schedule, assessments, scores) | Teachers can create subjects for assigned classrooms and share scheduled materials; assessments and scores remain |
 | 5     | Salary configuration and calculation                                  | Not started |
 | 6     | Security hardening                                                    | Partly done (see below) |
 | 7     | Testing                                                               | Auth, users, announcements, classrooms, scheduling and attendance covered |
@@ -31,6 +31,10 @@ Sidebar links for modules that are not built yet open a "Not built yet" page.
 Scheduling a class updates the classroom's ongoing teacher and student assignments. Each scheduled session also stores an assignment snapshot, so later classroom roster changes do not rewrite the participants for existing sessions or attendance history.
 
 Attendance is recorded automatically when teachers and students join a session room during its scheduled time, including arrival status and time attended; assigned people who never join are marked absent after the session ends. Open classrooms also add participant join and leave notices to the room chat.
+
+### Subjects and class materials
+
+Teachers create a subject (for example, English 101) for an active classroom assigned to them. The classroom's existing name can represent its batch (for example, 2021). The subject dashboard accepts PDFs and other files up to 8 MB; teachers can make each upload available immediately or schedule its release. Active students can see and download materials only while they are members of that active classroom, and the API checks both membership and the release time on every download. Subject files are stored in MongoDB.
 
 Administrators can temporarily enable password-free role testing from **Admin → Settings**. This allows any visitor to the login page to enter as an active account of the selected role, including an administrator account. Use only for a controlled test and disable immediately afterward; existing role-test sessions are revoked as soon as the setting is turned off.
 
@@ -213,10 +217,10 @@ server/src/
   config/        environment.js (validated env), database.js, permissions.js (RBAC map)
   controllers/   thin HTTP handlers
   middleware/    auth, role/permission, validation, sanitize, rate limit, error
-  models/        Mongoose schemas (User, Announcement, ActivityLog, ClassSession, SessionMessage)
+  models/        Mongoose schemas (User, Announcement, ActivityLog, Classroom, Subject, SubjectMaterial, ClassSession, SessionMessage)
   realtime/      authenticated Socket.IO room presence, chat, and WebRTC signaling
   routes/        route definitions, mounted under /api
-  services/      business logic (auth, user, announcement)
+  services/      business logic (auth, user, announcement, subject materials)
   utils/         jwt, password, AppError, apiResponse, activityLogger
   validators/    Zod request schemas
   scripts/       seed.js
