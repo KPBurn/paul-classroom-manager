@@ -16,6 +16,8 @@ const classSessionSchema = new mongoose.Schema(
     startsAt: { type: Date, required: true },
     endsAt: { type: Date, required: true },
     attendanceConditionEnabled: { type: Boolean, default: true, required: true },
+    screenSharingEnabled: { type: Boolean, default: true, required: true },
+    fileUploadsEnabled: { type: Boolean, default: true, required: true },
     seriesId: { type: String, default: null, index: true },
     timezone: { type: String, default: 'UTC' },
     status: { type: String, enum: ['scheduled', 'cancelled'], default: 'scheduled', required: true },

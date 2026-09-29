@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
+  Download,
+  File,
   LoaderCircle,
   MessageSquare,
   Mic,
@@ -10,6 +12,7 @@ import {
   PhoneOff,
   ScreenShareOff,
   Send,
+  Upload,
   UsersRound,
 } from 'lucide-react';
 import Alert from '../../components/common/Alert.jsx';
@@ -22,6 +25,9 @@ import { tokenStorage } from '../../utils/tokenStorage.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
 const formatTime = (value) => new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const formatFileSize = (size) => size < 1024 * 1024
+  ? `${Math.max(1, Math.round(size / 1024))} KB`
+  : `${(size / (1024 * 1024)).toFixed(1)} MB`;
 const initials = (name) => name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
 const readableError = (error, fallback) =>
   error?.response || error?.request || error?.code === 'ECONNABORTED'
@@ -91,6 +97,7 @@ export default function SessionRoom() {
   const { user } = useAuth();
   const [session, setSession] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [files, setFiles] = useState([]);
   const [participants, setParticipants] = useState([]);
   const [remoteMedia, setRemoteMedia] = useState({});
   const [activeTab, setActiveTab] = useState('chat');
@@ -101,7 +108,11 @@ export default function SessionRoom() {
   const [microphoneBusy, setMicrophoneBusy] = useState(false);
   const [screenStream, setScreenStream] = useState(null);
   const [screenSharerId, setScreenSharerId] = useState(null);
+  const [roomSettings, setRoomSettings] = useState({ screenSharingEnabled: true, fileUploadsEnabled: true });
+  const [canManageRoom, setCanManageRoom] = useState(false);
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [updatingSettings, setUpdatingSettings] = useState(false);
   const [error, setError] = useState('');
   const [mediaError, setMediaError] = useState('');
   const socketRef = useRef(null);
@@ -109,8 +120,12 @@ export default function SessionRoom() {
   const localAudioStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
   const localParticipantId = useRef(null);
   const mountedRef = useRef(false);
+  const refreshFiles = useCallback(async () => {
+    setFiles(await sessionService.files(id));
+  }, [id]);
 
   const leaveRoom = useCallback(() => {
     const socket = socketRef.current;
@@ -138,14 +153,16 @@ export default function SessionRoom() {
       setLoading(true);
       setError('');
       try {
-        const [current, history] = await Promise.all([
+        const [current, history, sharedFiles] = await Promise.all([
           sessionService.room(id),
           sessionService.messages(id),
+          sessionService.files(id),
         ]);
         if (current.status === 'cancelled') throw new Error('This session has been cancelled.');
         if (cancelled) return;
         setSession(current);
         setMessages(history);
+        setFiles(sharedFiles);
 
         const token = tokenStorage.get();
         if (!token) throw new Error('Your session has ended. Please sign in again.');
@@ -291,6 +308,8 @@ export default function SessionRoom() {
               ...result.participants,
             ]);
             setScreenSharerId(result.screenSharerId);
+            setRoomSettings(result.roomSettings ?? { screenSharingEnabled: true, fileUploadsEnabled: true });
+            setCanManageRoom(Boolean(result.canManageRoom));
             for (const participant of result.participants) createPeer(participant.id);
           } catch (joinError) {
             setError(readableError(joinError, 'Unable to join this session.'));
@@ -333,6 +352,27 @@ export default function SessionRoom() {
         socket.on('room:screen-sharing', ({ participantId, sharing }) => {
           setScreenSharerId(sharing ? participantId : null);
         });
+        socket.on('room:settings-updated', (updatedSettings) => {
+          setRoomSettings(updatedSettings);
+          if (!updatedSettings.screenSharingEnabled && screenStreamRef.current) {
+            const stream = screenStreamRef.current;
+            screenStreamRef.current = null;
+            setScreenStream(null);
+            for (const track of stream.getTracks()) {
+              track.onended = null;
+              track.stop();
+            }
+            Promise.all([...peersRef.current.values()].map((peer) => peer.videoSender.replaceTrack(null)))
+              .catch((replaceError) => {
+                setMediaError(readableError(replaceError, 'Unable to stop your screen share.'));
+              });
+          }
+        });
+        socket.on('room:files-changed', () => {
+          refreshFiles().catch((refreshError) => {
+            setError(readableError(refreshError, 'Unable to refresh shared files.'));
+          });
+        });
         socket.on('room:message', (newMessage) => {
           setMessages((current) => [...current, newMessage].slice(-100));
         });
@@ -364,7 +404,7 @@ export default function SessionRoom() {
       }
       mountedRef.current = false;
     };
-  }, [id, user.firstName, user.id, user.lastName, user.role]);
+  }, [id, refreshFiles, user.firstName, user.id, user.lastName, user.role]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -486,6 +526,61 @@ export default function SessionRoom() {
     }
   };
 
+  const toggleRoomSetting = async (setting) => {
+    if (!canManageRoom || updatingSettings) return;
+    setUpdatingSettings(true);
+    try {
+      const response = await emitAck(socketRef.current, 'room:settings-update', {
+        [setting]: !roomSettings[setting],
+      });
+      setRoomSettings(response.roomSettings);
+      setError('');
+    } catch (settingsError) {
+      setError(readableError(settingsError, 'Unable to update room permissions.'));
+    } finally {
+      setUpdatingSettings(false);
+    }
+  };
+
+  const uploadSelectedFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      setError('Files must be 8 MB or smaller.');
+      return;
+    }
+    setUploading(true);
+    try {
+      const uploaded = await sessionService.uploadFile(id, file);
+      setFiles((currentFiles) => [uploaded, ...currentFiles.filter((item) => item.id !== uploaded.id)]);
+      setError('');
+      try {
+        await emitAck(socketRef.current, 'room:files-changed');
+      } catch {
+        setError('The file was uploaded, but other participants may need to refresh their file list.');
+      }
+    } catch (uploadError) {
+      setError(readableError(uploadError, 'Unable to upload this file.'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const downloadSharedFile = async (item) => {
+    try {
+      const blob = await sessionService.downloadFile(id, item.id);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = item.name;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch (downloadError) {
+      setError(readableError(downloadError, 'Unable to download this file.'));
+    }
+  };
+
   const exitRoom = () => {
     leaveRoom();
     navigate(user.role === 'admin' ? '/admin' : user.role === 'teacher' ? '/teacher/schedule' : '/student');
@@ -541,7 +636,9 @@ export default function SessionRoom() {
               </span>
               <h2 className="mt-5 text-lg font-semibold">Your class room is ready</h2>
               <p className="mt-2 text-sm leading-6 text-slate-400">
-                Share your screen to present to the class. Participants can turn on their microphone to speak.
+                {roomSettings.screenSharingEnabled
+                  ? 'Share your screen to present to the class. Participants can turn on their microphone to speak.'
+                  : 'Screen sharing has been disabled by the teacher. Participants can still use chat and shared files.'}
               </p>
               <p className="mt-3 text-xs leading-5 text-slate-500">
                 Voice and screen sharing connect directly between browsers. Some school networks may block media; chat will still work.
@@ -564,6 +661,13 @@ export default function SessionRoom() {
               className={`flex flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-medium ${activeTab === 'chat' ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}
             >
               <MessageSquare className="size-4" aria-hidden="true" /> Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('files')}
+              className={`flex flex-1 items-center justify-center gap-2 border-b-2 px-2 py-3 text-sm font-medium ${activeTab === 'files' ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}
+            >
+              <File className="size-4" aria-hidden="true" /> Files
             </button>
             <button
               type="button"
@@ -623,6 +727,87 @@ export default function SessionRoom() {
                 </button>
               </form>
             </>
+          ) : activeTab === 'files' ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+              {canManageRoom && (
+                <section className="space-y-2 rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+                  <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Teacher controls</h2>
+                  <button
+                    type="button"
+                    aria-pressed={roomSettings.screenSharingEnabled}
+                    disabled={!connected || updatingSettings}
+                    onClick={() => toggleRoomSetting('screenSharingEnabled')}
+                    className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-60"
+                  >
+                    Screen sharing
+                    <span className={roomSettings.screenSharingEnabled ? 'text-emerald-300' : 'text-amber-300'}>
+                      {roomSettings.screenSharingEnabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={roomSettings.fileUploadsEnabled}
+                    disabled={!connected || updatingSettings}
+                    onClick={() => toggleRoomSetting('fileUploadsEnabled')}
+                    className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-60"
+                  >
+                    File uploads
+                    <span className={roomSettings.fileUploadsEnabled ? 'text-emerald-300' : 'text-amber-300'}>
+                      {roomSettings.fileUploadsEnabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </button>
+                </section>
+              )}
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-200">Shared files</h2>
+                  <p className="mt-1 text-xs text-slate-500">Files are removed when this session ends · 8 MB max</p>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={uploadSelectedFile}
+                  aria-label="Choose a file to share"
+                />
+                <Button
+                  variant="secondary"
+                  className="!px-3 !py-2"
+                  disabled={!connected || !roomSettings.fileUploadsEnabled || uploading}
+                  isLoading={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="size-4" />
+                  <span>{uploading ? 'Uploading' : 'Upload'}</span>
+                </Button>
+              </div>
+              {!roomSettings.fileUploadsEnabled && (
+                <p className="rounded-md bg-amber-400/10 px-3 py-2 text-xs text-amber-200">File uploads are disabled by the teacher.</p>
+              )}
+              <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto" aria-live="polite">
+                {files.length === 0 ? (
+                  <li className="py-6 text-center text-sm text-slate-500">No files have been shared in this session.</li>
+                ) : files.map((item) => (
+                  <li key={item.id} className="flex items-center gap-2 rounded-lg bg-slate-800 p-2.5">
+                    <File className="size-4 shrink-0 text-indigo-300" aria-hidden="true" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-slate-200">{item.name}</span>
+                      <span className="block text-xs text-slate-500">
+                        {formatFileSize(item.size)}{item.uploader?.name ? ` · ${item.uploader.name}` : ''}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => downloadSharedFile(item)}
+                      className="flex size-9 shrink-0 items-center justify-center rounded-md text-slate-300 hover:bg-slate-700 hover:text-white"
+                      aria-label={`Download ${item.name}`}
+                    >
+                      <Download className="size-4" aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : (
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               <p className="mb-3 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">In this session</p>
@@ -670,7 +855,7 @@ export default function SessionRoom() {
         <Button
           variant={screenStream ? 'primary' : 'secondary'}
           className={!screenStream ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}
-          disabled={!connected || Boolean(screenSharerId && screenSharerId !== localParticipantId.current)}
+          disabled={!connected || !roomSettings.screenSharingEnabled || Boolean(screenSharerId && screenSharerId !== localParticipantId.current)}
           onClick={toggleScreenShare}
           aria-pressed={Boolean(screenStream)}
         >

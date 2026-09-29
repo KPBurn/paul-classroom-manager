@@ -7,6 +7,7 @@ import { clearDatabase, createUser, startDatabase, stopDatabase, TEST_PASSWORD }
 import { createApp } from '../src/app.js';
 import { Classroom } from '../src/models/Classroom.js';
 import { ClassSession } from '../src/models/ClassSession.js';
+import { SessionFile } from '../src/models/SessionFile.js';
 import { attachSessionSocket } from '../src/realtime/sessionSocket.js';
 
 const app = createApp();
@@ -72,6 +73,7 @@ async function setupRoom() {
   return {
     session,
     classroom,
+    student,
     teacherSocket,
     studentSocket,
     unrelatedSocket,
@@ -202,6 +204,83 @@ describe('session room collaboration', () => {
       assert.equal(busy.error, 'Someone is already sharing their screen');
       assert.deepEqual(await emitAck(teacherSocket, 'room:screen-stop'), { success: true });
       assert.deepEqual(await emitAck(studentSocket, 'room:screen-start'), { success: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('lets the assigned teacher independently control screen sharing and temporary file uploads', async () => {
+    const {
+      session,
+      student,
+      teacherSocket,
+      studentSocket,
+      unrelatedToken,
+      studentToken,
+      cleanup,
+    } = await setupRoom();
+    try {
+      const teacherJoin = await emitAck(teacherSocket, 'room:join', String(session._id));
+      await emitAck(studentSocket, 'room:join', String(session._id));
+      assert.equal(teacherJoin.canManageRoom, true);
+
+      assert.deepEqual(await emitAck(studentSocket, 'room:settings-update', { screenSharingEnabled: false }), {
+        error: 'You are not assigned to this classroom',
+      });
+      assert.deepEqual(await emitAck(studentSocket, 'room:screen-start'), { success: true });
+      const screenStopped = new Promise((resolve) => studentSocket.once('room:screen-sharing', resolve));
+      const sharingSettings = await emitAck(teacherSocket, 'room:settings-update', { screenSharingEnabled: false });
+      assert.deepEqual(sharingSettings.roomSettings, { screenSharingEnabled: false, fileUploadsEnabled: true });
+      assert.deepEqual(await screenStopped, { participantId: studentSocket.id, sharing: false });
+      assert.equal((await emitAck(studentSocket, 'room:screen-start')).error, 'Screen sharing is disabled by the teacher');
+
+      await emitAck(teacherSocket, 'room:settings-update', { fileUploadsEnabled: false });
+      const disabledUpload = await request(app)
+        .post(`/api/sessions/${session.id}/files`)
+        .set(auth(studentToken))
+        .set('Content-Type', 'application/octet-stream')
+        .set('X-File-Name', 'lesson.txt')
+        .send(Buffer.from('class notes'));
+      assert.equal(disabledUpload.status, 403);
+
+      const uploadSettings = await emitAck(teacherSocket, 'room:settings-update', { fileUploadsEnabled: true });
+      assert.deepEqual(uploadSettings.roomSettings, { screenSharingEnabled: false, fileUploadsEnabled: true });
+      const uploaded = await request(app)
+        .post(`/api/sessions/${session.id}/files`)
+        .set(auth(studentToken))
+        .set('Content-Type', 'application/octet-stream')
+        .set('X-File-Name', 'lesson%20notes.txt')
+        .send(Buffer.from('class notes'));
+      assert.equal(uploaded.status, 201);
+      assert.equal(uploaded.body.data.file.name, 'lesson notes.txt');
+
+      const listed = await request(app)
+        .get(`/api/sessions/${session.id}/files`)
+        .set(auth(studentToken));
+      assert.equal(listed.status, 200);
+      assert.equal(listed.body.data.items.length, 1);
+      assert.equal(listed.body.data.items[0].uploader.name, `${student.firstName} ${student.lastName}`);
+
+      const downloaded = await request(app)
+        .get(`/api/sessions/${session.id}/files/${uploaded.body.data.file.id}`)
+        .set(auth(studentToken));
+      assert.equal(downloaded.status, 200);
+      assert.equal(downloaded.headers['content-type'], 'application/octet-stream');
+      assert.deepEqual(downloaded.body, Buffer.from('class notes'));
+
+      const forbidden = await request(app)
+        .get(`/api/sessions/${session.id}/files`)
+        .set(auth(unrelatedToken));
+      assert.equal(forbidden.status, 403);
+
+      session.endsAt = new Date(Date.now() - 1000);
+      await session.save();
+      const endedFiles = await request(app)
+        .get(`/api/sessions/${session.id}/files`)
+        .set(auth(studentToken));
+      assert.equal(endedFiles.status, 200);
+      assert.deepEqual(endedFiles.body.data.items, []);
+      assert.equal(await SessionFile.countDocuments({ session: session._id }), 0);
     } finally {
       cleanup();
     }

@@ -26,6 +26,10 @@ const signalSchema = z.object({
     usernameFragment: z.string().nullable().optional(),
   }).strict().nullable().optional(),
 }).strict().refine((signal) => Boolean(signal.description) || signal.candidate !== undefined);
+const roomSettingsSchema = z.object({
+  screenSharingEnabled: z.boolean().optional(),
+  fileUploadsEnabled: z.boolean().optional(),
+}).strict().refine((settings) => Object.keys(settings).length > 0);
 
 function participantResult(socket) {
   const { user, muted = true } = socket.data;
@@ -41,7 +45,12 @@ function participantResult(socket) {
 function roomState(rooms, sessionId) {
   let state = rooms.get(sessionId);
   if (!state) {
-    state = { participants: new Map(), screenSharerId: null };
+    state = {
+      participants: new Map(),
+      screenSharerId: null,
+      screenSharingEnabled: true,
+      fileUploadsEnabled: true,
+    };
     rooms.set(sessionId, state);
   }
   return state;
@@ -145,6 +154,12 @@ export function attachSessionSocket(httpServer) {
           ack?.({
             participants: [...state.participants.values()],
             screenSharerId: state.screenSharerId,
+            roomSettings: {
+              screenSharingEnabled: session.screenSharingEnabled ?? true,
+              fileUploadsEnabled: session.fileUploadsEnabled ?? true,
+            },
+            canManageRoom: socket.data.user.role === 'teacher'
+              && String(session.classroom.teacher?._id ?? session.classroom.teacher) === String(socket.data.user._id),
           });
           return;
         }
@@ -152,6 +167,8 @@ export function attachSessionSocket(httpServer) {
         await leaveRoom();
         const room = roomName(sessionId);
         const state = roomState(rooms, sessionId);
+        state.screenSharingEnabled = session.screenSharingEnabled ?? true;
+        state.fileUploadsEnabled = session.fileUploadsEnabled ?? true;
         const participantLimit = session.classroom.openAccess
           ? MAX_OPEN_ROOM_PARTICIPANTS
           : MAX_ROOM_PARTICIPANTS;
@@ -175,6 +192,12 @@ export function attachSessionSocket(httpServer) {
           },
           participants: existingParticipants,
           screenSharerId: state.screenSharerId,
+          roomSettings: {
+            screenSharingEnabled: state.screenSharingEnabled,
+            fileUploadsEnabled: state.fileUploadsEnabled,
+          },
+          canManageRoom: socket.data.user.role === 'teacher'
+            && String(session.classroom.teacher?._id ?? session.classroom.teacher) === String(socket.data.user._id),
         });
       } catch (error) {
         replyWithError(ack, error, 'Unable to join this session');
@@ -226,6 +249,10 @@ export function attachSessionSocket(httpServer) {
         ack?.({ error: 'Join the session before sharing your screen' });
         return;
       }
+      if (!state.screenSharingEnabled) {
+        ack?.({ error: 'Screen sharing is disabled by the teacher' });
+        return;
+      }
       if (state.screenSharerId && state.screenSharerId !== socket.id) {
         ack?.({ error: 'Someone is already sharing their screen' });
         return;
@@ -242,6 +269,39 @@ export function attachSessionSocket(httpServer) {
         state.screenSharerId = null;
         io.to(roomName(sessionId)).emit('room:screen-sharing', { participantId: socket.id, sharing: false });
       }
+      ack?.({ success: true });
+    });
+
+    socket.on('room:settings-update', async (input, ack) => {
+      try {
+        const sessionId = socket.data.sessionId;
+        if (!sessionId) throw new AppError(400, 'Join the session before changing room permissions');
+        const settings = roomSettingsSchema.parse(input);
+        if (!rooms.has(sessionId)) throw new AppError(400, 'Join the session before changing room permissions');
+        const updated = await sessionService.updateRoomSettings(sessionId, settings, socket.data.user);
+        const state = rooms.get(sessionId);
+        if (state) {
+          Object.assign(state, updated);
+          if (!state.screenSharingEnabled && state.screenSharerId) {
+            const participantId = state.screenSharerId;
+            state.screenSharerId = null;
+            io.to(roomName(sessionId)).emit('room:screen-sharing', { participantId, sharing: false });
+          }
+          io.to(roomName(sessionId)).emit('room:settings-updated', updated);
+        }
+        ack?.({ success: true, roomSettings: updated });
+      } catch (error) {
+        replyWithError(ack, error, 'Unable to update room permissions');
+      }
+    });
+
+    socket.on('room:files-changed', (ack) => {
+      const sessionId = socket.data.sessionId;
+      if (!sessionId || !rooms.has(sessionId)) {
+        ack?.({ error: 'Join the session before refreshing shared files' });
+        return;
+      }
+      socket.to(roomName(sessionId)).emit('room:files-changed');
       ack?.({ success: true });
     });
 

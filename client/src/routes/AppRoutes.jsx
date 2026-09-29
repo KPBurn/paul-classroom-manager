@@ -1,20 +1,19 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { adminNavigation, navigationItems, studentNavigation, teacherNavigation } from '../config/navigation.js';
-import { useAuth } from '../hooks/useAuth.js';
 import FullPageSpinner from '../components/common/FullPageSpinner.jsx';
 import AdminLayout from '../layouts/AdminLayout.jsx';
 import TeacherLayout from '../layouts/TeacherLayout.jsx';
 import Announcements from '../pages/admin/Announcements.jsx';
 import AdminDashboard from '../pages/admin/Dashboard.jsx';
 import Users from '../pages/admin/Users.jsx';
-import Login from '../pages/auth/Login.jsx';
 import ComingSoon from '../pages/shared/ComingSoon.jsx';
+import LandingPage from '../pages/shared/LandingPage.jsx';
 import NotFound from '../pages/shared/NotFound.jsx';
 import Profile from '../pages/shared/Profile.jsx';
 import TeacherAnnouncements from '../pages/teacher/Announcements.jsx';
 import TeacherDashboard from '../pages/teacher/Dashboard.jsx';
-import { homePathFor, ROLES } from '../utils/roles.js';
+import { ROLES } from '../utils/roles.js';
 import { GuestRoute, ProtectedRoute } from './ProtectedRoute.jsx';
 
 const Classrooms = lazy(() => import('../pages/admin/Classrooms.jsx'));
@@ -32,31 +31,11 @@ const plannedRoutes = (sections) =>
       <Route key={to} path={to} element={<ComingSoon title={label} phase={phase} />} />
     ));
 
-function HomeRedirect() {
-  const { user } = useAuth();
-  return <Navigate to={homePathFor(user.role)} replace />;
-}
-
 export default function AppRoutes() {
   return (
     <Routes>
-      <Route
-        path="/login"
-        element={
-          <GuestRoute>
-            <Login />
-          </GuestRoute>
-        }
-      />
-
-      <Route
-        path="/"
-        element={
-          <ProtectedRoute>
-            <HomeRedirect />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/" element={<GuestRoute><LandingPage /></GuestRoute>} />
+      <Route path="/login" element={<GuestRoute><LandingPage /></GuestRoute>} />
 
       <Route
         path="/sessions/:id/room"

@@ -16,6 +16,26 @@ export const sessionService = {
     return data.data.session;
   },
 
+  async files(id) {
+    const { data } = await api.get(`/sessions/${id}/files`);
+    return data.data.items;
+  },
+
+  async uploadFile(id, file) {
+    const { data } = await api.post(`/sessions/${id}/files`, file, {
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-File-Name': encodeURIComponent(file.name),
+      },
+    });
+    return data.data.file;
+  },
+
+  async downloadFile(id, fileId) {
+    const { data } = await api.get(`/sessions/${id}/files/${fileId}`, { responseType: 'blob' });
+    return data;
+  },
+
   async create(session) {
     const { data } = await api.post('/sessions', session);
     return data.data.items;

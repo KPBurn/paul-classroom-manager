@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Classroom } from '../models/Classroom.js';
 import { ClassSession } from '../models/ClassSession.js';
+import { SessionFile } from '../models/SessionFile.js';
 import { SessionMessage } from '../models/SessionMessage.js';
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
@@ -155,6 +156,10 @@ function sessionResult(session, user) {
     startsAt: session.startsAt,
     endsAt: session.endsAt,
     attendanceConditionEnabled: session.attendanceConditionEnabled ?? true,
+    roomSettings: {
+      screenSharingEnabled: session.screenSharingEnabled ?? true,
+      fileUploadsEnabled: session.fileUploadsEnabled ?? true,
+    },
     status: session.status,
     seriesId: session.seriesId,
     attendance: attendance
@@ -214,7 +219,97 @@ export async function getSessionForParticipant(id, user) {
 
 export async function getRoomSession(id, user) {
   const session = await getSessionForParticipant(id, user);
-  return sessionResult(session, user);
+  return {
+    ...sessionResult(session, user),
+    canManageRoom: user.role === 'teacher'
+      && String(session.classroom.teacher?._id ?? session.classroom.teacher) === String(user._id),
+  };
+}
+
+export async function updateRoomSettings(id, settings, user) {
+  const session = await getSession(id);
+  assertAssignedTeacher(session, user);
+  if (session.status === 'cancelled' || session.endsAt <= new Date()) {
+    throw new AppError(400, 'Room settings cannot be changed after the session ends');
+  }
+  if (settings.screenSharingEnabled !== undefined) {
+    session.screenSharingEnabled = settings.screenSharingEnabled;
+  }
+  if (settings.fileUploadsEnabled !== undefined) {
+    session.fileUploadsEnabled = settings.fileUploadsEnabled;
+  }
+  await session.save();
+  return {
+    screenSharingEnabled: session.screenSharingEnabled,
+    fileUploadsEnabled: session.fileUploadsEnabled,
+  };
+}
+
+function sessionFileResult(file) {
+  return {
+    id: String(file._id),
+    name: file.name,
+    size: file.size,
+    uploadedAt: file.createdAt,
+    uploader: file.uploader
+      ? {
+          id: String(file.uploader._id ?? file.uploader),
+          name: `${file.uploader.firstName ?? ''} ${file.uploader.lastName ?? ''}`.trim(),
+        }
+      : null,
+  };
+}
+
+export async function listSessionFiles(id, user) {
+  const session = await getSessionForParticipant(id, user);
+  const now = new Date();
+  if (session.status === 'cancelled' || session.endsAt <= now) {
+    await SessionFile.deleteMany({ session: id });
+    return { items: [] };
+  }
+  await SessionFile.deleteMany({ session: id, expiresAt: { $lte: now } });
+  const files = await SessionFile.find({ session: id, expiresAt: { $gt: now } })
+    .select('-data')
+    .sort({ createdAt: -1 })
+    .populate('uploader', 'firstName lastName');
+  return { items: files.map(sessionFileResult) };
+}
+
+export async function createSessionFile(id, { name, data }, user) {
+  const session = await getSessionForParticipant(id, user);
+  if (session.status === 'cancelled' || session.endsAt <= new Date()) {
+    throw new AppError(400, 'Files can only be uploaded while the session is active');
+  }
+  if (!session.fileUploadsEnabled) {
+    throw new AppError(403, 'File uploads are disabled by the teacher');
+  }
+  const file = await SessionFile.create({
+    session: session._id,
+    uploader: user._id,
+    name,
+    size: data.length,
+    data,
+    expiresAt: session.endsAt,
+  });
+  await file.populate('uploader', 'firstName lastName');
+  return sessionFileResult(file);
+}
+
+export async function getSessionFile(id, fileId, user) {
+  const session = await getSessionForParticipant(id, user);
+  if (session.status === 'cancelled' || session.endsAt <= new Date()) {
+    await SessionFile.deleteMany({ session: id });
+    throw new AppError(404, 'File not found or the session has ended');
+  }
+  const file = await SessionFile.findOne({
+    _id: fileId,
+    session: id,
+    expiresAt: { $gt: new Date() },
+  })
+    .select('+data')
+    .populate('uploader', 'firstName lastName');
+  if (!file) throw new AppError(404, 'File not found or the session has ended');
+  return { ...sessionFileResult(file), data: file.data };
 }
 
 function sessionMessageResult(message) {
@@ -345,6 +440,10 @@ export async function updateSession(id, changes, user, { ipAddress }) {
     }
     if (occurrence.endsAt <= occurrence.startsAt) throw new AppError(400, 'End time must be after start time');
     await occurrence.save();
+    await SessionFile.updateMany(
+      { session: occurrence._id },
+      { $set: { expiresAt: occurrence.endsAt } },
+    );
   }
   await logActivity({
     actorId: user._id,
@@ -373,6 +472,7 @@ export async function cancelSession(id, scope, user, { ipAddress }) {
     ? { seriesId: session.seriesId, startsAt: { $gt: new Date() } }
     : { _id: session._id };
   await ClassSession.updateMany(filter, { $set: { status: 'cancelled' } });
+  await SessionFile.deleteMany({ session: { $in: await ClassSession.find(filter).distinct('_id') } });
   await logActivity({
     actorId: user._id,
     action: 'session.cancelled',

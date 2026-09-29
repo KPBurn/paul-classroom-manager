@@ -1,5 +1,23 @@
 import * as sessionService from '../services/session.service.js';
 import { sendSuccess } from '../utils/apiResponse.js';
+import { AppError } from '../utils/AppError.js';
+
+const MAX_SESSION_FILE_SIZE = 8 * 1024 * 1024;
+
+function getSafeFileName(header) {
+  if (typeof header !== 'string' || header.length > 600) {
+    throw new AppError(400, 'A valid file name is required');
+  }
+  let decoded;
+  try {
+    decoded = decodeURIComponent(header);
+  } catch {
+    throw new AppError(400, 'A valid file name is required');
+  }
+  const name = decoded.split(/[\\/]/).pop().replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  if (!name || name.length > 180) throw new AppError(400, 'File name must be between 1 and 180 characters');
+  return name;
+}
 
 export async function list(req, res) {
   const data = await sessionService.listSessions(req.user, req.validatedQuery);
@@ -29,6 +47,37 @@ export async function messages(req, res) {
 export async function room(req, res) {
   const session = await sessionService.getRoomSession(req.params.id, req.user);
   sendSuccess(res, { data: { session } });
+}
+
+export async function listFiles(req, res) {
+  const data = await sessionService.listSessionFiles(req.params.id, req.user);
+  sendSuccess(res, { data });
+}
+
+export async function uploadFile(req, res) {
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    throw new AppError(400, 'Choose a file to upload');
+  }
+  if (req.body.length > MAX_SESSION_FILE_SIZE) {
+    throw new AppError(413, 'Files must be 8 MB or smaller');
+  }
+  const file = await sessionService.createSessionFile(
+    req.params.id,
+    { name: getSafeFileName(req.get('x-file-name')), data: req.body },
+    req.user,
+  );
+  sendSuccess(res, { status: 201, message: 'File uploaded', data: { file } });
+}
+
+export async function downloadFile(req, res) {
+  const file = await sessionService.getSessionFile(req.params.id, req.params.fileId, req.user);
+  res.set({
+    'Content-Type': 'application/octet-stream',
+    'Content-Length': String(file.data.length),
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.send(file.data);
 }
 
 export async function correctAttendance(req, res) {

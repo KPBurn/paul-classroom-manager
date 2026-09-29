@@ -7,3 +7,69 @@
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
 }
+
+dialog[open] {
+  animation: login-pop-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+dialog::backdrop {
+  background: rgb(15 23 42 / 45%);
+  backdrop-filter: blur(5px);
+  animation: login-backdrop-in 220ms ease-out both;
+}
+
+.landing-copy {
+  animation: landing-rise-in 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.landing-preview {
+  animation: landing-rise-in 750ms 100ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.landing-feature {
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.landing-feature:hover {
+  transform: translateY(-4px);
+  border-color: rgb(199 210 254);
+  box-shadow: 0 18px 35px -24px rgb(30 41 59 / 35%);
+}
+
+@keyframes login-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes login-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes landing-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
