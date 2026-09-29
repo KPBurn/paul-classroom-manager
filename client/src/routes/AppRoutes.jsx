@@ -13,7 +13,6 @@ import LandingPage from '../pages/shared/LandingPage.jsx';
 import NotFound from '../pages/shared/NotFound.jsx';
 import Profile from '../pages/shared/Profile.jsx';
 import TeacherAnnouncements from '../pages/teacher/Announcements.jsx';
-import TeacherClassrooms from '../pages/teacher/Classrooms.jsx';
 import TeacherDashboard from '../pages/teacher/Dashboard.jsx';
 import { ROLES } from '../utils/roles.js';
 import { GuestRoute, ProtectedRoute } from './ProtectedRoute.jsx';
@@ -23,6 +22,8 @@ const TeacherSchedule = lazy(() => import('../pages/teacher/Schedule.jsx'));
 const StudentDashboard = lazy(() => import('../pages/student/Dashboard.jsx'));
 const StudentLayout = lazy(() => import('../layouts/StudentLayout.jsx'));
 const SessionRoom = lazy(() => import('../pages/shared/SessionRoom.jsx'));
+const MyClassrooms = lazy(() => import('../pages/shared/MyClassrooms.jsx'));
+const ClassroomDetail = lazy(() => import('../pages/shared/ClassroomDetail.jsx'));
 const suspense = (element) => <Suspense fallback={<FullPageSpinner />}>{element}</Suspense>;
 
 /** Placeholder routes for sidebar modules that have not been built yet. */
@@ -79,7 +80,8 @@ export default function AppRoutes() {
       >
         <Route index element={<TeacherDashboard />} />
         <Route path="announcements" element={<TeacherAnnouncements />} />
-        <Route path="classrooms" element={suspense(<TeacherClassrooms />)} />
+        <Route path="classrooms" element={suspense(<MyClassrooms />)} />
+        <Route path="classrooms/:id" element={suspense(<ClassroomDetail />)} />
         <Route path="schedule" element={suspense(<TeacherSchedule />)} />
         <Route path="profile" element={<Profile />} />
         {plannedRoutes(teacherNavigation)}
@@ -95,6 +97,8 @@ export default function AppRoutes() {
         }
       >
         <Route index element={suspense(<StudentDashboard />)} />
+        <Route path="classrooms" element={suspense(<MyClassrooms />)} />
+        <Route path="classrooms/:id" element={suspense(<ClassroomDetail />)} />
         {plannedRoutes(studentNavigation)}
         <Route path="*" element={<Navigate to="/student" replace />} />
       </Route>

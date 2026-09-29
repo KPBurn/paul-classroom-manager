@@ -179,6 +179,51 @@ describe('classroom administration', () => {
   });
 });
 
+describe('classroom access for students', () => {
+  it('lists only enrolled classrooms without classmate details', async () => {
+    const teacher = await createUser({ role: 'teacher' });
+    const student = await createUser({ role: 'student' });
+    const classmate = await createUser({ role: 'student' });
+    const enrolled = await Classroom.create({
+      name: 'Enrolled',
+      teacher: teacher._id,
+      teachers: [teacher._id],
+      students: [student._id, classmate._id],
+    });
+    const other = await Classroom.create({
+      name: 'Other',
+      teacher: teacher._id,
+      teachers: [teacher._id],
+      students: [classmate._id],
+    });
+    const token = await login(student);
+
+    const list = await request(app).get('/api/classrooms').set(auth(token));
+    assert.equal(list.status, 200);
+    assert.deepEqual(list.body.data.items.map((item) => item.name), ['Enrolled']);
+    assert.equal(list.body.data.items[0].studentCount, 2);
+    assert.equal(list.body.data.items[0].students, undefined);
+    assert.equal(list.body.data.items[0].teachers[0].email, undefined);
+
+    const detail = await request(app).get(`/api/classrooms/${enrolled.id}`).set(auth(token));
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.data.classroom.name, 'Enrolled');
+    assert.equal((await request(app).get(`/api/classrooms/${other.id}`).set(auth(token))).status, 403);
+  });
+
+  it('shows classroom details to its teachers only', async () => {
+    const teacher = await createUser({ role: 'teacher' });
+    const otherTeacher = await createUser({ role: 'teacher' });
+    const classroom = await Classroom.create({ name: 'Mine', teacher: teacher._id, teachers: [teacher._id], students: [] });
+
+    const mine = await request(app).get(`/api/classrooms/${classroom.id}`).set(auth(await login(teacher)));
+    assert.equal(mine.status, 200);
+    assert.deepEqual(mine.body.data.classroom.students, []);
+    const theirs = await request(app).get(`/api/classrooms/${classroom.id}`).set(auth(await login(otherTeacher)));
+    assert.equal(theirs.status, 403);
+  });
+});
+
 describe('class sessions and attendance', () => {
   async function setupClass() {
     const teacher = await createUser({ role: 'teacher' });

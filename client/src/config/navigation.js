@@ -73,6 +73,7 @@ export const studentNavigation = [
   {
     items: [
       { label: 'Attendance', to: '/student', icon: CalendarCheck, end: true },
+      { label: 'My Classrooms', to: '/student/classrooms', icon: School },
     ],
   },
 ];

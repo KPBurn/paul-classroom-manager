@@ -2,6 +2,7 @@ import { Classroom } from '../models/Classroom.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
+import { canReadClassroom } from './announcement.service.js';
 
 async function activeUsersWithRole(ids, role, label) {
   const uniqueIds = [...new Set(ids)];
@@ -25,7 +26,20 @@ async function assignments(data) {
   return result;
 }
 
+/** Students see who teaches a class and how big it is, but not their classmates' details. */
+function studentClassroomView(classroom) {
+  const { students, ...view } = classroom.toJSON();
+  return { ...view, studentCount: students.length };
+}
+
 export async function listClassrooms({ includeArchived = false } = {}, user) {
+  if (user?.role === 'student') {
+    const classrooms = await Classroom.find({ status: 'active', students: user._id })
+      .sort({ name: 1 })
+      .populate('teacher', 'firstName lastName')
+      .populate('teachers', 'firstName lastName');
+    return classrooms.map(studentClassroomView);
+  }
   const filter = includeArchived ? {} : { status: 'active' };
   if (user?.role === 'teacher') {
     filter.$or = [{ teacher: user._id }, { teachers: user._id }];
@@ -35,6 +49,24 @@ export async function listClassrooms({ includeArchived = false } = {}, user) {
     .populate('teacher', 'firstName lastName email status')
     .populate('teachers', 'firstName lastName email status')
     .populate('students', 'firstName lastName email status');
+}
+
+export async function getClassroom(id, user) {
+  const classroom = await Classroom.findById(id);
+  if (!classroom) throw new AppError(404, 'Classroom not found');
+  if (!canReadClassroom(classroom, user)) throw new AppError(403, 'You are not assigned to this classroom');
+  if (user.role === 'student') {
+    await classroom.populate([
+      { path: 'teacher', select: 'firstName lastName' },
+      { path: 'teachers', select: 'firstName lastName' },
+    ]);
+    return studentClassroomView(classroom);
+  }
+  return classroom.populate([
+    { path: 'teacher', select: 'firstName lastName email status' },
+    { path: 'teachers', select: 'firstName lastName email status' },
+    { path: 'students', select: 'firstName lastName email status' },
+  ]);
 }
 
 export async function createClassroom(data, { actor, ipAddress }) {

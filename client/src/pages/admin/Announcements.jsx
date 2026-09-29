@@ -1,58 +1,38 @@
-import { zodResolver } from '@hookform/resolvers/zod';
 import { Megaphone, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { z } from 'zod';
+import AnnouncementFormModal from '../../components/announcements/AnnouncementFormModal.jsx';
+import { useAnnouncementActions } from '../../components/announcements/useAnnouncementActions.jsx';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
-import Modal from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import Pagination from '../../components/common/Pagination.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
-import TextField, { TextAreaField } from '../../components/common/TextField.jsx';
 import { useAnnouncements } from '../../hooks/useAnnouncements.js';
 import { announcementService } from '../../services/announcement.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { formatDateTime } from '../../utils/format.js';
 
-// Keep in sync with ANNOUNCEMENT_LIMITS in server/src/models/Announcement.js.
-const LIMITS = { title: 120, body: 2000, type: 30 };
-const SUGGESTED_TYPES = ['General', 'Academic', 'Event', 'Holiday', 'Reminder', 'Urgent'];
 const PAGE_SIZE = 10;
-
-const text = (label, max) =>
-  z.string().trim().min(1, `${label} is required`).max(max, `${label} must be at most ${max} characters`);
-
-const announcementSchema = z.object({
-  title: text('Title', LIMITS.title),
-  body: text('Body', LIMITS.body),
-  type: text('Type', LIMITS.type),
-});
-
-const EMPTY_FORM = { title: '', body: '', type: '' };
+const TABS = [
+  { status: 'active', label: 'Active' },
+  { status: 'archived', label: 'Archived' },
+];
 
 export default function Announcements() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const list = useAnnouncements(PAGE_SIZE);
+  const [status, setStatus] = useState('active');
+  const list = useAnnouncements(PAGE_SIZE, { status });
+  const actions = useAnnouncementActions(list.reload);
 
   // The dashboard's "Create announcement" button links here with this flag.
   const [isFormOpen, setIsFormOpen] = useState(Boolean(location.state?.openCreate));
   const [pendingAnnouncement, setPendingAnnouncement] = useState(null);
   const [isPublishing, setIsPublishing] = useState(false);
-
-  const {
-    register,
-    handleSubmit,
-    reset,
-    watch,
-    formState: { errors },
-  } = useForm({ resolver: zodResolver(announcementSchema), defaultValues: EMPTY_FORM });
-  const [title, body, type] = watch(['title', 'body', 'type']);
 
   useEffect(() => {
     // Clear the flag so a page refresh does not reopen the form.
@@ -61,10 +41,6 @@ export default function Announcements() {
 
   const openForm = () => setIsFormOpen(true);
 
-  const closeForm = () => {
-    if (!isPublishing) setIsFormOpen(false);
-  };
-
   const publish = async () => {
     setIsPublishing(true);
     try {
@@ -72,9 +48,9 @@ export default function Announcements() {
       toast.success('Announcement created.');
       setPendingAnnouncement(null);
       setIsFormOpen(false);
-      reset(EMPTY_FORM);
-      // Show the new announcement, which is always first on page 1.
-      if (list.page === 1) list.reload();
+      // Show the new announcement, which is always first on page 1 of the active list.
+      if (status !== 'active') setStatus('active');
+      else if (list.page === 1) list.reload();
       else list.setPage(1);
     } catch (error) {
       // Keep the form open with the admin's text so they can fix and retry.
@@ -89,7 +65,7 @@ export default function Announcements() {
     <>
       <PageHeader
         title="Announcements"
-        description="Create announcements and review the ones already published."
+        description="Create school-wide announcements, and edit, archive or delete published ones."
         actions={
           <Button onClick={openForm}>
             <Plus className="size-4" aria-hidden="true" />
@@ -98,62 +74,32 @@ export default function Announcements() {
         }
       />
 
-      <AnnouncementList list={list} onRetry={list.reload} onCreate={openForm} onPageChange={list.setPage} />
+      <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-1" role="tablist" aria-label="Announcement status">
+        {TABS.map((tab) => (
+          <button
+            key={tab.status}
+            type="button"
+            role="tab"
+            aria-selected={status === tab.status}
+            onClick={() => setStatus(tab.status)}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${status === tab.status ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      <Modal
+      <AnnouncementTable list={list} archived={status === 'archived'} onCreate={openForm} renderActions={actions.renderActions} />
+
+      <AnnouncementFormModal
         open={isFormOpen}
-        onClose={closeForm}
+        onClose={() => setIsFormOpen(false)}
+        onSubmit={setPendingAnnouncement}
         title="Create Announcement"
         description="You will be asked to confirm before it is created."
-        size="max-w-2xl"
-      >
-        <form onSubmit={handleSubmit(setPendingAnnouncement)} noValidate className="space-y-5">
-          <TextField
-            id="announcement-title"
-            label="Title"
-            maxLength={LIMITS.title}
-            count={title.length}
-            placeholder="e.g. Enrollment for the second semester"
-            error={errors.title?.message}
-            {...register('title')}
-          />
-
-          <TextField
-            id="announcement-type"
-            label="Type"
-            list="announcement-types"
-            maxLength={LIMITS.type}
-            count={type.length}
-            placeholder="Pick a suggestion or type your own"
-            autoComplete="off"
-            error={errors.type?.message}
-            {...register('type')}
-          />
-          <datalist id="announcement-types">
-            {SUGGESTED_TYPES.map((suggestion) => (
-              <option key={suggestion} value={suggestion} />
-            ))}
-          </datalist>
-
-          <TextAreaField
-            id="announcement-body"
-            label="Body"
-            rows={8}
-            maxLength={LIMITS.body}
-            count={body.length}
-            placeholder="Write the announcement…"
-            error={errors.body?.message}
-            {...register('body')}
-          />
-
-          <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
-            <Button variant="secondary" onClick={closeForm}>
-              Cancel
-            </Button>
-            <Button type="submit">Create</Button>
-          </div>
-        </form>
-      </Modal>
+        submitLabel="Create"
+        isSaving={isPublishing}
+      />
 
       <ConfirmDialog
         open={Boolean(pendingAnnouncement)}
@@ -172,18 +118,20 @@ export default function Announcements() {
         onConfirm={publish}
         onCancel={() => setPendingAnnouncement(null)}
       />
+
+      {actions.dialogs}
     </>
   );
 }
 
-function AnnouncementList({ list, onRetry, onCreate, onPageChange }) {
+function AnnouncementTable({ list, archived, onCreate, renderActions }) {
   const { status, items, pagination, error } = list;
 
   if (status === 'error') {
     return (
       <div className="space-y-3">
         <Alert tone="error">{error}</Alert>
-        <Button variant="secondary" onClick={onRetry}>
+        <Button variant="secondary" onClick={list.reload}>
           Try again
         </Button>
       </div>
@@ -205,12 +153,20 @@ function AnnouncementList({ list, onRetry, onCreate, onPageChange }) {
         <span className="flex size-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
           <Megaphone className="size-6" aria-hidden="true" />
         </span>
-        <h2 className="mt-4 font-semibold text-slate-900">No announcements yet</h2>
-        <p className="mt-1 text-sm text-slate-600">Announcements you create will be listed here.</p>
-        <Button className="mt-5" onClick={onCreate}>
-          <Plus className="size-4" aria-hidden="true" />
-          Create Announcement
-        </Button>
+        <h2 className="mt-4 font-semibold text-slate-900">
+          {archived ? 'No archived announcements' : 'No announcements yet'}
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          {archived
+            ? 'Announcements you archive are kept here and can be restored.'
+            : 'Announcements you create will be listed here.'}
+        </p>
+        {!archived && (
+          <Button className="mt-5" onClick={onCreate}>
+            <Plus className="size-4" aria-hidden="true" />
+            Create Announcement
+          </Button>
+        )}
       </div>
     );
   }
@@ -218,7 +174,7 @@ function AnnouncementList({ list, onRetry, onCreate, onPageChange }) {
   return (
     <div className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs transition-opacity ${status === 'loading' ? 'opacity-60' : ''}`}>
       <h2 className="border-b border-slate-200 px-5 py-3 text-sm font-semibold text-slate-900">
-        List of Created Announcements
+        {archived ? 'Archived Announcements' : 'List of Created Announcements'}
       </h2>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -227,6 +183,7 @@ function AnnouncementList({ list, onRetry, onCreate, onPageChange }) {
               <th scope="col" className="px-5 py-3">Title</th>
               <th scope="col" className="px-5 py-3">Type</th>
               <th scope="col" className="whitespace-nowrap px-5 py-3">Creation Date</th>
+              <th scope="col" className="px-5 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -244,6 +201,9 @@ function AnnouncementList({ list, onRetry, onCreate, onPageChange }) {
                 <td className="whitespace-nowrap px-5 py-3.5 text-slate-600">
                   <time dateTime={announcement.createdAt}>{formatDateTime(announcement.createdAt)}</time>
                 </td>
+                <td className="px-5 py-2.5">
+                  <div className="flex justify-end">{renderActions(announcement)}</div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -255,7 +215,7 @@ function AnnouncementList({ list, onRetry, onCreate, onPageChange }) {
         pagination={pagination}
         itemCount={items.length}
         disabled={status === 'loading'}
-        onPageChange={onPageChange}
+        onPageChange={list.setPage}
       />
     </div>
   );

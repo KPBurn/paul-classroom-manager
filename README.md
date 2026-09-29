@@ -147,7 +147,15 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | PATCH  | `/api/users/:id`     | `users:update` | Change any of `{ firstName, lastName, email, role, status }` |
 | PUT    | `/api/users/:id/password` | `users:update` | `{ password }`. Signs the user out of every session |
 | DELETE | `/api/users/:id`     | `users:delete` | Delete a user. Refused for users who created announcements; deactivate them instead |
-| GET    | `/api/classrooms` | Admin; assigned teacher | List active classrooms (or `?includeArchived=true`); teacher results are scoped to their assigned classrooms |
+| GET    | `/api/announcements` | `announcements:read` | School-wide announcements, newest first. Query: `page`, `limit`, `status` (`active` or `archived`; archived needs `announcements:update`) |
+| POST   | `/api/announcements` | `announcements:create` | Create a school-wide announcement `{ title, body, type }` |
+| PATCH  | `/api/announcements/:id` | `announcements:update`; classroom teacher | Edit `{ title?, body?, type? }`. Teachers can edit announcements in classrooms they teach |
+| POST   | `/api/announcements/:id/archive` | `announcements:update`; classroom teacher | Hide an announcement without deleting it (`/restore` undoes it) |
+| DELETE | `/api/announcements/:id` | `announcements:delete`; classroom teacher | Permanently delete an announcement |
+| GET    | `/api/classrooms` | Admin; assigned teacher; enrolled student | List active classrooms (or `?includeArchived=true`); teacher and student results are scoped to their own classrooms, and students see class size instead of the roster |
+| GET    | `/api/classrooms/:id` | Admin; assigned teacher; enrolled student | One classroom, shaped the same way as the list |
+| GET    | `/api/classrooms/:id/announcements` | Admin; assigned teacher; enrolled student | Classroom announcements. Query: `page`, `limit`, `status` (archived for teachers and admins only) |
+| POST   | `/api/classrooms/:id/announcements` | Admin; assigned teacher | Post `{ title, body, type }` to an active classroom |
 | POST   | `/api/classrooms` | Admin | Create `{ name, teacherId, studentIds }` with active assigned users |
 | PATCH  | `/api/classrooms/:id` | Admin | Update classroom name or assignments |
 | POST   | `/api/classrooms/:id/archive` | Admin | Archive a classroom without deleting its history |
@@ -167,6 +175,8 @@ Recurring schedule date ranges are inclusive; `weekdays` uses JavaScript day num
 
 Teachers and assigned students can open a session room for persistent group chat, participant presence, microphone mute/unmute, camera video, screen sharing, and file sharing. Standard rooms are capped at 12 participants. Administrators can designate an **open classroom**, whose rooms allow any signed-in active account and are capped at 20 participants. The assigned teacher can independently enable or disable screen sharing and file uploads; the server enforces both settings for every participant. Room files are limited to 8 MB and are removed when the session ends or is cancelled. Chat and temporary file data are stored in MongoDB; live media is sent directly between browsers over a peer-to-peer WebRTC mesh, while the Express server authenticates participants and relays signaling over Socket.IO. The room defaults to a public STUN server; configure Metered Open Relay or `WEBRTC_ICE_SERVERS` with TURN server definitions to support restrictive school/firewall networks. The Metered API key stays server-side and provider-issued ICE credentials are returned only to authenticated room participants. Larger meshes can use significant device/network resources. Microphone, camera, and screen sharing require browser permission and HTTPS (localhost is allowed for development). The Render API must allow the GitHub Pages origin in `CLIENT_URL`; `render.yaml` includes the deployed Pages origin.
 
+Teachers of a session (and admins) can moderate its room from the People tab: mute a student or everyone, remove a participant (who cannot rejoin that session until a teacher allows them back), and, from the Leave button, end the class for everyone. An ended class stays closed to students until a teacher reopens it from the room. Removals and ended classes are stored on the session, so they survive server restarts. Teachers and admins cannot be moderated.
+
 ### Authentication and authorization (RBAC)
 
 - Passwords are hashed with bcrypt (12 rounds) and never returned by the API.
@@ -181,6 +191,10 @@ Teachers and assigned students can open a session room for persistent group chat
   | `users:delete`         | ✅    |         |         |
   | `announcements:read`   | ✅    | ✅      |         |
   | `announcements:create` | ✅    |         |         |
+  | `announcements:update` | ✅    |         |         |
+  | `announcements:delete` | ✅    |         |         |
+
+  Classroom announcements are the exception: a classroom's teachers can post, edit, archive and delete its announcements, and its enrolled students can read them. The service checks classroom membership on every request.
 
 - `/api/auth/login` and `/api/auth/me` return the user's `permissions`, and the client uses `hasPermission(user, …)` (`client/src/utils/roles.js`) to hide actions. The React route guards and hidden buttons are only for UX; the API enforces every rule.
 - Administrators cannot change their own role or status, or delete their own account, so they cannot lock themselves out.

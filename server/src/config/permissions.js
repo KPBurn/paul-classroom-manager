@@ -9,6 +9,8 @@ export const PERMISSIONS = {
   USERS_DELETE: 'users:delete',
   ANNOUNCEMENTS_READ: 'announcements:read',
   ANNOUNCEMENTS_CREATE: 'announcements:create',
+  ANNOUNCEMENTS_UPDATE: 'announcements:update',
+  ANNOUNCEMENTS_DELETE: 'announcements:delete',
 };
 
 export const ROLE_PERMISSIONS = {
