@@ -111,6 +111,7 @@ export default function SessionRoom() {
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [muted, setMuted] = useState(true);
+  const [micLevel, setMicLevel] = useState(0);
   const [audioNeedsGesture, setAudioNeedsGesture] = useState(false);
   const [microphoneBusy, setMicrophoneBusy] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
@@ -133,6 +134,8 @@ export default function SessionRoom() {
   const audioElementsRef = useRef(new Map());
   const fileInputRef = useRef(null);
   const localParticipantId = useRef(null);
+  const micLevelRef = useRef(0);
+  const audioStatsRef = useRef(new Map());
   const cameraPromptedForSessionRef = useRef(false);
   const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const mountedRef = useRef(false);
@@ -511,23 +514,39 @@ export default function SessionRoom() {
         const stats = await peer.pc.getStats();
         for (const report of stats.values()) {
           const isAudio = report.kind === 'audio' || report.mediaType === 'audio';
-          const isActiveAudio = report.type === 'inbound-rtp' || report.type === 'outbound-rtp' || report.type === 'media-source';
-          const speakerId = report.type === 'inbound-rtp' ? participantId : localParticipantId.current;
-          const speakerMuted = speakerId === localParticipantId.current ? muted : participant?.muted;
+          const isInboundAudio = report.type === 'inbound-rtp';
+          if (!isAudio || !isInboundAudio) continue;
+
+          const previous = audioStatsRef.current.get(report.id);
+          let level = report.audioLevel;
           if (
-            isAudio
-            && isActiveAudio
-            && report.audioLevel >= 0.035
-            && speakerId
-            && !speakerMuted
+            !Number.isFinite(level)
+            && previous
+            && Number.isFinite(report.totalAudioEnergy)
+            && Number.isFinite(report.totalSamplesDuration)
           ) {
-            activeIds.add(speakerId);
+            const energyDelta = report.totalAudioEnergy - previous.energy;
+            const durationDelta = report.totalSamplesDuration - previous.duration;
+            if (energyDelta >= 0 && durationDelta > 0) {
+              level = Math.sqrt(energyDelta / durationDelta);
+            }
+          }
+          if (Number.isFinite(report.totalAudioEnergy) && Number.isFinite(report.totalSamplesDuration)) {
+            audioStatsRef.current.set(report.id, {
+              energy: report.totalAudioEnergy,
+              duration: report.totalSamplesDuration,
+            });
+          }
+          if (level >= 0.035 && !participant?.muted) {
+            activeIds.add(participantId);
           }
         }
       });
       await Promise.all(checks);
       if (stopped) return;
       setSpeakingParticipantIds((current) => {
+        const localId = localParticipantId.current;
+        if (localId && micLevelRef.current >= 0.06) activeIds.add(localId);
         if (current.size === activeIds.size && [...current].every((participantId) => activeIds.has(participantId))) {
           return current;
         }
@@ -544,7 +563,72 @@ export default function SessionRoom() {
       stopped = true;
       window.clearInterval(interval);
     };
-  }, [connected, muted, participants]);
+  }, [connected, participants]);
+
+  useEffect(() => {
+    if (!connected || muted) {
+      micLevelRef.current = 0;
+      setMicLevel(0);
+      return undefined;
+    }
+    const track = localAudioStreamRef.current?.getAudioTracks().find((item) => item.readyState === 'live');
+    if (!track || typeof window.AudioContext !== 'function') return undefined;
+
+    const context = new window.AudioContext();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 512;
+    const source = context.createMediaStreamSource(new MediaStream([track]));
+    source.connect(analyser);
+    const samples = new Uint8Array(analyser.fftSize);
+    let active = true;
+    let interval;
+
+    context.resume()
+      .then(() => {
+        if (!active) return;
+        interval = window.setInterval(() => {
+          analyser.getByteTimeDomainData(samples);
+          let sum = 0;
+          for (const sample of samples) {
+            const normalized = (sample - 128) / 128;
+            sum += normalized * normalized;
+          }
+          const level = Math.min(1, Math.sqrt(sum / samples.length) * 5);
+          micLevelRef.current = level;
+          setMicLevel(level);
+        }, 100);
+      })
+      .catch((audioError) => {
+        setMediaError(readableError(audioError, 'Unable to monitor microphone input level.'));
+      });
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      source.disconnect();
+      analyser.disconnect();
+      if (context.state !== 'closed') {
+        context.close().catch((audioError) => {
+          setMediaError(readableError(audioError, 'Unable to close microphone level monitor.'));
+        });
+      }
+      micLevelRef.current = 0;
+      setMicLevel(0);
+    };
+  }, [connected, muted]);
+
+  useEffect(() => {
+    const localId = localParticipantId.current;
+    if (!localId) return;
+    setSpeakingParticipantIds((current) => {
+      const speaking = micLevel >= 0.06;
+      if (current.has(localId) === speaking) return current;
+      const next = new Set(current);
+      if (speaking) next.add(localId);
+      else next.delete(localId);
+      return next;
+    });
+  }, [micLevel]);
 
   const toggleMicrophone = async () => {
     if (!connected) return;
@@ -1149,6 +1233,30 @@ export default function SessionRoom() {
           {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
           <span className="hidden sm:inline">{muted ? 'Unmute' : 'Mute'}</span>
         </Button>
+        {!muted && (
+          <div
+            className="flex h-10 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3"
+            role="status"
+            aria-label={micLevel >= 0.06 ? 'Microphone is picking up sound' : 'Microphone is on, no sound detected'}
+            title={micLevel >= 0.06 ? 'Microphone is picking up sound' : 'Microphone is on — speak to test'}
+          >
+            <span className="hidden text-xs text-slate-300 sm:inline">
+              {micLevel >= 0.06 ? 'Mic active' : 'Mic on'}
+            </span>
+            <span className="sr-only">
+              {micLevel >= 0.06 ? 'Microphone is picking up sound' : 'Speak to test your microphone'}
+            </span>
+            <span className="flex h-5 items-center gap-0.5" aria-hidden="true">
+              {[0.12, 0.25, 0.4, 0.58, 0.78].map((threshold, index) => (
+                <span
+                  key={threshold}
+                  className={`w-1 rounded-full transition-colors ${micLevel >= threshold ? 'bg-emerald-400' : 'bg-slate-600'}`}
+                  style={{ height: `${6 + index * 3}px` }}
+                />
+              ))}
+            </span>
+          </div>
+        )}
         <Button
           variant={cameraStream ? 'primary' : 'secondary'}
           className={!cameraStream ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}
