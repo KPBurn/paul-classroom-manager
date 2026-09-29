@@ -1,0 +1,42 @@
+const toInt = (value, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
+};
+
+const toList = (value) =>
+  (value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+export const env = {
+  nodeEnv: process.env.NODE_ENV ?? 'development',
+  port: toInt(process.env.PORT, 5050),
+  mongodbUri: process.env.MONGODB_URI,
+  jwtSecret: process.env.JWT_SECRET,
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1d',
+  clientUrls: toList(process.env.CLIENT_URL || 'http://localhost:5173'),
+  trustProxy: toInt(process.env.TRUST_PROXY, 0),
+};
+
+export const isProduction = env.nodeEnv === 'production';
+export const isTest = env.nodeEnv === 'test';
+
+const MIN_JWT_SECRET_LENGTH = 32;
+
+/** Fails fast with a readable message instead of crashing later on first use. */
+export function assertRequiredEnv() {
+  const problems = [];
+
+  if (env.mongodbUri && /<[^>]*>/.test(env.mongodbUri)) {
+    const placeholders = env.mongodbUri.match(/<[^>]*>/g).join(', ');
+    problems.push(`MONGODB_URI still contains ${placeholders} — replace it (including the < >) with the real value`);
+  }
+  if (!env.jwtSecret || env.jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
+    problems.push(`JWT_SECRET must be at least ${MIN_JWT_SECRET_LENGTH} characters`);
+  }
+
+  if (problems.length) {
+    throw new Error(`Invalid environment configuration:\n  - ${problems.join('\n  - ')}`);
+  }
+}

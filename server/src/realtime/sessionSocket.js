@@ -1,0 +1,264 @@
+import mongoose from 'mongoose';
+import { Server } from 'socket.io';
+import { z } from 'zod';
+import { env } from '../config/environment.js';
+import { User } from '../models/User.js';
+import * as sessionService from '../services/session.service.js';
+import { AppError } from '../utils/AppError.js';
+import { verifyToken } from '../utils/jwt.js';
+import { sessionMessageSchema } from '../validators/session.validators.js';
+
+const roomName = (sessionId) => `session:${sessionId}`;
+const MAX_ROOM_PARTICIPANTS = 12;
+const CHAT_RATE_WINDOW_MS = 10_000;
+const MAX_CHAT_MESSAGES_PER_WINDOW = 10;
+const signalSchema = z.object({
+  target: z.string().min(1).max(100),
+  description: z.object({
+    type: z.enum(['offer', 'answer']),
+    sdp: z.string().max(100_000),
+  }).strict().optional(),
+  candidate: z.object({
+    candidate: z.string().max(5_000),
+    sdpMid: z.string().nullable().optional(),
+    sdpMLineIndex: z.number().nullable().optional(),
+    usernameFragment: z.string().nullable().optional(),
+  }).strict().nullable().optional(),
+}).strict().refine((signal) => Boolean(signal.description) || signal.candidate !== undefined);
+
+function participantResult(socket) {
+  const { user, muted = true } = socket.data;
+  return {
+    id: socket.id,
+    userId: String(user._id),
+    name: `${user.firstName} ${user.lastName}`,
+    role: user.role,
+    muted,
+  };
+}
+
+function roomState(rooms, sessionId) {
+  let state = rooms.get(sessionId);
+  if (!state) {
+    state = { participants: new Map(), screenSharerId: null };
+    rooms.set(sessionId, state);
+  }
+  return state;
+}
+
+function replyWithError(ack, error, fallback) {
+  if (error instanceof AppError) {
+    ack?.({ error: error.message });
+    return;
+  }
+  if (error instanceof Error && error.name === 'ZodError') {
+    ack?.({ error: error.issues?.[0]?.message ?? 'Invalid request' });
+    return;
+  }
+  console.error(fallback, error);
+  ack?.({ error: fallback });
+}
+
+export function attachSessionSocket(httpServer) {
+  const rooms = new Map();
+  const io = new Server(httpServer, {
+    cors: { origin: env.clientUrls, methods: ['GET', 'POST'] },
+    maxHttpBufferSize: 100_000,
+  });
+
+  io.use(async (socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (typeof token !== 'string' || !token) {
+      next(new Error('Authentication required'));
+      return;
+    }
+
+    let payload;
+    try {
+      payload = verifyToken(token);
+    } catch {
+      next(new Error('Your session is invalid or has expired. Please sign in again.'));
+      return;
+    }
+
+    let user;
+    try {
+      user = mongoose.isValidObjectId(payload.sub) ? await User.findById(payload.sub) : null;
+    } catch (error) {
+      console.error('Unable to authenticate a session room connection', error);
+      next(new Error('Unable to verify your account. Please try again.'));
+      return;
+    }
+    if (!user || user.status !== 'active' || (payload.ver ?? 0) !== (user.tokenVersion ?? 0)) {
+      next(new Error('Your account is not active. Please sign in again.'));
+      return;
+    }
+    if (!['teacher', 'student'].includes(user.role)) {
+      next(new Error('Only teachers and students can join a class room.'));
+      return;
+    }
+
+    socket.data.user = user;
+    socket.data.tokenExpiresAt = payload.exp ? payload.exp * 1000 : null;
+    next();
+  });
+
+  io.on('connection', (socket) => {
+    if (socket.data.tokenExpiresAt) {
+      const expiryDelay = socket.data.tokenExpiresAt - Date.now();
+      if (expiryDelay <= 0) {
+        socket.disconnect(true);
+        return;
+      }
+      socket.data.expiryTimer = setTimeout(() => socket.disconnect(true), Math.min(expiryDelay, 2_147_000_000));
+      socket.data.expiryTimer.unref();
+    }
+
+    async function leaveRoom() {
+      const sessionId = socket.data.sessionId;
+      if (!sessionId) return;
+      const state = rooms.get(sessionId);
+      const room = roomName(sessionId);
+      if (state) {
+        state.participants.delete(socket.id);
+        if (state.screenSharerId === socket.id) {
+          state.screenSharerId = null;
+          io.to(room).emit('room:screen-sharing', { participantId: socket.id, sharing: false });
+        }
+        if (state.participants.size === 0) rooms.delete(sessionId);
+      }
+      socket.data.sessionId = null;
+      socket.leave(room);
+      socket.to(room).emit('room:participant-left', { participantId: socket.id });
+    }
+
+    socket.on('room:join', async (sessionId, ack) => {
+      try {
+        if (typeof sessionId !== 'string' || !mongoose.isValidObjectId(sessionId)) {
+          throw new AppError(400, 'Invalid session');
+        }
+        const session = await sessionService.getSessionForParticipant(sessionId, socket.data.user);
+        if (session.status === 'cancelled') throw new AppError(400, 'This session has been cancelled');
+        if (socket.data.sessionId === sessionId) {
+          const state = roomState(rooms, sessionId);
+          ack?.({
+            participants: [...state.participants.values()],
+            screenSharerId: state.screenSharerId,
+          });
+          return;
+        }
+
+        await leaveRoom();
+        const room = roomName(sessionId);
+        const state = roomState(rooms, sessionId);
+        if (state.participants.size >= MAX_ROOM_PARTICIPANTS) {
+          throw new AppError(400, 'This prototype supports up to 12 participants in a session room');
+        }
+        const existingParticipants = [...state.participants.values()];
+        const participant = participantResult(socket);
+        socket.data.sessionId = sessionId;
+        socket.data.muted = true;
+        socket.join(room);
+        state.participants.set(socket.id, participant);
+        socket.to(room).emit('room:participant-joined', participant);
+        ack?.({
+          session: {
+            id: String(session._id),
+            title: session.title,
+            classroom: session.classroom.name,
+            startsAt: session.startsAt,
+            endsAt: session.endsAt,
+          },
+          participants: existingParticipants,
+          screenSharerId: state.screenSharerId,
+        });
+      } catch (error) {
+        replyWithError(ack, error, 'Unable to join this session');
+      }
+    });
+
+    socket.on('room:leave', async (ack) => {
+      await leaveRoom();
+      ack?.({ success: true });
+    });
+
+    socket.on('room:message', async (input, ack) => {
+      try {
+        const sessionId = socket.data.sessionId;
+        if (!sessionId) throw new AppError(400, 'Join the session before sending a message');
+        const { body } = sessionMessageSchema.parse(input);
+        const recentMessages = (socket.data.recentMessages ?? [])
+          .filter((sentAt) => Date.now() - sentAt < CHAT_RATE_WINDOW_MS);
+        if (recentMessages.length >= MAX_CHAT_MESSAGES_PER_WINDOW) {
+          throw new AppError(429, 'You are sending messages too quickly');
+        }
+        recentMessages.push(Date.now());
+        socket.data.recentMessages = recentMessages;
+        const message = await sessionService.createSessionMessage(sessionId, body, socket.data.user);
+        io.to(roomName(sessionId)).emit('room:message', message);
+        ack?.({ message });
+      } catch (error) {
+        replyWithError(ack, error, 'Unable to send your message');
+      }
+    });
+
+    socket.on('room:microphone', (muted, ack) => {
+      const sessionId = socket.data.sessionId;
+      if (!sessionId || typeof muted !== 'boolean') {
+        ack?.({ error: 'Join the session before changing microphone status' });
+        return;
+      }
+      socket.data.muted = muted;
+      const participant = participantResult(socket);
+      rooms.get(sessionId)?.participants.set(socket.id, participant);
+      io.to(roomName(sessionId)).emit('room:participant-updated', participant);
+      ack?.({ success: true });
+    });
+
+    socket.on('room:screen-start', (ack) => {
+      const sessionId = socket.data.sessionId;
+      const state = sessionId ? rooms.get(sessionId) : null;
+      if (!state) {
+        ack?.({ error: 'Join the session before sharing your screen' });
+        return;
+      }
+      if (state.screenSharerId && state.screenSharerId !== socket.id) {
+        ack?.({ error: 'Someone is already sharing their screen' });
+        return;
+      }
+      state.screenSharerId = socket.id;
+      io.to(roomName(sessionId)).emit('room:screen-sharing', { participantId: socket.id, sharing: true });
+      ack?.({ success: true });
+    });
+
+    socket.on('room:screen-stop', (ack) => {
+      const sessionId = socket.data.sessionId;
+      const state = sessionId ? rooms.get(sessionId) : null;
+      if (state?.screenSharerId === socket.id) {
+        state.screenSharerId = null;
+        io.to(roomName(sessionId)).emit('room:screen-sharing', { participantId: socket.id, sharing: false });
+      }
+      ack?.({ success: true });
+    });
+
+    socket.on('rtc:signal', (input, ack) => {
+      const sessionId = socket.data.sessionId;
+      const state = sessionId ? rooms.get(sessionId) : null;
+      const parsed = signalSchema.safeParse(input);
+      if (!state || !parsed.success || !state.participants.has(parsed.data.target)) {
+        ack?.({ error: parsed.success ? 'That participant is not in this session' : 'Invalid connection signal' });
+        return;
+      }
+      const { target, description, candidate } = parsed.data;
+      io.to(target).emit('rtc:signal', { from: socket.id, description, candidate });
+      ack?.({ success: true });
+    });
+
+    socket.on('disconnect', () => {
+      if (socket.data.expiryTimer) clearTimeout(socket.data.expiryTimer);
+      leaveRoom();
+    });
+  });
+
+  return io;
+}

@@ -1,0 +1,70 @@
+name: Deploy client to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'client/**'
+      - '.github/workflows/deploy-client.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      # Without it the site would post to GitHub Pages itself, which answers 405.
+      - name: Check API URL
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          if [[ ! "$VITE_API_URL" =~ ^https://.+/api$ ]]; then
+            echo "::error::Repository variable VITE_API_URL must look like https://<service>.onrender.com/api (got '${VITE_API_URL}'). Set it under Settings → Secrets and variables → Actions → Variables (not Secrets)."
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - run: npm run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+
+      # GitHub Pages has no SPA rewrites; serving index.html as the 404 page lets
+      # React Router handle deep links such as /project1/admin on refresh.
+      - run: cp dist/index.html dist/404.html
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: client/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

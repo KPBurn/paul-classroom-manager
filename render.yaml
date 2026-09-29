@@ -1,0 +1,24 @@
+# Render Blueprint for the API. In Render: New → Blueprint → select this repo.
+services:
+  - type: web
+    name: ctms-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: '24'
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: '1'
+      - key: CLIENT_URL
+        value: https://kpburn.github.io
+      - key: JWT_SECRET
+        generateValue: true
+      # Entered in the Render dashboard, never committed.
+      - key: MONGODB_URI
+        sync: false
