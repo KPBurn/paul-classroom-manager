@@ -61,7 +61,7 @@ function emitAck(socket, event, ...args) {
   });
 }
 
-function VideoStage({ stream, label, muted = true, kind = 'screen' }) {
+function VideoStage({ stream, label, muted = true, kind = 'screen', mirrored = false }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -76,7 +76,7 @@ function VideoStage({ stream, label, muted = true, kind = 'screen' }) {
         muted={muted}
         playsInline
         aria-label={kind === 'screen' ? `Screen shared by ${label}` : `Camera video from ${label}`}
-        className={kind === 'camera' ? 'h-full w-full object-cover' : 'max-h-full max-w-full rounded-lg object-contain'}
+        className={`${kind === 'camera' ? 'h-full w-full object-cover' : 'max-h-full max-w-full rounded-lg object-contain'} ${mirrored ? '-scale-x-100' : ''}`}
       />
       <p className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-md bg-black/70 px-2.5 py-1 text-xs font-medium text-white">
         {kind === 'screen' ? `${label} is sharing their screen` : label}
@@ -1002,6 +1002,7 @@ export default function SessionRoom() {
                           stream={participant.stream}
                           label={`${participant.name}${participant.id === localParticipantId.current ? ' (You)' : ''}`}
                           kind="camera"
+                          mirrored={participant.id === localParticipantId.current}
                         />
                       ) : (
                         <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-400 sm:gap-2">
@@ -1043,6 +1044,7 @@ export default function SessionRoom() {
                       stream={participant.stream}
                       label={`${participant.name}${participant.id === localParticipantId.current ? ' (You)' : ''}`}
                       kind="camera"
+                      mirrored={participant.id === localParticipantId.current}
                     />
                   ) : (
                     <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-400">
