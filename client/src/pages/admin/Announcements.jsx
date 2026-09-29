@@ -1,20 +1,16 @@
-import { Megaphone, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { AnnouncementDialog } from '../../components/announcements/AnnouncementFeed.jsx';
+import AnnouncementFeed from '../../components/announcements/AnnouncementFeed.jsx';
 import AnnouncementFormModal from '../../components/announcements/AnnouncementFormModal.jsx';
 import { useAnnouncementActions } from '../../components/announcements/useAnnouncementActions.jsx';
-import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
-import Pagination from '../../components/common/Pagination.jsx';
-import Spinner from '../../components/common/Spinner.jsx';
 import { useAnnouncements } from '../../hooks/useAnnouncements.js';
 import { announcementService } from '../../services/announcement.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
-import { formatDateTime } from '../../utils/format.js';
 
 const PAGE_SIZE = 10;
 const TABS = [
@@ -90,7 +86,20 @@ export default function Announcements() {
         ))}
       </div>
 
-      <AnnouncementTable list={list} archived={status === 'archived'} onCreate={openForm} renderActions={actions.renderActions} />
+      <AnnouncementFeed
+        list={list}
+        renderActions={actions.renderActions}
+        emptyTitle={status === 'archived' ? 'No archived announcements' : 'No announcements yet'}
+        emptyMessage={status === 'archived'
+          ? 'Announcements you archive are kept here and can be restored.'
+          : 'Announcements you create will be listed here.'}
+        emptyAction={status === 'active' && (
+          <Button className="mt-5" onClick={openForm}>
+            <Plus className="size-4" aria-hidden="true" />
+            Create Announcement
+          </Button>
+        )}
+      />
 
       <AnnouncementFormModal
         open={isFormOpen}
@@ -122,116 +131,5 @@ export default function Announcements() {
 
       {actions.dialogs}
     </>
-  );
-}
-
-function AnnouncementTable({ list, archived, onCreate, renderActions }) {
-  const { status, items, pagination, error } = list;
-  const [openId, setOpenId] = useState(null);
-  const opened = items.find((item) => item.id === openId) ?? null;
-
-  if (status === 'error') {
-    return (
-      <div className="space-y-3">
-        <Alert tone="error">{error}</Alert>
-        <Button variant="secondary" onClick={list.reload}>
-          Try again
-        </Button>
-      </div>
-    );
-  }
-
-  if (status === 'loading' && items.length === 0) {
-    return (
-      <div className="flex justify-center rounded-xl border border-slate-200 bg-white py-16 text-indigo-600">
-        <Spinner className="size-6" />
-        <span className="sr-only">Loading announcements…</span>
-      </div>
-    );
-  }
-
-  if (items.length === 0) {
-    return (
-      <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
-        <span className="flex size-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
-          <Megaphone className="size-6" aria-hidden="true" />
-        </span>
-        <h2 className="mt-4 font-semibold text-slate-900">
-          {archived ? 'No archived announcements' : 'No announcements yet'}
-        </h2>
-        <p className="mt-1 text-sm text-slate-600">
-          {archived
-            ? 'Announcements you archive are kept here and can be restored.'
-            : 'Announcements you create will be listed here.'}
-        </p>
-        {!archived && (
-          <Button className="mt-5" onClick={onCreate}>
-            <Plus className="size-4" aria-hidden="true" />
-            Create Announcement
-          </Button>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs transition-opacity ${status === 'loading' ? 'opacity-60' : ''}`}>
-      <h2 className="border-b border-slate-200 px-5 py-3 text-sm font-semibold text-slate-900">
-        {archived ? 'Archived Announcements' : 'List of Created Announcements'}
-      </h2>
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-            <tr>
-              <th scope="col" className="px-5 py-3">Title</th>
-              <th scope="col" className="px-5 py-3">Type</th>
-              <th scope="col" className="whitespace-nowrap px-5 py-3">Creation Date</th>
-              <th scope="col" className="px-5 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {items.map((announcement) => (
-              <tr key={announcement.id} className="align-top hover:bg-slate-50">
-                <td className="max-w-md px-5 py-3.5">
-                  <button
-                    type="button"
-                    onClick={() => setOpenId(announcement.id)}
-                    className="block w-full text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                  >
-                    <span className="block font-medium text-slate-900 hover:text-indigo-700">{announcement.title}</span>
-                    <span className="mt-0.5 line-clamp-1 text-slate-500">{announcement.body}</span>
-                  </button>
-                </td>
-                <td className="px-5 py-3.5">
-                  <span className="inline-flex whitespace-nowrap rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
-                    {announcement.type}
-                  </span>
-                </td>
-                <td className="whitespace-nowrap px-5 py-3.5 text-slate-600">
-                  <time dateTime={announcement.createdAt}>{formatDateTime(announcement.createdAt)}</time>
-                </td>
-                <td className="px-5 py-2.5">
-                  <div className="flex justify-end">{renderActions(announcement)}</div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <Pagination
-        className="border-t border-slate-200 px-5 py-3"
-        pagination={pagination}
-        itemCount={items.length}
-        disabled={status === 'loading'}
-        onPageChange={list.setPage}
-      />
-
-      <AnnouncementDialog
-        announcement={opened}
-        onClose={() => setOpenId(null)}
-        actions={opened && <div onClickCapture={() => setOpenId(null)}>{renderActions(opened)}</div>}
-      />
-    </div>
   );
 }

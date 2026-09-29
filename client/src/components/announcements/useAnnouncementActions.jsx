@@ -62,9 +62,9 @@ export function useAnnouncementActions(onChanged) {
   const renderActions = (announcement) => {
     const archived = announcement.status === 'archived';
     const busy = busyId === announcement.id;
-    const buttonClass = 'inline-flex size-8 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50';
+    const buttonClass = 'inline-flex size-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white hover:text-slate-900 hover:shadow-sm focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-50';
     return (
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="flex shrink-0 items-center justify-center gap-1">
         <button
           type="button"
           className={buttonClass}

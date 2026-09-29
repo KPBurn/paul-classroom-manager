@@ -119,37 +119,45 @@ export default function AnnouncementFeed({
     <div className={`transition-opacity ${status === 'loading' ? 'opacity-60' : ''}`}>
       <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
         {items.map((announcement) => (
-          <li key={announcement.id} className="flex items-center gap-2 pr-2 transition hover:bg-slate-50">
+          // The whole row opens the announcement; the inner button keeps it reachable by keyboard.
+          <li
+            key={announcement.id}
+            onClick={() => setOpenId(announcement.id)}
+            className="group flex cursor-pointer items-center gap-2 border-l-4 border-transparent pr-2 transition hover:border-indigo-500 hover:bg-indigo-50/60"
+          >
             <button
               type="button"
-              onClick={() => setOpenId(announcement.id)}
-              className="flex min-w-0 flex-1 flex-col gap-1 px-4 py-3 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-600 sm:flex-row sm:items-center sm:gap-4"
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpenId(announcement.id);
+              }}
+              className="flex min-w-0 flex-1 flex-col gap-1.5 py-3 pl-3 pr-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-600 sm:flex-row sm:items-center sm:gap-4"
             >
-              <span className="flex items-center justify-between gap-2 sm:w-40 sm:shrink-0">
-                <span className="truncate text-sm font-semibold text-slate-900">
-                  {showClassroom && announcement.classroom?.name ? announcement.classroom.name : authorName(announcement)}
+              <span className="flex shrink-0 items-center gap-2 sm:w-48">
+                <span className="max-w-28 truncate rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 group-hover:bg-white">
+                  {announcement.type}
                 </span>
-                <time dateTime={announcement.createdAt} className="shrink-0 text-xs text-slate-500 sm:hidden">
+                <time dateTime={announcement.createdAt} className="whitespace-nowrap text-xs font-medium text-slate-500">
                   {shortDate(announcement.createdAt)}
                 </time>
               </span>
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="hidden shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 sm:inline-flex">
-                  {announcement.type}
-                </span>
-                <span className="min-w-0 truncate text-sm">
-                  <span className="font-medium text-slate-900">{announcement.title}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm">
+                  <span className="font-semibold text-slate-900 group-hover:text-indigo-800">{announcement.title}</span>
                   <span className="text-slate-500"> – {announcement.body.replace(/\s+/g, ' ')}</span>
                 </span>
+                <span className="mt-0.5 block truncate text-xs text-slate-500">
+                  {authorName(announcement)}
+                  {showClassroom && announcement.classroom?.name && ` · ${announcement.classroom.name}`}
+                  {announcement.status === 'archived' && ' · Archived'}
+                </span>
               </span>
-              <time
-                dateTime={announcement.createdAt}
-                className="hidden shrink-0 text-right text-xs font-medium text-slate-500 sm:block sm:w-20"
-              >
-                {shortDate(announcement.createdAt)}
-              </time>
             </button>
-            {renderActions?.(announcement)}
+            {renderActions && (
+              <div className="flex shrink-0 items-center self-stretch" onClick={(event) => event.stopPropagation()}>
+                {renderActions(announcement)}
+              </div>
+            )}
           </li>
         ))}
       </ul>
