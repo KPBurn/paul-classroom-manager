@@ -233,7 +233,12 @@ export default function SessionRoom() {
             setMediaError('This browser does not support live audio and screen sharing.');
             return null;
           }
-          const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
+          const hasTurnServer = iceServersRef.current.some(({ urls }) =>
+            (Array.isArray(urls) ? urls : [urls]).some((url) => /^(turn|turns):/i.test(url)));
+          const pc = new RTCPeerConnection({
+            iceServers: iceServersRef.current,
+            iceTransportPolicy: hasTurnServer ? 'relay' : 'all',
+          });
           const peer = {
             pc,
             makingOffer: false,
