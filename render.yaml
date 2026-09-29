@@ -1,7 +1,7 @@
 # Render Blueprint for the API. In Render: New → Blueprint → select this repo.
 services:
   - type: web
-    name: ctms-api
+    name: paul-classroom-api
     runtime: node
     plan: free
     rootDir: server
