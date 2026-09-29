@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -76,10 +76,11 @@ function VideoStage({ stream, label, muted = true, kind = 'screen' }) {
   );
 }
 
-function AudioOutput({ stream, onBlocked }) {
+function AudioOutput({ stream, onBlocked, elementKey, registerElement }) {
   const audioRef = useRef(null);
 
   useEffect(() => {
+    registerElement(elementKey, audioRef.current);
     if (audioRef.current) {
       audioRef.current.srcObject = stream;
       audioRef.current.play().catch((error) => {
@@ -88,9 +89,10 @@ function AudioOutput({ stream, onBlocked }) {
           : 'Unable to play participant audio.');
       });
     }
-  }, [onBlocked, stream]);
+    return () => registerElement(elementKey, null);
+  }, [elementKey, onBlocked, registerElement, stream]);
 
-  return <audio ref={audioRef} autoPlay />;
+  return <audio ref={audioRef} autoPlay playsInline />;
 }
 
 export default function SessionRoom() {
@@ -107,6 +109,7 @@ export default function SessionRoom() {
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [muted, setMuted] = useState(true);
+  const [audioNeedsGesture, setAudioNeedsGesture] = useState(false);
   const [microphoneBusy, setMicrophoneBusy] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
   const [cameraBusy, setCameraBusy] = useState(false);
@@ -125,6 +128,7 @@ export default function SessionRoom() {
   const cameraStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const audioElementsRef = useRef(new Map());
   const fileInputRef = useRef(null);
   const localParticipantId = useRef(null);
   const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
@@ -132,6 +136,14 @@ export default function SessionRoom() {
   const refreshFiles = useCallback(async () => {
     setFiles(await sessionService.files(id));
   }, [id]);
+  const registerAudioElement = useCallback((key, element) => {
+    if (element) audioElementsRef.current.set(key, element);
+    else audioElementsRef.current.delete(key);
+  }, []);
+  const handleAudioBlocked = useCallback((messageText) => {
+    setAudioNeedsGesture(true);
+    setMediaError(messageText);
+  }, []);
 
   const leaveRoom = useCallback(() => {
     const socket = socketRef.current;
@@ -214,22 +226,27 @@ export default function SessionRoom() {
             audioSender: null,
             cameraSender: null,
             screenSender: null,
+            screenAudioSender: null,
           };
           peersRef.current.set(peerId, peer);
           const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
           const cameraTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
           const screenTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+          const screenAudioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
           peer.audioSender = audioTransceiver.sender;
           peer.cameraSender = cameraTransceiver.sender;
           peer.screenSender = screenTransceiver.sender;
+          peer.screenAudioSender = screenAudioTransceiver.sender;
           const remoteStreamKeys = new Map([
             [audioTransceiver, 'audioStream'],
             [cameraTransceiver, 'cameraStream'],
             [screenTransceiver, 'screenStream'],
+            [screenAudioTransceiver, 'presentationAudioStream'],
           ]);
           const audioTrack = localAudioStreamRef.current?.getAudioTracks()[0];
           const cameraTrack = cameraStreamRef.current?.getVideoTracks()[0];
           const screenTrack = screenStreamRef.current?.getVideoTracks()[0];
+          const screenAudioTrack = screenStreamRef.current?.getAudioTracks()[0];
           if (audioTrack) {
             peer.audioSender.replaceTrack(audioTrack).catch((replaceError) => {
               setMediaError(readableError(replaceError, 'Unable to connect your microphone.'));
@@ -243,6 +260,11 @@ export default function SessionRoom() {
           if (screenTrack) {
             peer.screenSender.replaceTrack(screenTrack).catch((replaceError) => {
               setMediaError(readableError(replaceError, 'Unable to connect your screen share.'));
+            });
+          }
+          if (screenAudioTrack) {
+            peer.screenAudioSender.replaceTrack(screenAudioTrack).catch((replaceError) => {
+              setMediaError(readableError(replaceError, 'Unable to connect the shared tab audio.'));
             });
           }
 
@@ -326,6 +348,7 @@ export default function SessionRoom() {
           peersRef.current.clear();
           setRemoteMedia({});
           setMuted(true);
+          setAudioNeedsGesture(false);
           for (const track of localAudioStreamRef.current?.getAudioTracks() ?? []) track.enabled = false;
           try {
             const result = await emitAck(socket, 'room:join', id);
@@ -403,7 +426,10 @@ export default function SessionRoom() {
               track.onended = null;
               track.stop();
             }
-            Promise.all([...peersRef.current.values()].map((peer) => peer.screenSender.replaceTrack(null)))
+            Promise.all([...peersRef.current.values()].flatMap((peer) => [
+              peer.screenSender.replaceTrack(null),
+              peer.screenAudioSender.replaceTrack(null),
+            ]))
               .catch((replaceError) => {
                 setMediaError(readableError(replaceError, 'Unable to stop your screen share.'));
               });
@@ -567,7 +593,10 @@ export default function SessionRoom() {
         track.onended = null;
         track.stop();
       }
-      await Promise.all([...peersRef.current.values()].map((peer) => peer.screenSender.replaceTrack(null)));
+      await Promise.all([...peersRef.current.values()].flatMap((peer) => [
+        peer.screenSender.replaceTrack(null),
+        peer.screenAudioSender.replaceTrack(null),
+      ]));
       socketRef.current?.emit('room:screen-stop');
       return;
     }
@@ -580,7 +609,7 @@ export default function SessionRoom() {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       if (!mountedRef.current) {
         stream.getTracks().forEach((track) => track.stop());
         return;
@@ -598,14 +627,24 @@ export default function SessionRoom() {
         if (screenStreamRef.current !== stream) return;
         screenStreamRef.current = null;
         setScreenStream(null);
-        Promise.all([...peersRef.current.values()].map((peer) => peer.screenSender.replaceTrack(null)))
+        for (const audioTrack of stream.getAudioTracks()) audioTrack.onended = null;
+        Promise.all([...peersRef.current.values()].flatMap((peer) => [
+          peer.screenSender.replaceTrack(null),
+          peer.screenAudioSender.replaceTrack(null),
+        ]))
           .catch((replaceError) => {
             setMediaError(readableError(replaceError, 'Unable to stop your screen share.'));
           });
         socketRef.current?.emit('room:screen-stop');
       };
-      await Promise.all([...peersRef.current.values()].map((peer) => peer.screenSender.replaceTrack(track)));
-      setMediaError('');
+      const sharedAudioTrack = stream.getAudioTracks()[0];
+      await Promise.all([...peersRef.current.values()].flatMap((peer) => [
+        peer.screenSender.replaceTrack(track),
+        peer.screenAudioSender.replaceTrack(sharedAudioTrack ?? null),
+      ]));
+      setMediaError(sharedAudioTrack
+        ? ''
+        : 'Screen is shared without audio. Choose a browser tab and enable Share tab audio in the browser prompt to share sound.');
     } catch (shareError) {
       if (shareError.name !== 'AbortError') {
         setMediaError(
@@ -693,6 +732,17 @@ export default function SessionRoom() {
     navigate(user.role === 'admin' ? '/admin' : user.role === 'teacher' ? '/teacher/schedule' : '/student');
   };
 
+  const enableRoomAudio = async () => {
+    try {
+      await Promise.all([...audioElementsRef.current.values()].map((element) => element.play()));
+      setAudioNeedsGesture(false);
+      setMediaError('');
+    } catch (playError) {
+      setAudioNeedsGesture(true);
+      setMediaError(readableError(playError, 'Unable to play room audio.'));
+    }
+  };
+
   const sharer = participants.find((participant) => participant.id === screenSharerId);
   const sharedStream = screenSharerId === localParticipantId.current
     ? screenStream
@@ -743,7 +793,22 @@ export default function SessionRoom() {
       <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 md:flex-row">
         <section className="relative flex min-h-56 flex-1 items-center justify-center overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
           {sharedStream ? (
-            <VideoStage stream={sharedStream} label={sharer?.name ?? 'A participant'} />
+            <>
+              <VideoStage stream={sharedStream} label={sharer?.name ?? 'A participant'} />
+              {cameraParticipants.length > 0 && (
+              <div className="absolute right-3 top-3 z-10 flex max-w-[55%] gap-2 overflow-x-auto">
+                {cameraParticipants.map((participant) => (
+                  <div key={participant.id} className="relative h-24 w-36 shrink-0 overflow-hidden rounded-lg border border-slate-600 bg-slate-950">
+                    <VideoStage
+                      stream={participant.stream}
+                      label={participant.name}
+                      kind="camera"
+                    />
+                  </div>
+                ))}
+              </div>
+              )}
+            </>
           ) : cameraParticipants.length > 0 ? (
             <div className="grid h-full w-full auto-rows-fr grid-cols-1 gap-3 p-3 sm:grid-cols-2">
               {cameraParticipants.map((participant) => (
@@ -912,17 +977,6 @@ export default function SessionRoom() {
                   <Upload className="size-4" />
                   <span>{uploading ? 'Uploading' : 'Upload'}</span>
                 </Button>
-                <Button
-                  variant={cameraStream ? 'primary' : 'secondary'}
-                  className={!cameraStream ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}
-                  disabled={!connected || cameraBusy}
-                  isLoading={cameraBusy}
-                  onClick={toggleCamera}
-                  aria-pressed={Boolean(cameraStream)}
-                >
-                  {cameraStream ? <Video className="size-4" /> : <VideoOff className="size-4" />}
-                  <span className="hidden sm:inline">{cameraStream ? 'Turn camera off' : 'Turn camera on'}</span>
-                </Button>
               </div>
               {!roomSettings.fileUploadsEnabled && (
                 <p className="rounded-md bg-amber-400/10 px-3 py-2 text-xs text-amber-200">File uploads are disabled by the teacher.</p>
@@ -979,7 +1033,14 @@ export default function SessionRoom() {
 
       {(error || mediaError) && (
         <div className="px-3 pb-2">
-          <Alert tone="error">{error || mediaError}</Alert>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Alert tone="error">{error || mediaError}</Alert>
+            {audioNeedsGesture && (
+              <Button variant="secondary" onClick={enableRoomAudio}>
+                Enable room audio
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
@@ -994,6 +1055,17 @@ export default function SessionRoom() {
         >
           {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
           <span className="hidden sm:inline">{muted ? 'Unmute' : 'Mute'}</span>
+        </Button>
+        <Button
+          variant={cameraStream ? 'primary' : 'secondary'}
+          className={!cameraStream ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}
+          disabled={!connected || cameraBusy}
+          isLoading={cameraBusy}
+          onClick={toggleCamera}
+          aria-pressed={Boolean(cameraStream)}
+        >
+          {cameraStream ? <Video className="size-4" /> : <VideoOff className="size-4" />}
+          <span className="hidden sm:inline">{cameraStream ? 'Turn camera off' : 'Turn camera on'}</span>
         </Button>
         <Button
           variant={screenStream ? 'primary' : 'secondary'}
@@ -1013,9 +1085,26 @@ export default function SessionRoom() {
 
       {Object.entries(remoteMedia).map(([participantId, media]) => {
         const participant = participants.find((item) => item.id === participantId);
-        return !participant?.muted && media.audioStream
-          ? <AudioOutput key={participantId} stream={media.audioStream} onBlocked={setMediaError} />
-          : null;
+        return (
+          <Fragment key={participantId}>
+            {!participant?.muted && media.audioStream && (
+              <AudioOutput
+                elementKey={`${participantId}:microphone`}
+                stream={media.audioStream}
+                onBlocked={handleAudioBlocked}
+                registerElement={registerAudioElement}
+              />
+            )}
+            {media.presentationAudioStream && (
+              <AudioOutput
+                elementKey={`${participantId}:presentation`}
+                stream={media.presentationAudioStream}
+                onBlocked={handleAudioBlocked}
+                registerElement={registerAudioElement}
+              />
+            )}
+          </Fragment>
+        );
       })}
     </div>
   );
