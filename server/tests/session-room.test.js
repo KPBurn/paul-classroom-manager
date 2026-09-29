@@ -42,12 +42,14 @@ beforeEach(clearDatabase);
 
 async function setupRoom() {
   const teacher = await createUser({ role: 'teacher' });
+  const coTeacher = await createUser({ role: 'teacher' });
   const student = await createUser({ role: 'student' });
   const unrelated = await createUser({ role: 'student' });
   const admin = await createUser({ role: 'admin' });
   const classroom = await Classroom.create({
     name: 'Session Room',
     teacher: teacher._id,
+    teachers: [teacher._id, coTeacher._id],
     students: [student._id],
   });
   const session = await ClassSession.create({
@@ -57,15 +59,18 @@ async function setupRoom() {
     endsAt: new Date(Date.now() + 60_000),
   });
   const teacherToken = await login(teacher);
+  const coTeacherToken = await login(coTeacher);
   const studentToken = await login(student);
   const unrelatedToken = await login(unrelated);
   const adminToken = await login(admin);
   const teacherSocket = createClient(serverUrl, { auth: { token: teacherToken }, reconnection: false });
+  const coTeacherSocket = createClient(serverUrl, { auth: { token: coTeacherToken }, reconnection: false });
   const studentSocket = createClient(serverUrl, { auth: { token: studentToken }, reconnection: false });
   const unrelatedSocket = createClient(serverUrl, { auth: { token: unrelatedToken }, reconnection: false });
   const adminSocket = createClient(serverUrl, { auth: { token: adminToken }, reconnection: false });
   await Promise.all([
     waitForConnect(teacherSocket),
+    waitForConnect(coTeacherSocket),
     waitForConnect(studentSocket),
     waitForConnect(unrelatedSocket),
     waitForConnect(adminSocket),
@@ -75,6 +80,7 @@ async function setupRoom() {
     classroom,
     student,
     teacherSocket,
+    coTeacherSocket,
     studentSocket,
     unrelatedSocket,
     adminSocket,
@@ -83,6 +89,7 @@ async function setupRoom() {
     adminToken,
     cleanup: () => {
       teacherSocket.disconnect();
+      coTeacherSocket.disconnect();
       studentSocket.disconnect();
       unrelatedSocket.disconnect();
       adminSocket.disconnect();
@@ -214,6 +221,7 @@ describe('session room collaboration', () => {
       session,
       student,
       teacherSocket,
+      coTeacherSocket,
       studentSocket,
       unrelatedToken,
       studentToken,
@@ -221,20 +229,22 @@ describe('session room collaboration', () => {
     } = await setupRoom();
     try {
       const teacherJoin = await emitAck(teacherSocket, 'room:join', String(session._id));
+      const coTeacherJoin = await emitAck(coTeacherSocket, 'room:join', String(session._id));
       await emitAck(studentSocket, 'room:join', String(session._id));
       assert.equal(teacherJoin.canManageRoom, true);
+      assert.equal(coTeacherJoin.canManageRoom, true);
 
       assert.deepEqual(await emitAck(studentSocket, 'room:settings-update', { screenSharingEnabled: false }), {
         error: 'You are not assigned to this classroom',
       });
       assert.deepEqual(await emitAck(studentSocket, 'room:screen-start'), { success: true });
       const screenStopped = new Promise((resolve) => studentSocket.once('room:screen-sharing', resolve));
-      const sharingSettings = await emitAck(teacherSocket, 'room:settings-update', { screenSharingEnabled: false });
+      const sharingSettings = await emitAck(coTeacherSocket, 'room:settings-update', { screenSharingEnabled: false });
       assert.deepEqual(sharingSettings.roomSettings, { screenSharingEnabled: false, fileUploadsEnabled: true });
       assert.deepEqual(await screenStopped, { participantId: studentSocket.id, sharing: false });
       assert.equal((await emitAck(studentSocket, 'room:screen-start')).error, 'Screen sharing is disabled by the teacher');
 
-      await emitAck(teacherSocket, 'room:settings-update', { fileUploadsEnabled: false });
+      await emitAck(coTeacherSocket, 'room:settings-update', { fileUploadsEnabled: false });
       const disabledUpload = await request(app)
         .post(`/api/sessions/${session.id}/files`)
         .set(auth(studentToken))
@@ -243,7 +253,7 @@ describe('session room collaboration', () => {
         .send(Buffer.from('class notes'));
       assert.equal(disabledUpload.status, 403);
 
-      const uploadSettings = await emitAck(teacherSocket, 'room:settings-update', { fileUploadsEnabled: true });
+      const uploadSettings = await emitAck(coTeacherSocket, 'room:settings-update', { fileUploadsEnabled: true });
       assert.deepEqual(uploadSettings.roomSettings, { screenSharingEnabled: false, fileUploadsEnabled: true });
       const uploaded = await request(app)
         .post(`/api/sessions/${session.id}/files`)

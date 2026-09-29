@@ -7,7 +7,6 @@ import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import Modal from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
-import { SelectField } from '../../components/common/TextField.jsx';
 import { classroomService } from '../../services/classroom.service.js';
 import { userService } from '../../services/user.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -49,7 +48,7 @@ export default function Classrooms() {
     try {
       const changes = {
         name: values.name.trim(),
-        teacherId: values.teacherId,
+        teacherIds: values.teacherIds,
         studentIds: values.studentIds,
         openAccess: values.openAccess,
       };
@@ -79,9 +78,9 @@ export default function Classrooms() {
     <>
       <PageHeader
         title="Classrooms"
-        description="Create classes, assign one teacher, and manage each student roster."
+        description="Create classrooms, assign one or more teachers, and manage each student roster."
         actions={
-          <Button onClick={() => setForm({ name: '', teacherId: '', studentIds: [] })}>
+          <Button onClick={() => setForm({ name: '', teacherIds: [], studentIds: [] })}>
             <Plus className="size-4" aria-hidden="true" />
             Add Classroom
           </Button>
@@ -115,7 +114,11 @@ export default function Classrooms() {
                     )}
                   </h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    Teacher: {(classroom.teacher?.name ?? `${classroom.teacher?.firstName ?? ''} ${classroom.teacher?.lastName ?? ''}`.trim()) || 'Unassigned'}
+                    Teachers: {(classroom.teachers?.length
+                      ? classroom.teachers
+                      : classroom.teacher ? [classroom.teacher] : [])
+                      .map((teacher) => teacher.name ?? `${teacher.firstName ?? ''} ${teacher.lastName ?? ''}`.trim())
+                      .join(', ') || 'Unassigned'}
                     <span className="mx-2 text-slate-300">·</span>
                     {classroom.students?.length ?? 0} students
                   </p>
@@ -127,7 +130,9 @@ export default function Classrooms() {
                   <Button variant="secondary" disabled={classroom.archived || classroom.isArchived || classroom.status === 'archived'} onClick={() => setForm({
                     id: classroom.id,
                     name: classroom.name,
-                    teacherId: classroom.teacher?.id ?? classroom.teacher,
+                    teacherIds: classroom.teachers?.length
+                      ? classroom.teachers.map((teacher) => teacher.id ?? teacher)
+                      : classroom.teacher ? [classroom.teacher.id ?? classroom.teacher] : [],
                     studentIds: classroom.students?.map((student) => student.id ?? student) ?? [],
                     openAccess: classroom.openAccess ?? false,
                   })}>Edit</Button>
@@ -167,7 +172,7 @@ export default function Classrooms() {
 
 function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
   const [name, setName] = useState(initial.name);
-  const [teacherId, setTeacherId] = useState(initial.teacherId || '');
+  const [teacherIds, setTeacherIds] = useState(initial.teacherIds || (initial.teacherId ? [initial.teacherId] : []));
   const [studentIds, setStudentIds] = useState(initial.studentIds || []);
   const [openAccess, setOpenAccess] = useState(initial.openAccess ?? false);
   const [saving, setSaving] = useState(false);
@@ -177,16 +182,20 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
     setStudentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   };
 
+  const toggleTeacher = (id) => {
+    setTeacherIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+
   const submit = async (event) => {
     event.preventDefault();
-    if (!name.trim() || !teacherId) {
-      setError('Enter a classroom name and assign a teacher.');
+    if (!name.trim() || teacherIds.length === 0) {
+      setError('Enter a classroom name and assign at least one teacher.');
       return;
     }
     setSaving(true);
     setError('');
     try {
-      await onSave({ name, teacherId, studentIds, openAccess });
+      await onSave({ name, teacherIds, studentIds, openAccess });
     } catch (saveError) {
       setError(getErrorMessage(saveError, 'Unable to save classroom.'));
     } finally {
@@ -201,13 +210,18 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
         Classroom name
         <input value={name} maxLength={80} onChange={(event) => setName(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
       </label>
-      <SelectField
-        id="classroom-teacher"
-        label="Teacher"
-        value={teacherId}
-        onChange={(event) => setTeacherId(event.target.value)}
-        options={[{ value: '', label: 'Select teacher' }, ...teachers.map((teacher) => ({ value: teacher.id, label: `${teacher.firstName} ${teacher.lastName}` }))]}
-      />
+      <fieldset>
+        <legend className="mb-2 text-sm font-medium text-slate-700">Teachers</legend>
+        <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-3">
+          {teachers.length === 0 ? <p className="text-sm text-slate-500">No active teacher accounts.</p> : teachers.map((teacher) => (
+            <label key={teacher.id} className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={teacherIds.includes(teacher.id)} onChange={() => toggleTeacher(teacher.id)} className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              <span>{teacher.firstName} {teacher.lastName} <span className="text-slate-400">({teacher.email})</span></span>
+            </label>
+          ))}
+        </div>
+        <p className="mt-1 text-xs text-slate-500">Assign one or more teachers. Every assigned teacher can manage classroom sessions.</p>
+      </fieldset>
       <fieldset>
         <legend className="mb-2 text-sm font-medium text-slate-700">Students</legend>
         <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-3">

@@ -12,6 +12,7 @@ import LandingPage from '../pages/shared/LandingPage.jsx';
 import NotFound from '../pages/shared/NotFound.jsx';
 import Profile from '../pages/shared/Profile.jsx';
 import TeacherAnnouncements from '../pages/teacher/Announcements.jsx';
+import TeacherClassrooms from '../pages/teacher/Classrooms.jsx';
 import TeacherDashboard from '../pages/teacher/Dashboard.jsx';
 import { ROLES } from '../utils/roles.js';
 import { GuestRoute, ProtectedRoute } from './ProtectedRoute.jsx';
@@ -75,6 +76,7 @@ export default function AppRoutes() {
       >
         <Route index element={<TeacherDashboard />} />
         <Route path="announcements" element={<TeacherAnnouncements />} />
+        <Route path="classrooms" element={suspense(<TeacherClassrooms />)} />
         <Route path="schedule" element={suspense(<TeacherSchedule />)} />
         <Route path="profile" element={<Profile />} />
         {plannedRoutes(teacherNavigation)}

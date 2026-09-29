@@ -5,14 +5,19 @@ const name = z.string().trim().min(1).max(120);
 
 export const createClassroomSchema = z.object({
   name,
-  teacherId: objectId,
+  teacherId: objectId.optional(),
+  teacherIds: z.array(objectId).min(1).max(100).optional(),
   studentIds: z.array(objectId).max(500).default([]),
   openAccess: z.boolean().default(false),
-}).strict();
+}).strict().refine((data) => data.teacherIds?.length || data.teacherId, {
+  message: 'Assign at least one teacher',
+  path: ['teacherIds'],
+});
 
 export const updateClassroomSchema = z.object({
   name: name.optional(),
   teacherId: objectId.optional(),
+  teacherIds: z.array(objectId).min(1).max(100).optional(),
   studentIds: z.array(objectId).max(500).optional(),
   openAccess: z.boolean().optional(),
 }).strict().refine((data) => Object.keys(data).length > 0, 'At least one field is required');

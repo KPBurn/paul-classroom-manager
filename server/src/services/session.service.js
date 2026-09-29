@@ -82,13 +82,21 @@ function occurrenceDates(data) {
 async function assignedClassroom(id, teacher, { requireActive = false } = {}) {
   const classroom = await Classroom.findById(id);
   if (!classroom) throw new AppError(404, 'Classroom not found');
-  if (teacher && String(classroom.teacher) !== String(teacher._id)) {
+  if (teacher && !isAssignedTeacher(classroom, teacher)) {
     throw new AppError(403, 'You are not assigned to this classroom');
   }
   if (requireActive && classroom.status !== 'active') {
     throw new AppError(400, 'Sessions cannot be created for archived classrooms');
   }
   return classroom;
+}
+
+export function isAssignedTeacher(classroom, user) {
+  if (user?.role !== 'teacher') return false;
+  const assignedIds = [classroom.teacher, ...(classroom.teachers ?? [])]
+    .filter(Boolean)
+    .map((teacher) => String(teacher._id ?? teacher));
+  return assignedIds.includes(String(user._id));
 }
 
 export async function createSessions(data, { actor, ipAddress }) {
@@ -171,7 +179,9 @@ function sessionResult(session, user) {
 export async function listSessions(user, { view } = {}) {
   let classrooms;
   if (user.role === 'teacher' && !view) {
-    classrooms = await Classroom.find({ $or: [{ teacher: user._id }, { openAccess: true }] }).select('_id');
+    classrooms = await Classroom.find({
+      $or: [{ teacher: user._id }, { teachers: user._id }, { openAccess: true }],
+    }).select('_id');
   } else if (user.role === 'student' && view === 'mine') {
     classrooms = await Classroom.find({ $or: [{ students: user._id }, { openAccess: true }] }).select('_id');
   } else if (user.role === 'admin' && !view) {
@@ -189,9 +199,10 @@ export async function listSessions(user, { view } = {}) {
 async function getSession(id) {
   const session = await ClassSession.findById(id).populate({
     path: 'classroom',
-    select: 'name teacher students openAccess',
+    select: 'name teacher teachers students openAccess',
     populate: [
       { path: 'teacher', select: 'firstName lastName' },
+      { path: 'teachers', select: 'firstName lastName' },
       { path: 'students', select: 'firstName lastName email' },
     ],
   });
@@ -200,15 +211,14 @@ async function getSession(id) {
 }
 
 function assertAssignedTeacher(session, user) {
-  if (user.role !== 'teacher' || String(session.classroom.teacher?._id ?? session.classroom.teacher) !== String(user._id)) {
+  if (!isAssignedTeacher(session.classroom, user)) {
     throw new AppError(403, 'You are not assigned to this classroom');
   }
 }
 
 export async function getSessionForParticipant(id, user) {
   const session = await getSession(id);
-  const isTeacher = user.role === 'teacher'
-    && String(session.classroom.teacher?._id ?? session.classroom.teacher) === String(user._id);
+  const isTeacher = isAssignedTeacher(session.classroom, user);
   const isStudent = user.role === 'student'
     && session.classroom.students.some((student) => String(student._id ?? student) === String(user._id));
   if (!isTeacher && !isStudent && !session.classroom.openAccess) {
@@ -221,8 +231,7 @@ export async function getRoomSession(id, user) {
   const session = await getSessionForParticipant(id, user);
   return {
     ...sessionResult(session, user),
-    canManageRoom: user.role === 'teacher'
-      && String(session.classroom.teacher?._id ?? session.classroom.teacher) === String(user._id),
+    canManageRoom: isAssignedTeacher(session.classroom, user),
   };
 }
 

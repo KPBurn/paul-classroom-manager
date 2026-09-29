@@ -158,8 +158,7 @@ export function attachSessionSocket(httpServer) {
               screenSharingEnabled: session.screenSharingEnabled ?? true,
               fileUploadsEnabled: session.fileUploadsEnabled ?? true,
             },
-            canManageRoom: socket.data.user.role === 'teacher'
-              && String(session.classroom.teacher?._id ?? session.classroom.teacher) === String(socket.data.user._id),
+            canManageRoom: sessionService.isAssignedTeacher(session.classroom, socket.data.user),
           });
           return;
         }
@@ -196,8 +195,7 @@ export function attachSessionSocket(httpServer) {
             screenSharingEnabled: state.screenSharingEnabled,
             fileUploadsEnabled: state.fileUploadsEnabled,
           },
-          canManageRoom: socket.data.user.role === 'teacher'
-            && String(session.classroom.teacher?._id ?? session.classroom.teacher) === String(socket.data.user._id),
+          canManageRoom: sessionService.isAssignedTeacher(session.classroom, socket.data.user),
         });
       } catch (error) {
         replyWithError(ack, error, 'Unable to join this session');

@@ -79,6 +79,54 @@ describe('classroom administration', () => {
     assert.equal(invalid.status, 400);
   });
 
+  it('assigns multiple active teachers and lets each manage classroom sessions', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const teacher = await createUser({ role: 'teacher' });
+    const coTeacher = await createUser({ role: 'teacher' });
+    const adminToken = await login(admin);
+    const teacherToken = await login(teacher);
+    const coTeacherToken = await login(coTeacher);
+
+    const created = await request(app)
+      .post('/api/classrooms')
+      .set(auth(adminToken))
+      .send({ name: 'Co-taught room', teacherIds: [teacher.id, coTeacher.id] });
+    assert.equal(created.status, 201);
+    assert.deepEqual(created.body.data.classroom.teachers.map(({ id }) => id), [teacher.id, coTeacher.id]);
+    assert.equal(created.body.data.classroom.teacher.id, teacher.id);
+
+    for (const token of [teacherToken, coTeacherToken]) {
+      const classrooms = await request(app).get('/api/classrooms').set(auth(token));
+      assert.equal(classrooms.body.data.items.length, 1);
+      assert.equal(classrooms.body.data.items[0].teachers.length, 2);
+    }
+
+    const startsAt = new Date(Date.now() + 60_000);
+    const endsAt = new Date(Date.now() + 3_600_000);
+    const scheduled = await request(app)
+      .post('/api/sessions')
+      .set(auth(coTeacherToken))
+      .send({
+        classroomId: created.body.data.classroom.id,
+        title: 'Co-taught lesson',
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+      });
+    assert.equal(scheduled.status, 201);
+    const attendance = await request(app)
+      .get(`/api/sessions/${scheduled.body.data.items[0].id}/attendance`)
+      .set(auth(coTeacherToken));
+    assert.equal(attendance.status, 200);
+
+    const updated = await request(app)
+      .patch(`/api/classrooms/${created.body.data.classroom.id}`)
+      .set(auth(adminToken))
+      .send({ teacherIds: [coTeacher.id] });
+    assert.deepEqual(updated.body.data.classroom.teachers.map(({ id }) => id), [coTeacher.id]);
+    const removedTeacherClassrooms = await request(app).get('/api/classrooms').set(auth(teacherToken));
+    assert.deepEqual(removedTeacherClassrooms.body.data.items, []);
+  });
+
   it('archives without removing class or session history', async () => {
     const admin = await createUser({ role: 'admin' });
     const teacher = await createUser({ role: 'teacher' });

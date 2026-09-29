@@ -14,9 +14,10 @@ async function activeUsersWithRole(ids, role, label) {
 
 async function assignments(data) {
   const result = {};
-  if (data.teacherId) {
-    const [teacher] = await activeUsersWithRole([data.teacherId], 'teacher', 'Teacher');
-    result.teacher = teacher;
+  const teacherIds = data.teacherIds ?? (data.teacherId ? [data.teacherId] : undefined);
+  if (teacherIds) {
+    result.teachers = await activeUsersWithRole(teacherIds, 'teacher', 'Teachers');
+    result.teacher = result.teachers[0];
   }
   if (data.studentIds) {
     result.students = await activeUsersWithRole(data.studentIds, 'student', 'Students');
@@ -26,10 +27,13 @@ async function assignments(data) {
 
 export async function listClassrooms({ includeArchived = false } = {}, user) {
   const filter = includeArchived ? {} : { status: 'active' };
-  if (user?.role === 'teacher') filter.teacher = user._id;
+  if (user?.role === 'teacher') {
+    filter.$or = [{ teacher: user._id }, { teachers: user._id }];
+  }
   return Classroom.find(filter)
     .sort({ status: 1, name: 1 })
     .populate('teacher', 'firstName lastName email status')
+    .populate('teachers', 'firstName lastName email status')
     .populate('students', 'firstName lastName email status');
 }
 
@@ -46,6 +50,7 @@ export async function createClassroom(data, { actor, ipAddress }) {
   });
   return Classroom.findById(classroom._id)
     .populate('teacher', 'firstName lastName email status')
+    .populate('teachers', 'firstName lastName email status')
     .populate('students', 'firstName lastName email status');
 }
 
@@ -56,7 +61,10 @@ export async function updateClassroom(id, data, { actor, ipAddress }) {
   const assigned = await assignments(data);
   if (data.name !== undefined) classroom.name = data.name;
   if (data.openAccess !== undefined) classroom.openAccess = data.openAccess;
-  if (assigned.teacher) classroom.teacher = assigned.teacher;
+  if (assigned.teachers) {
+    classroom.teacher = assigned.teacher;
+    classroom.teachers = assigned.teachers;
+  }
   if (assigned.students) classroom.students = assigned.students;
   await classroom.save();
   await logActivity({
@@ -69,6 +77,7 @@ export async function updateClassroom(id, data, { actor, ipAddress }) {
   });
   return classroom.populate([
     { path: 'teacher', select: 'firstName lastName email status' },
+    { path: 'teachers', select: 'firstName lastName email status' },
     { path: 'students', select: 'firstName lastName email status' },
   ]);
 }
@@ -90,6 +99,7 @@ export async function archiveClassroom(id, { actor, ipAddress }) {
   }
   return classroom.populate([
     { path: 'teacher', select: 'firstName lastName email status' },
+    { path: 'teachers', select: 'firstName lastName email status' },
     { path: 'students', select: 'firstName lastName email status' },
   ]);
 }

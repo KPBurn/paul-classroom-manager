@@ -19,7 +19,7 @@ server/   Express REST API — the only thing that talks to MongoDB
 | ----- | -------------------------------------------------------------------- | ------ |
 | 1     | Project setup, environment config, API connection                    | ✅ Done |
 | 2     | Authentication, password hashing, JWT, RBAC, protected routes        | ✅ Done |
-| 3     | Admin dashboard and CRUD (users, students, classrooms, …)            | Users and classroom assignments done; subjects, competencies, activity logs and reporting remain |
+| 3     | Admin dashboard and CRUD (users, students, classrooms, …)        | Users and multiple-teacher classroom assignments done; subjects, competencies, activity logs and reporting remain |
 | 4     | Teacher modules (classrooms, students, schedule, assessments, scores) | Session scheduling, attendance review, and session rooms with chat/audio/screen sharing done; assessments and scores remain |
 | 5     | Salary configuration and calculation                                  | Not started |
 | 6     | Security hardening                                                    | Partly done (see below) |
