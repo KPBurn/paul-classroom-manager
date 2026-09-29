@@ -119,6 +119,7 @@ export default function SessionRoom() {
   const [cameraBusy, setCameraBusy] = useState(false);
   const [screenStream, setScreenStream] = useState(null);
   const [screenSharerId, setScreenSharerId] = useState(null);
+  const [mediaConfigurationWarning, setMediaConfigurationWarning] = useState('');
   const [roomSettings, setRoomSettings] = useState({ screenSharingEnabled: true, fileUploadsEnabled: true });
   const [canManageRoom, setCanManageRoom] = useState(false);
   const [sending, setSending] = useState(false);
@@ -198,6 +199,7 @@ export default function SessionRoom() {
         setSession(current);
         setMessages(history);
         setFiles(sharedFiles);
+        setMediaConfigurationWarning(current.iceServersWarning ?? '');
         iceServersRef.current = current.iceServers?.length
           ? current.iceServers
           : [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -303,7 +305,7 @@ export default function SessionRoom() {
           };
           pc.onconnectionstatechange = () => {
             if (pc.connectionState === 'failed') {
-              setMediaError('Media could not connect. Check microphone/camera permissions and network access, or configure a TURN relay for this school network.');
+              setMediaError('Media could not connect between participants. Check camera/microphone permissions and network access. A TURN relay is required when direct connections are blocked.');
             }
           };
           pc.oniceconnectionstatechange = () => {
@@ -921,6 +923,12 @@ export default function SessionRoom() {
           </Button>
         </div>
       </header>
+
+      {mediaConfigurationWarning && (
+        <div className="px-3 pt-3">
+          <Alert tone="info">{mediaConfigurationWarning}</Alert>
+        </div>
+      )}
 
       <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 md:flex-row">
         <section className="relative flex min-h-56 min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">

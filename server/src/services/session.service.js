@@ -8,6 +8,7 @@ import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { attendanceStatusForCheckIn } from '../utils/attendancePolicy.js';
 import { env } from '../config/environment.js';
+import { fetchMeteredTurnIceServers } from './meteredTurn.service.js';
 
 function localDateTimeToUtc(date, time, timezone) {
   const [year, month, day] = date.split('-').map(Number);
@@ -392,10 +393,18 @@ export async function getSessionForParticipant(id, user) {
 
 export async function getRoomSession(id, user) {
   const session = await getSessionForParticipant(id, user);
+  const iceServers = env.meteredTurnHost
+    ? await fetchMeteredTurnIceServers(env.meteredTurnHost, env.meteredTurnApiKey)
+    : env.iceServers;
+  const hasTurnServer = iceServers.some(({ urls }) => (Array.isArray(urls) ? urls : [urls])
+    .some((url) => /^(turn|turns):/i.test(url)));
   return {
     ...sessionResult(session, user),
     canManageRoom: canManageSession(session, user),
-    iceServers: env.iceServers,
+    iceServers,
+    iceServersWarning: hasTurnServer
+      ? null
+      : 'No TURN relay is configured. Camera and microphone may stay local when direct connections are blocked. An administrator can add Metered TURN credentials in the Render environment settings.',
   };
 }
 

@@ -29,6 +29,21 @@ function parseIceServers(value) {
   return iceServers;
 }
 
+function parseMeteredTurnHost(value) {
+  if (!value) return null;
+  const host = value.trim().toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.metered\.live$/.test(host)) {
+    throw new Error('METERED_TURN_HOST must be your Metered subdomain ending in .metered.live');
+  }
+  return host;
+}
+
+const meteredTurnHost = parseMeteredTurnHost(process.env.METERED_TURN_HOST);
+const meteredTurnApiKey = process.env.METERED_TURN_API_KEY?.trim() || null;
+if (Boolean(meteredTurnHost) !== Boolean(meteredTurnApiKey)) {
+  throw new Error('METERED_TURN_HOST and METERED_TURN_API_KEY must both be configured');
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: toInt(process.env.PORT, 5050),
@@ -38,6 +53,8 @@ export const env = {
   clientUrls: toList(process.env.CLIENT_URL || 'http://localhost:5173'),
   trustProxy: toInt(process.env.TRUST_PROXY, 0),
   iceServers: parseIceServers(process.env.WEBRTC_ICE_SERVERS),
+  meteredTurnHost,
+  meteredTurnApiKey,
 };
 
 export const isProduction = env.nodeEnv === 'production';

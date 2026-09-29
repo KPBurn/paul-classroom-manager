@@ -263,6 +263,7 @@ describe('session room collaboration', () => {
       assert.equal(room.status, 200);
       assert.equal(room.body.data.session.classroom.openAccess, true);
       assert.ok(room.body.data.session.iceServers.some(({ urls }) => urls === 'stun:stun.l.google.com:19302'));
+      assert.match(room.body.data.session.iceServersWarning, /No TURN relay is configured/);
 
       const adminHistory = await request(app)
         .get(`/api/sessions/${session.id}/messages`)
