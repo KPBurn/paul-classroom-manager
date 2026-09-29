@@ -6,6 +6,11 @@ export const sessionService = {
     return data.data.items;
   },
 
+  async assignmentOptions(classroomId) {
+    const { data } = await api.get('/sessions/assignment-options', { params: { classroomId } });
+    return data.data;
+  },
+
   async messages(id) {
     const { data } = await api.get(`/sessions/${id}/messages`);
     return data.data.items;
@@ -49,11 +54,6 @@ export const sessionService = {
   async cancel(id, scope) {
     const { data } = await api.post(`/sessions/${id}/cancel`, { scope });
     return data.data.items;
-  },
-
-  async checkIn(id) {
-    const { data } = await api.post(`/sessions/${id}/check-in`);
-    return data.data.session.attendance;
   },
 
   async attendance(id) {

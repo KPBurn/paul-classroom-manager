@@ -2,8 +2,8 @@ import express, { Router } from 'express';
 import { z } from 'zod';
 import {
   attendance,
+  assignmentOptions,
   cancel,
-  checkIn,
   correctAttendance,
   create,
   list,
@@ -24,6 +24,7 @@ import {
   createSessionSchema,
   listSessionsQuerySchema,
   sessionIdParamsSchema,
+  sessionAssignmentOptionsQuerySchema,
   sessionUpdateSchema,
 } from '../validators/session.validators.js';
 
@@ -35,7 +36,8 @@ const sessionFileParamsSchema = z.object({
 
 router.use(authenticateUser);
 router.get('/', requireRole('admin', 'teacher', 'student'), validate({ query: listSessionsQuerySchema }), list);
-router.post('/', requireRole('teacher'), validate({ body: createSessionSchema }), create);
+router.get('/assignment-options', requireRole('admin', 'teacher'), validate({ query: sessionAssignmentOptionsQuerySchema }), assignmentOptions);
+router.post('/', requireRole('admin', 'teacher'), validate({ body: createSessionSchema }), create);
 router.get('/:id/room', validate({ params: sessionIdParamsSchema }), room);
 router.get('/:id/files', validate({ params: sessionIdParamsSchema }), listFiles);
 router.post(
@@ -46,15 +48,14 @@ router.post(
 );
 router.get('/:id/files/:fileId', validate({ params: sessionFileParamsSchema }), downloadFile);
 router.get('/:id/messages', validate({ params: sessionIdParamsSchema }), messages);
-router.post('/:id/check-in', requireRole('student'), validate({ params: sessionIdParamsSchema }), checkIn);
-router.get('/:id/attendance', requireRole('teacher'), validate({ params: sessionIdParamsSchema }), attendance);
+router.get('/:id/attendance', requireRole('admin', 'teacher'), validate({ params: sessionIdParamsSchema }), attendance);
 router.patch(
   '/:id/attendance/:studentId',
-  requireRole('teacher'),
+  requireRole('admin', 'teacher'),
   validate({ params: attendanceParamsSchema, body: correctAttendanceSchema }),
   correctAttendance,
 );
-router.patch('/:id', requireRole('teacher'), validate({ params: sessionIdParamsSchema, body: sessionUpdateSchema }), update);
-router.post('/:id/cancel', requireRole('teacher'), validate({ params: sessionIdParamsSchema, body: cancelSessionSchema }), cancel);
+router.patch('/:id', requireRole('admin', 'teacher'), validate({ params: sessionIdParamsSchema, body: sessionUpdateSchema }), update);
+router.post('/:id/cancel', requireRole('admin', 'teacher'), validate({ params: sessionIdParamsSchema, body: cancelSessionSchema }), cancel);
 
 export default router;

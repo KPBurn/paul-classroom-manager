@@ -20,13 +20,17 @@ server/   Express REST API — the only thing that talks to MongoDB
 | 1     | Project setup, environment config, API connection                    | ✅ Done |
 | 2     | Authentication, password hashing, JWT, RBAC, protected routes        | ✅ Done |
 | 3     | Admin dashboard and CRUD (users, students, classrooms, …)        | Users and multiple-teacher classroom assignments done; subjects, competencies, activity logs and reporting remain |
-| 4     | Teacher modules (classrooms, students, schedule, assessments, scores) | Session scheduling, attendance review, and session rooms with chat/audio/screen sharing done; assessments and scores remain |
+| 4     | Teacher modules (classrooms, students, schedule, assessments, scores) | Admins and teachers can schedule sessions, assign active co-teachers and students to classrooms, and review attendance; assessments and scores remain |
 | 5     | Salary configuration and calculation                                  | Not started |
 | 6     | Security hardening                                                    | Partly done (see below) |
 | 7     | Testing                                                               | Auth, users, announcements, classrooms, scheduling and attendance covered |
 | 8     | Deployment                                                            | Configured (GitHub Pages + Render) |
 
 Sidebar links for modules that are not built yet open a "Not built yet" page.
+
+Scheduling a class updates the classroom's ongoing teacher and student assignments. Each scheduled session also stores an assignment snapshot, so later classroom roster changes do not rewrite the participants for existing sessions or attendance history.
+
+Attendance is recorded automatically when teachers and students join a session room during its scheduled time, including arrival status and time attended; assigned people who never join are marked absent after the session ends. Open classrooms also add participant join and leave notices to the room chat.
 
 ## Getting started
 
@@ -111,7 +115,7 @@ After that, every push to `master` that changes `client/` redeploys the site (`.
 
 ## Environment variables
 
-**Server** (`server/.env`): `PORT`, `NODE_ENV`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN` (default `1d`), `CLIENT_URL` (comma-separated allowed origins), `TRUST_PROXY` (set to `1` behind Render/Railway/Nginx), `SEED_*`.
+**Server** (`server/.env`): `PORT`, `NODE_ENV`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN` (default `1d`), `CLIENT_URL` (comma-separated allowed origins), `TRUST_PROXY` (set to `1` behind Render/Railway/Nginx), `WEBRTC_ICE_SERVERS` (optional JSON array with STUN/TURN definitions; set TURN credentials from your media provider), `SEED_*`.
 
 **Client** (`client/.env`): `VITE_API_URL` only. Everything in the client bundle is public, so database credentials and JWT secrets must never go there.
 
@@ -158,7 +162,7 @@ Recurring schedule date ranges are inclusive; `weekdays` uses JavaScript day num
 
 ### Session rooms (prototype)
 
-Teachers and assigned students can open a session room for persistent group chat, participant presence, microphone mute/unmute, screen sharing, and file sharing. Standard rooms are capped at 12 participants. Administrators can designate an **open classroom**, whose rooms allow any signed-in active account and are capped at 20 participants. The assigned teacher can independently enable or disable screen sharing and file uploads; the server enforces both settings for every participant. Room files are limited to 8 MB and are removed when the session ends or is cancelled. Chat and temporary file data are stored in MongoDB; live audio and screen tracks are sent directly between browsers over a peer-to-peer WebRTC mesh, while the Express server authenticates participants and relays signaling over Socket.IO. The room uses a public STUN server and does not include a TURN relay or SFU media server. Consequently, media may not connect through some firewalls/NATs, and larger meshes can use significant device/network resources; this prototype does not guarantee production-grade group calls. Microphone and screen sharing require browser permission and HTTPS (localhost is allowed for development). The Render API must allow the GitHub Pages origin in `CLIENT_URL`; `render.yaml` includes the deployed Pages origin.
+Teachers and assigned students can open a session room for persistent group chat, participant presence, microphone mute/unmute, camera video, screen sharing, and file sharing. Standard rooms are capped at 12 participants. Administrators can designate an **open classroom**, whose rooms allow any signed-in active account and are capped at 20 participants. The assigned teacher can independently enable or disable screen sharing and file uploads; the server enforces both settings for every participant. Room files are limited to 8 MB and are removed when the session ends or is cancelled. Chat and temporary file data are stored in MongoDB; live media is sent directly between browsers over a peer-to-peer WebRTC mesh, while the Express server authenticates participants and relays signaling over Socket.IO. The room defaults to a public STUN server; configure `WEBRTC_ICE_SERVERS` with your provider's TURN server definitions to support restrictive school/firewall networks. TURN credentials are returned only to authenticated room participants, but should still be rotated according to your provider's policy. Larger meshes can use significant device/network resources. Microphone, camera, and screen sharing require browser permission and HTTPS (localhost is allowed for development). The Render API must allow the GitHub Pages origin in `CLIENT_URL`; `render.yaml` includes the deployed Pages origin.
 
 ### Authentication and authorization (RBAC)
 

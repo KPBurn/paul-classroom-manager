@@ -13,6 +13,8 @@ import {
   ScreenShareOff,
   Send,
   Upload,
+  Video,
+  VideoOff,
   UsersRound,
 } from 'lucide-react';
 import Alert from '../../components/common/Alert.jsx';
@@ -50,7 +52,7 @@ function emitAck(socket, event, ...args) {
   });
 }
 
-function VideoStage({ stream, label }) {
+function VideoStage({ stream, label, muted = true, kind = 'screen' }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -62,13 +64,13 @@ function VideoStage({ stream, label }) {
       <video
         ref={videoRef}
         autoPlay
-        muted
+        muted={muted}
         playsInline
-        aria-label={`Screen shared by ${label}`}
+        aria-label={kind === 'screen' ? `Screen shared by ${label}` : `Camera video from ${label}`}
         className="max-h-full max-w-full rounded-lg object-contain"
       />
       <p className="absolute bottom-4 left-4 rounded-md bg-black/60 px-3 py-1.5 text-sm text-white">
-        {label} is sharing their screen
+        {kind === 'screen' ? `${label} is sharing their screen` : label}
       </p>
     </div>
   );
@@ -106,6 +108,8 @@ export default function SessionRoom() {
   const [connected, setConnected] = useState(false);
   const [muted, setMuted] = useState(true);
   const [microphoneBusy, setMicrophoneBusy] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
+  const [cameraBusy, setCameraBusy] = useState(false);
   const [screenStream, setScreenStream] = useState(null);
   const [screenSharerId, setScreenSharerId] = useState(null);
   const [roomSettings, setRoomSettings] = useState({ screenSharingEnabled: true, fileUploadsEnabled: true });
@@ -118,10 +122,12 @@ export default function SessionRoom() {
   const socketRef = useRef(null);
   const peersRef = useRef(new Map());
   const localAudioStreamRef = useRef(null);
+  const cameraStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const localParticipantId = useRef(null);
+  const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const mountedRef = useRef(false);
   const refreshFiles = useCallback(async () => {
     setFiles(await sessionService.files(id));
@@ -136,6 +142,8 @@ export default function SessionRoom() {
     peersRef.current.clear();
     for (const track of localAudioStreamRef.current?.getTracks() ?? []) track.stop();
     localAudioStreamRef.current = null;
+    for (const track of cameraStreamRef.current?.getTracks() ?? []) track.stop();
+    cameraStreamRef.current = null;
     const screenStream = screenStreamRef.current;
     screenStreamRef.current = null;
     for (const track of screenStream?.getTracks() ?? []) {
@@ -163,6 +171,9 @@ export default function SessionRoom() {
         setSession(current);
         setMessages(history);
         setFiles(sharedFiles);
+        iceServersRef.current = current.iceServers?.length
+          ? current.iceServers
+          : [{ urls: 'stun:stun.l.google.com:19302' }];
 
         const token = tokenStorage.get();
         if (!token) throw new Error('Your session has ended. Please sign in again.');
@@ -193,31 +204,44 @@ export default function SessionRoom() {
             setMediaError('This browser does not support live audio and screen sharing.');
             return null;
           }
-          const pc = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-          });
+          const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
           const peer = {
             pc,
             makingOffer: false,
             ignoreOffer: false,
             settingRemoteAnswerPending: false,
+            pendingCandidates: [],
             audioSender: null,
-            videoSender: null,
+            cameraSender: null,
+            screenSender: null,
           };
           peersRef.current.set(peerId, peer);
           const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
-          const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+          const cameraTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+          const screenTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
           peer.audioSender = audioTransceiver.sender;
-          peer.videoSender = videoTransceiver.sender;
+          peer.cameraSender = cameraTransceiver.sender;
+          peer.screenSender = screenTransceiver.sender;
+          const remoteStreamKeys = new Map([
+            [audioTransceiver, 'audioStream'],
+            [cameraTransceiver, 'cameraStream'],
+            [screenTransceiver, 'screenStream'],
+          ]);
           const audioTrack = localAudioStreamRef.current?.getAudioTracks()[0];
-          const videoTrack = screenStreamRef.current?.getVideoTracks()[0];
+          const cameraTrack = cameraStreamRef.current?.getVideoTracks()[0];
+          const screenTrack = screenStreamRef.current?.getVideoTracks()[0];
           if (audioTrack) {
             peer.audioSender.replaceTrack(audioTrack).catch((replaceError) => {
               setMediaError(readableError(replaceError, 'Unable to connect your microphone.'));
             });
           }
-          if (videoTrack) {
-            peer.videoSender.replaceTrack(videoTrack).catch((replaceError) => {
+          if (cameraTrack) {
+            peer.cameraSender.replaceTrack(cameraTrack).catch((replaceError) => {
+              setMediaError(readableError(replaceError, 'Unable to connect your camera.'));
+            });
+          }
+          if (screenTrack) {
+            peer.screenSender.replaceTrack(screenTrack).catch((replaceError) => {
               setMediaError(readableError(replaceError, 'Unable to connect your screen share.'));
             });
           }
@@ -225,8 +249,9 @@ export default function SessionRoom() {
           pc.onicecandidate = ({ candidate }) => {
             if (candidate) relay(peerId, { candidate: candidate.toJSON() });
           };
-          pc.ontrack = ({ track }) => {
-            const key = track.kind === 'audio' ? 'audioStream' : 'screenStream';
+          pc.ontrack = ({ track, transceiver }) => {
+            const key = remoteStreamKeys.get(transceiver);
+            if (!key) return;
             const stream = new MediaStream([track]);
             const updateStream = (nextStream) => {
               setRemoteMedia((currentMedia) => ({
@@ -241,8 +266,11 @@ export default function SessionRoom() {
           };
           pc.onconnectionstatechange = () => {
             if (pc.connectionState === 'failed') {
-              setMediaError('A participant could not connect directly. Check network or firewall settings.');
+              setMediaError('Media could not connect. Check microphone/camera permissions and network access, or configure a TURN relay for this school network.');
             }
+          };
+          pc.oniceconnectionstatechange = () => {
+            if (pc.iceConnectionState === 'failed') pc.restartIce();
           };
           pc.onnegotiationneeded = async () => {
             try {
@@ -273,12 +301,18 @@ export default function SessionRoom() {
               peer.settingRemoteAnswerPending = description.type === 'answer';
               await peer.pc.setRemoteDescription(description);
               peer.settingRemoteAnswerPending = false;
+              for (const queuedCandidate of peer.pendingCandidates.splice(0)) {
+                await peer.pc.addIceCandidate(queuedCandidate);
+              }
               if (description.type === 'offer') {
                 await peer.pc.setLocalDescription();
                 relay(from, { description: peer.pc.localDescription.toJSON() });
               }
             }
-            if (candidate && !peer.ignoreOffer) await peer.pc.addIceCandidate(candidate);
+            if (candidate && !peer.ignoreOffer) {
+              if (peer.pc.remoteDescription) await peer.pc.addIceCandidate(candidate);
+              else peer.pendingCandidates.push(candidate);
+            }
           } catch (connectionError) {
             setMediaError(readableError(connectionError, 'A participant media connection failed.'));
           }
@@ -323,6 +357,13 @@ export default function SessionRoom() {
           setParticipants([]);
           setRemoteMedia({});
           for (const track of localAudioStreamRef.current?.getAudioTracks() ?? []) track.enabled = false;
+          const abandonedCamera = cameraStreamRef.current;
+          cameraStreamRef.current = null;
+          setCameraStream(null);
+          for (const track of abandonedCamera?.getTracks() ?? []) {
+            track.onended = null;
+            track.stop();
+          }
           const abandonedScreen = screenStreamRef.current;
           screenStreamRef.current = null;
           setScreenStream(null);
@@ -362,7 +403,7 @@ export default function SessionRoom() {
               track.onended = null;
               track.stop();
             }
-            Promise.all([...peersRef.current.values()].map((peer) => peer.videoSender.replaceTrack(null)))
+            Promise.all([...peersRef.current.values()].map((peer) => peer.screenSender.replaceTrack(null)))
               .catch((replaceError) => {
                 setMediaError(readableError(replaceError, 'Unable to stop your screen share.'));
               });
@@ -396,6 +437,8 @@ export default function SessionRoom() {
       peersRef.current.clear();
       for (const track of localAudioStreamRef.current?.getTracks() ?? []) track.stop();
       localAudioStreamRef.current = null;
+      for (const track of cameraStreamRef.current?.getTracks() ?? []) track.stop();
+      cameraStreamRef.current = null;
       const screenStream = screenStreamRef.current;
       screenStreamRef.current = null;
       for (const track of screenStream?.getTracks() ?? []) {
@@ -454,13 +497,77 @@ export default function SessionRoom() {
     }
   };
 
+  const toggleCamera = async () => {
+    if (!connected || cameraBusy) return;
+    if (cameraStreamRef.current) {
+      const stream = cameraStreamRef.current;
+      cameraStreamRef.current = null;
+      setCameraStream(null);
+      stream.getTracks().forEach((track) => {
+        track.onended = null;
+        track.stop();
+      });
+      try {
+        await Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(null)));
+        setMediaError('');
+      } catch (cameraError) {
+        setMediaError(readableError(cameraError, 'Unable to turn off your camera.'));
+      }
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMediaError('Camera access requires a supported browser over HTTPS or localhost.');
+      return;
+    }
+    setCameraBusy(true);
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: 'user' },
+      });
+      if (!mountedRef.current || !socketRef.current?.connected) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      const track = stream.getVideoTracks()[0];
+      track.onended = () => {
+        if (cameraStreamRef.current !== stream) return;
+        cameraStreamRef.current = null;
+        setCameraStream(null);
+        Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(null)))
+          .catch((replaceError) => {
+            setMediaError(readableError(replaceError, 'Unable to stop your camera.'));
+          });
+      };
+      await Promise.all([...peersRef.current.values()].map((peer) => peer.cameraSender.replaceTrack(track)));
+      cameraStreamRef.current = stream;
+      setCameraStream(stream);
+      setMediaError('');
+    } catch (cameraError) {
+      stream?.getTracks().forEach((track) => track.stop());
+      setMediaError(
+        cameraError.name === 'NotAllowedError'
+          ? 'Camera access was denied. Allow camera access in your browser settings and try again.'
+          : cameraError.name === 'NotFoundError'
+            ? 'No camera was found. Connect a camera and try again.'
+          : readableError(cameraError, 'Unable to access your camera.'),
+      );
+    } finally {
+      setCameraBusy(false);
+    }
+  };
+
   const toggleScreenShare = async () => {
     if (screenStreamRef.current) {
       const stream = screenStreamRef.current;
       screenStreamRef.current = null;
       setScreenStream(null);
-      for (const track of stream.getTracks()) track.stop();
-      await Promise.all([...peersRef.current.values()].map((peer) => peer.videoSender.replaceTrack(null)));
+      for (const track of stream.getTracks()) {
+        track.onended = null;
+        track.stop();
+      }
+      await Promise.all([...peersRef.current.values()].map((peer) => peer.screenSender.replaceTrack(null)));
       socketRef.current?.emit('room:screen-stop');
       return;
     }
@@ -491,13 +598,13 @@ export default function SessionRoom() {
         if (screenStreamRef.current !== stream) return;
         screenStreamRef.current = null;
         setScreenStream(null);
-        Promise.all([...peersRef.current.values()].map((peer) => peer.videoSender.replaceTrack(null)))
+        Promise.all([...peersRef.current.values()].map((peer) => peer.screenSender.replaceTrack(null)))
           .catch((replaceError) => {
             setMediaError(readableError(replaceError, 'Unable to stop your screen share.'));
           });
         socketRef.current?.emit('room:screen-stop');
       };
-      await Promise.all([...peersRef.current.values()].map((peer) => peer.videoSender.replaceTrack(track)));
+      await Promise.all([...peersRef.current.values()].map((peer) => peer.screenSender.replaceTrack(track)));
       setMediaError('');
     } catch (shareError) {
       if (shareError.name !== 'AbortError') {
@@ -590,6 +697,14 @@ export default function SessionRoom() {
   const sharedStream = screenSharerId === localParticipantId.current
     ? screenStream
     : remoteMedia[screenSharerId]?.screenStream;
+  const cameraParticipants = participants
+    .map((participant) => ({
+      ...participant,
+      stream: participant.id === localParticipantId.current
+        ? cameraStream
+        : remoteMedia[participant.id]?.cameraStream,
+    }))
+    .filter((participant) => participant.stream);
 
   if (loading) return <div className="flex min-h-screen items-center justify-center"><Spinner /></div>;
   if (error && !session) {
@@ -629,6 +744,18 @@ export default function SessionRoom() {
         <section className="relative flex min-h-56 flex-1 items-center justify-center overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
           {sharedStream ? (
             <VideoStage stream={sharedStream} label={sharer?.name ?? 'A participant'} />
+          ) : cameraParticipants.length > 0 ? (
+            <div className="grid h-full w-full auto-rows-fr grid-cols-1 gap-3 p-3 sm:grid-cols-2">
+              {cameraParticipants.map((participant) => (
+                <div key={participant.id} className="relative min-h-0 overflow-hidden rounded-lg bg-slate-950">
+                  <VideoStage
+                    stream={participant.stream}
+                    label={`${participant.name}${participant.id === localParticipantId.current ? ' (You)' : ''}`}
+                    kind="camera"
+                  />
+                </div>
+              ))}
+            </div>
           ) : (
             <div className="mx-auto max-w-md px-6 text-center">
               <span className="mx-auto flex size-16 items-center justify-center rounded-2xl bg-slate-800 text-indigo-300">
@@ -637,11 +764,11 @@ export default function SessionRoom() {
               <h2 className="mt-5 text-lg font-semibold">Your class room is ready</h2>
               <p className="mt-2 text-sm leading-6 text-slate-400">
                 {roomSettings.screenSharingEnabled
-                  ? 'Share your screen to present to the class. Participants can turn on their microphone to speak.'
-                  : 'Screen sharing has been disabled by the teacher. Participants can still use chat and shared files.'}
+                  ? 'Turn on your camera or microphone, or share your screen to present to the class.'
+                  : 'Turn on your camera or microphone to speak with the class. Screen sharing is disabled by the teacher.'}
               </p>
               <p className="mt-3 text-xs leading-5 text-slate-500">
-                Voice and screen sharing connect directly between browsers. Some school networks may block media; chat will still work.
+                Live audio and video require browser permissions. Some school networks need a configured TURN relay; chat will still work if media cannot connect.
               </p>
               {session?.classroom?.openAccess && (
                 <p className="mt-2 text-xs font-medium text-amber-300">Open classroom · up to 20 participants</p>
@@ -683,7 +810,12 @@ export default function SessionRoom() {
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
                 {messages.length === 0 ? (
                   <div className="py-8 text-center text-sm text-slate-500">Messages in this room will appear here.</div>
-                ) : messages.map((item) => (
+                ) : messages.map((item) => item.type === 'system' ? (
+                  <p key={item.id} className="text-center text-xs text-slate-500">
+                    <span>{item.body}</span>
+                    <time className="ml-2">{formatTime(item.createdAt)}</time>
+                  </p>
+                ) : (
                   <article key={item.id} className="flex gap-2.5">
                     <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[10px] font-semibold text-slate-200">
                       {initials(item.sender.name)}
@@ -780,6 +912,17 @@ export default function SessionRoom() {
                   <Upload className="size-4" />
                   <span>{uploading ? 'Uploading' : 'Upload'}</span>
                 </Button>
+                <Button
+                  variant={cameraStream ? 'primary' : 'secondary'}
+                  className={!cameraStream ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}
+                  disabled={!connected || cameraBusy}
+                  isLoading={cameraBusy}
+                  onClick={toggleCamera}
+                  aria-pressed={Boolean(cameraStream)}
+                >
+                  {cameraStream ? <Video className="size-4" /> : <VideoOff className="size-4" />}
+                  <span className="hidden sm:inline">{cameraStream ? 'Turn camera off' : 'Turn camera on'}</span>
+                </Button>
               </div>
               {!roomSettings.fileUploadsEnabled && (
                 <p className="rounded-md bg-amber-400/10 px-3 py-2 text-xs text-amber-200">File uploads are disabled by the teacher.</p>
@@ -866,7 +1009,6 @@ export default function SessionRoom() {
           <PhoneOff className="size-4" />
           <span className="hidden sm:inline">Leave</span>
         </Button>
-        {connected && <span className="hidden text-xs text-slate-500 lg:inline">Camera off</span>}
       </footer>
 
       {Object.entries(remoteMedia).map(([participantId, media]) => {

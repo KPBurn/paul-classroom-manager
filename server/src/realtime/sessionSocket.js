@@ -129,17 +129,35 @@ export function attachSessionSocket(httpServer) {
       if (!sessionId) return;
       const state = rooms.get(sessionId);
       const room = roomName(sessionId);
+      let activity = null;
+      let leaveError = null;
       if (state) {
+        const participant = state.participants.get(socket.id);
         state.participants.delete(socket.id);
         if (state.screenSharerId === socket.id) {
           state.screenSharerId = null;
           io.to(room).emit('room:screen-sharing', { participantId: socket.id, sharing: false });
         }
+        const userStillPresent = participant && [...state.participants.values()]
+          .some((item) => item.userId === participant.userId);
+        if (participant && !userStillPresent) {
+          try {
+            await sessionService.recordRoomLeave(sessionId, socket.data.user);
+            if (socket.data.sessionOpenAccess) {
+              activity = await sessionService.createRoomActivity(sessionId, socket.data.user, 'left');
+            }
+          } catch (error) {
+            leaveError = error;
+          }
+        }
         if (state.participants.size === 0) rooms.delete(sessionId);
       }
       socket.data.sessionId = null;
+      socket.data.sessionOpenAccess = false;
       socket.leave(room);
       socket.to(room).emit('room:participant-left', { participantId: socket.id });
+      if (activity) io.to(room).emit('room:message', activity);
+      if (leaveError) throw leaveError;
     }
 
     socket.on('room:join', async (sessionId, ack) => {
@@ -158,7 +176,7 @@ export function attachSessionSocket(httpServer) {
               screenSharingEnabled: session.screenSharingEnabled ?? true,
               fileUploadsEnabled: session.fileUploadsEnabled ?? true,
             },
-            canManageRoom: sessionService.isAssignedTeacher(session.classroom, socket.data.user),
+            canManageRoom: sessionService.canManageSession(session, socket.data.user),
           });
           return;
         }
@@ -176,11 +194,21 @@ export function attachSessionSocket(httpServer) {
         }
         const existingParticipants = [...state.participants.values()];
         const participant = participantResult(socket);
+        const alreadyPresent = existingParticipants.some((item) => item.userId === participant.userId);
+        let activity = null;
+        if (!alreadyPresent) {
+          await sessionService.recordRoomJoin(sessionId, socket.data.user);
+          if (session.classroom.openAccess) {
+            activity = await sessionService.createRoomActivity(sessionId, socket.data.user, 'joined');
+          }
+        }
         socket.data.sessionId = sessionId;
+        socket.data.sessionOpenAccess = session.classroom.openAccess;
         socket.data.muted = true;
         socket.join(room);
         state.participants.set(socket.id, participant);
         socket.to(room).emit('room:participant-joined', participant);
+        if (activity) io.to(room).emit('room:message', activity);
         ack?.({
           session: {
             id: String(session._id),
@@ -195,7 +223,7 @@ export function attachSessionSocket(httpServer) {
             screenSharingEnabled: state.screenSharingEnabled,
             fileUploadsEnabled: state.fileUploadsEnabled,
           },
-          canManageRoom: sessionService.isAssignedTeacher(session.classroom, socket.data.user),
+          canManageRoom: sessionService.canManageSession(session, socket.data.user),
         });
       } catch (error) {
         replyWithError(ack, error, 'Unable to join this session');
@@ -203,8 +231,12 @@ export function attachSessionSocket(httpServer) {
     });
 
     socket.on('room:leave', async (ack) => {
-      await leaveRoom();
-      ack?.({ success: true });
+      try {
+        await leaveRoom();
+        ack?.({ success: true });
+      } catch (error) {
+        replyWithError(ack, error, 'Unable to record your room departure');
+      }
     });
 
     socket.on('room:message', async (input, ack) => {
@@ -318,7 +350,9 @@ export function attachSessionSocket(httpServer) {
 
     socket.on('disconnect', () => {
       if (socket.data.expiryTimer) clearTimeout(socket.data.expiryTimer);
-      leaveRoom();
+      leaveRoom().catch((error) => {
+        console.error('Unable to record a participant leaving a session room', error);
+      });
     });
   });
 

@@ -78,7 +78,9 @@ async function setupRoom() {
   return {
     session,
     classroom,
+    teacher,
     student,
+    unrelated,
     teacherSocket,
     coTeacherSocket,
     studentSocket,
@@ -87,7 +89,14 @@ async function setupRoom() {
     unrelatedToken,
     studentToken,
     adminToken,
-    cleanup: () => {
+    cleanup: async () => {
+      await Promise.all([
+        teacherSocket,
+        coTeacherSocket,
+        studentSocket,
+        unrelatedSocket,
+        adminSocket,
+      ].map((socket) => emitAck(socket, 'room:leave')));
       teacherSocket.disconnect();
       coTeacherSocket.disconnect();
       studentSocket.disconnect();
@@ -101,6 +110,7 @@ describe('session room collaboration', () => {
   it('authorizes participants, persists chat, and reports microphone state', async () => {
     const {
       session,
+      teacher,
       teacherSocket,
       studentSocket,
       unrelatedSocket,
@@ -116,10 +126,18 @@ describe('session room collaboration', () => {
       const studentJoin = await emitAck(studentSocket, 'room:join', String(session._id));
       assert.equal(studentJoin.participants.length, 1);
       assert.equal(studentJoin.participants[0].role, 'teacher');
+      const relayedSignal = new Promise((resolve) => studentSocket.once('rtc:signal', resolve));
+      const signalAck = await emitAck(teacherSocket, 'rtc:signal', {
+        target: studentSocket.id,
+        candidate: { candidate: 'candidate:1 1 UDP 1 192.0.2.1 5000 typ host', sdpMid: '0', sdpMLineIndex: 0 },
+      });
+      assert.deepEqual(signalAck, { success: true });
+      assert.equal((await relayedSignal).from, teacherSocket.id);
       const unauthorizedJoin = await emitAck(unrelatedSocket, 'room:join', String(session._id));
       assert.equal(unauthorizedJoin.error, 'You are not assigned to this classroom');
       const unauthorizedAdminJoin = await emitAck(adminSocket, 'room:join', String(session._id));
-      assert.equal(unauthorizedAdminJoin.error, 'You are not assigned to this classroom');
+      assert.equal(unauthorizedAdminJoin.session.title, 'Room Test');
+      assert.equal(unauthorizedAdminJoin.canManageRoom, true);
 
       const updatedParticipant = new Promise((resolve) => {
         teacherSocket.once('room:participant-updated', resolve);
@@ -137,18 +155,30 @@ describe('session room collaboration', () => {
       assert.equal(history.body.data.items[0].sender.role, 'student');
       assert.equal(history.body.data.items[0].body, 'Hello class');
 
+      const attendance = await request(app)
+        .get(`/api/sessions/${session.id}/attendance`)
+        .set(auth(await login(teacher)));
+      assert.equal(attendance.status, 200);
+      const teacherAttendance = attendance.body.data.items.find(({ participant }) => participant.id === teacher.id);
+      const studentAttendance = attendance.body.data.items.find(({ participant }) => participant.id === history.body.data.items[0].sender.id);
+      assert.equal(teacherAttendance.status, 'present');
+      assert.ok(teacherAttendance.checkInAt);
+      assert.equal(studentAttendance.status, 'present');
+      assert.ok(studentAttendance.checkInAt);
+
       const forbidden = await request(app)
         .get(`/api/sessions/${session.id}/messages`)
         .set(auth(unrelatedToken));
       assert.equal(forbidden.status, 403);
-      const forbiddenRoom = await request(app)
+      const adminRoom = await request(app)
         .get(`/api/sessions/${session.id}/room`)
         .set(auth(adminToken));
-      assert.equal(forbiddenRoom.status, 403);
+      assert.equal(adminRoom.status, 200);
+      assert.equal(adminRoom.body.data.session.canManageRoom, true);
       const invalidMessage = await emitAck(studentSocket, 'room:message', { body: '   ' });
       assert.ok(invalidMessage.error);
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -159,6 +189,7 @@ describe('session room collaboration', () => {
       teacherSocket,
       studentSocket,
       unrelatedSocket,
+      unrelated,
       adminSocket,
       adminToken,
       cleanup,
@@ -176,17 +207,22 @@ describe('session room collaboration', () => {
       assert.ok(joins.every((result) => !result.error));
       const allParticipants = await emitAck(adminSocket, 'room:join', String(session._id));
       assert.equal(allParticipants.participants.length, 4);
+      await emitAck(unrelatedSocket, 'room:leave');
 
       const room = await request(app)
         .get(`/api/sessions/${session.id}/room`)
         .set(auth(adminToken));
       assert.equal(room.status, 200);
       assert.equal(room.body.data.session.classroom.openAccess, true);
+      assert.ok(room.body.data.session.iceServers.some(({ urls }) => urls === 'stun:stun.l.google.com:19302'));
 
       const adminHistory = await request(app)
         .get(`/api/sessions/${session.id}/messages`)
         .set(auth(adminToken));
       assert.equal(adminHistory.status, 200);
+      const systemMessages = adminHistory.body.data.items.filter(({ type }) => type === 'system');
+      assert.ok(systemMessages.some(({ body }) => body === `${unrelated.firstName} ${unrelated.lastName} joined the classroom`));
+      assert.ok(systemMessages.some(({ body }) => body === `${unrelated.firstName} ${unrelated.lastName} left the classroom`));
 
       const adminSessions = await request(app)
         .get('/api/sessions')
@@ -194,7 +230,7 @@ describe('session room collaboration', () => {
       assert.equal(adminSessions.status, 200);
       assert.equal(adminSessions.body.data.items[0].id, String(session._id));
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -212,7 +248,7 @@ describe('session room collaboration', () => {
       assert.deepEqual(await emitAck(teacherSocket, 'room:screen-stop'), { success: true });
       assert.deepEqual(await emitAck(studentSocket, 'room:screen-start'), { success: true });
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -292,7 +328,7 @@ describe('session room collaboration', () => {
       assert.deepEqual(endedFiles.body.data.items, []);
       assert.equal(await SessionFile.countDocuments({ session: session._id }), 0);
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 });

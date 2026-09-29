@@ -3,9 +3,11 @@ import { Classroom } from '../models/Classroom.js';
 import { ClassSession } from '../models/ClassSession.js';
 import { SessionFile } from '../models/SessionFile.js';
 import { SessionMessage } from '../models/SessionMessage.js';
+import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { attendanceStatusForCheckIn } from '../utils/attendancePolicy.js';
+import { env } from '../config/environment.js';
 
 function localDateTimeToUtc(date, time, timezone) {
   const [year, month, day] = date.split('-').map(Number);
@@ -99,8 +101,77 @@ export function isAssignedTeacher(classroom, user) {
   return assignedIds.includes(String(user._id));
 }
 
+function classroomTeacherIds(classroom) {
+  return [...new Set([classroom.teacher, ...(classroom.teachers ?? [])]
+    .filter(Boolean)
+    .map((teacher) => String(teacher._id ?? teacher)))];
+}
+
+function sessionTeacherIds(session) {
+  return session.assignedTeachers
+    ? session.assignedTeachers.map((teacher) => String(teacher._id ?? teacher))
+    : classroomTeacherIds(session.classroom);
+}
+
+function sessionStudentIds(session) {
+  return session.assignedStudents
+    ? session.assignedStudents.map((student) => String(student._id ?? student))
+    : session.classroom.students.map((student) => String(student._id ?? student));
+}
+
+export function isSessionTeacher(session, user) {
+  return user?.role === 'teacher' && sessionTeacherIds(session).includes(String(user._id));
+}
+
+export function canManageSession(session, user) {
+  return user?.role === 'admin' || isSessionTeacher(session, user);
+}
+
+export async function getAssignmentOptions(classroomId, user) {
+  const classroom = await Classroom.findById(classroomId);
+  if (!classroom) throw new AppError(404, 'Classroom not found');
+  if (classroom.status !== 'active') throw new AppError(400, 'Archived classrooms cannot be scheduled');
+  if (user.role === 'teacher' && !isAssignedTeacher(classroom, user)) {
+    throw new AppError(403, 'You are not assigned to this classroom');
+  }
+
+  const [teachers, students] = await Promise.all([
+    User.find({ role: 'teacher', status: 'active' })
+      .select('firstName lastName email')
+      .sort({ firstName: 1, lastName: 1, _id: 1 })
+      .limit(100),
+    User.find({ role: 'student', status: 'active' })
+      .select('firstName lastName email')
+      .sort({ firstName: 1, lastName: 1, _id: 1 })
+      .limit(500),
+  ]);
+  return { teachers, students };
+}
+
 export async function createSessions(data, { actor, ipAddress }) {
-  const classroom = await assignedClassroom(data.classroomId, actor, { requireActive: true });
+  const classroom = await assignedClassroom(
+    data.classroomId,
+    actor.role === 'teacher' ? actor : null,
+    { requireActive: true },
+  );
+  const teacherIds = [...new Set(data.teacherIds ?? classroomTeacherIds(classroom))];
+  const studentIds = [...new Set((data.studentIds ?? classroom.students)
+    .map((student) => String(student._id ?? student)))];
+  if (!teacherIds.length) throw new AppError(400, 'Assign at least one teacher to the classroom');
+  if (actor.role === 'teacher' && !teacherIds.includes(String(actor._id))) {
+    throw new AppError(400, 'You must remain assigned to the classroom to schedule its sessions');
+  }
+  const [teachers, students] = await Promise.all([
+    User.find({ _id: { $in: teacherIds }, role: 'teacher', status: 'active' }).select('_id'),
+    User.find({ _id: { $in: studentIds }, role: 'student', status: 'active' }).select('_id'),
+  ]);
+  if (teachers.length !== teacherIds.length) {
+    throw new AppError(400, 'Teachers must reference active teacher accounts');
+  }
+  if (students.length !== studentIds.length) {
+    throw new AppError(400, 'Students must reference active student accounts');
+  }
+
   let entries;
   let seriesId = null;
   if (data.startsAt) {
@@ -115,8 +186,15 @@ export async function createSessions(data, { actor, ipAddress }) {
     entries = occurrenceDates(data);
     seriesId = randomUUID();
   }
+  classroom.teacher = teacherIds[0];
+  classroom.teachers = teacherIds;
+  classroom.students = studentIds;
+  await classroom.save();
+
   const sessions = await ClassSession.insertMany(entries.map(({ startsAt, endsAt }) => ({
     classroom: classroom._id,
+    assignedTeachers: teacherIds,
+    assignedStudents: studentIds,
     title: data.title,
     startsAt,
     endsAt,
@@ -128,23 +206,46 @@ export async function createSessions(data, { actor, ipAddress }) {
     action: 'session.created',
     entityType: 'ClassSession',
     entityId: sessions[0]._id,
-    description: `${actor.fullName} scheduled ${sessions.length} class session(s)`,
+    description: `${actor.fullName} scheduled ${sessions.length} session(s) for "${classroom.name}" with ${teacherIds.length} teacher(s) and ${studentIds.length} student(s)`,
     ipAddress,
   });
   const created = await ClassSession.find({ _id: { $in: sessions.map((session) => session._id) } })
     .sort({ startsAt: 1 })
-    .populate('classroom', 'name');
+    .populate('classroom', 'name openAccess')
+    .populate('assignedTeachers', 'firstName lastName')
+    .populate('assignedStudents', 'firstName lastName email');
   return created.map((session) => sessionResult(session, actor));
 }
 
 async function ensureAbsences(session) {
   if (session.status !== 'cancelled' && session.endsAt <= new Date()) {
-    const classroom = await Classroom.findById(session.classroom).select('students');
+    const classroom = session.classroom?._id
+      ? session.classroom
+      : await Classroom.findById(session.classroom).populate('teacher teachers students');
     if (!classroom) return;
-    const marked = new Set(session.attendance.map((entry) => String(entry.student)));
-    for (const student of classroom.students) {
-      if (!marked.has(String(student))) {
-        session.attendance.push({ student, status: 'absent' });
+    const roster = [
+      ...new Map([
+        ...((session.assignedTeachers ?? classroomTeacherIds(classroom)).map((teacher) => [
+          String(teacher._id ?? teacher),
+          { participant: teacher._id ?? teacher, role: 'teacher' },
+        ])),
+        ...((session.assignedStudents ?? classroom.students).map((student) => [
+          String(student._id ?? student),
+          { participant: student._id ?? student, role: 'student' },
+        ])),
+      ]).values(),
+    ];
+    for (const person of roster) {
+      const personId = String(person.participant);
+      const entry = session.attendance.find(
+        (attendance) => String(attendance.participant ?? attendance.student) === personId,
+      );
+      if (!entry) {
+        session.attendance.push({ ...person, status: 'absent' });
+      } else if (entry.activeSince) {
+        entry.durationMs = (entry.durationMs ?? 0) + Math.max(0, session.endsAt - entry.activeSince);
+        entry.leftAt = session.endsAt;
+        entry.activeSince = undefined;
       }
     }
     if (session.isModified('attendance')) await session.save();
@@ -152,7 +253,9 @@ async function ensureAbsences(session) {
 }
 
 function sessionResult(session, user) {
-  const attendance = session.attendance.find((entry) => String(entry.student?._id ?? entry.student) === String(user._id));
+  const attendance = session.attendance.find(
+    (entry) => String(entry.participant?._id ?? entry.participant ?? entry.student?._id ?? entry.student) === String(user._id),
+  );
   return {
     id: String(session._id),
     classroom: {
@@ -170,28 +273,83 @@ function sessionResult(session, user) {
     },
     status: session.status,
     seriesId: session.seriesId,
+    assignments: {
+      teachers: (session.assignedTeachers ?? classroomTeacherIds(session.classroom ?? {})).map((teacher) => ({
+        id: String(teacher._id ?? teacher),
+        name: teacher.firstName
+          ? `${teacher.firstName} ${teacher.lastName}`.trim()
+          : undefined,
+      })),
+      students: (session.assignedStudents ?? session.classroom?.students ?? []).map((student) => ({
+        id: String(student._id ?? student),
+        name: student.firstName
+          ? `${student.firstName} ${student.lastName}`.trim()
+          : undefined,
+      })),
+    },
     attendance: attendance
-      ? { status: attendance.status, checkInAt: attendance.checkInAt ?? null }
+      ? {
+          status: attendance.status,
+          checkInAt: attendance.checkInAt ?? null,
+          leftAt: attendance.leftAt ?? null,
+          durationMs: attendance.durationMs ?? 0,
+        }
       : { status: null, checkInAt: null },
   };
 }
 
 export async function listSessions(user, { view } = {}) {
-  let classrooms;
+  let filter;
   if (user.role === 'teacher' && !view) {
-    classrooms = await Classroom.find({
-      $or: [{ teacher: user._id }, { teachers: user._id }, { openAccess: true }],
-    }).select('_id');
+    const [assignedClassrooms, openClassrooms] = await Promise.all([
+      Classroom.find({ $or: [{ teacher: user._id }, { teachers: user._id }] }).select('_id'),
+      Classroom.find({ openAccess: true }).select('_id'),
+    ]);
+    filter = {
+      $or: [
+        { assignedTeachers: user._id },
+        { classroom: { $in: openClassrooms.map(({ _id }) => _id) } },
+        {
+          assignedTeachers: { $exists: false },
+          classroom: { $in: assignedClassrooms.map(({ _id }) => _id) },
+        },
+      ],
+    };
   } else if (user.role === 'student' && view === 'mine') {
-    classrooms = await Classroom.find({ $or: [{ students: user._id }, { openAccess: true }] }).select('_id');
+    const [assignedClassrooms, openClassrooms] = await Promise.all([
+      Classroom.find({ students: user._id }).select('_id'),
+      Classroom.find({ openAccess: true }).select('_id'),
+    ]);
+    filter = {
+      $or: [
+        { assignedStudents: user._id },
+        { classroom: { $in: openClassrooms.map(({ _id }) => _id) } },
+        {
+          assignedStudents: { $exists: false },
+          classroom: { $in: assignedClassrooms.map(({ _id }) => _id) },
+        },
+      ],
+    };
   } else if (user.role === 'admin' && !view) {
-    classrooms = await Classroom.find({ openAccess: true }).select('_id');
+    filter = {};
   } else {
     throw new AppError(403, 'You do not have permission to view these sessions');
   }
-  const sessions = await ClassSession.find({ classroom: { $in: classrooms.map(({ _id }) => _id) } })
+  const sessions = await ClassSession.find(filter)
     .sort({ startsAt: 1 })
-    .populate('classroom', 'name openAccess');
+    .populate({
+      path: 'classroom',
+      select: 'name openAccess teacher teachers students',
+      populate: [
+        { path: 'teacher', select: 'firstName lastName' },
+        { path: 'teachers', select: 'firstName lastName' },
+        { path: 'students', select: 'firstName lastName email' },
+      ],
+    })
+    .populate('assignedTeachers', 'firstName lastName')
+      .populate('assignedStudents', 'firstName lastName email')
+      .populate('attendance.participant', 'firstName lastName email role')
+      .populate('attendance.student', 'firstName lastName email role');
   for (const session of sessions) await ensureAbsences(session);
   return { items: sessions.map((session) => sessionResult(session, user)) };
 }
@@ -205,23 +363,28 @@ async function getSession(id) {
       { path: 'teachers', select: 'firstName lastName' },
       { path: 'students', select: 'firstName lastName email' },
     ],
-  });
+  })
+    .populate('assignedTeachers', 'firstName lastName')
+    .populate('assignedStudents', 'firstName lastName email')
+    .populate('attendance.participant', 'firstName lastName email role')
+    .populate('attendance.student', 'firstName lastName email role');
   if (!session) throw new AppError(404, 'Session not found');
   return session;
 }
 
 function assertAssignedTeacher(session, user) {
-  if (!isAssignedTeacher(session.classroom, user)) {
+  if (!canManageSession(session, user)) {
     throw new AppError(403, 'You are not assigned to this classroom');
   }
 }
 
 export async function getSessionForParticipant(id, user) {
   const session = await getSession(id);
-  const isTeacher = isAssignedTeacher(session.classroom, user);
+  const isTeacher = isSessionTeacher(session, user);
+  const isAdmin = user.role === 'admin';
   const isStudent = user.role === 'student'
-    && session.classroom.students.some((student) => String(student._id ?? student) === String(user._id));
-  if (!isTeacher && !isStudent && !session.classroom.openAccess) {
+    && sessionStudentIds(session).includes(String(user._id));
+  if (!isAdmin && !isTeacher && !isStudent && !session.classroom.openAccess) {
     throw new AppError(403, 'You are not assigned to this classroom');
   }
   return session;
@@ -231,7 +394,8 @@ export async function getRoomSession(id, user) {
   const session = await getSessionForParticipant(id, user);
   return {
     ...sessionResult(session, user),
-    canManageRoom: isAssignedTeacher(session.classroom, user),
+    canManageRoom: canManageSession(session, user),
+    iceServers: env.iceServers,
   };
 }
 
@@ -322,9 +486,11 @@ export async function getSessionFile(id, fileId, user) {
 }
 
 function sessionMessageResult(message) {
+  const system = message.type === 'system';
   return {
     id: String(message._id),
-    sender: {
+    type: message.type ?? 'user',
+    sender: system ? { id: 'system', name: 'Classroom', role: 'system' } : {
       id: String(message.sender?._id ?? message.sender),
       name: message.sender ? `${message.sender.firstName} ${message.sender.lastName}` : 'Former participant',
       role: message.sender?.role ?? 'participant',
@@ -350,59 +516,134 @@ export async function createSessionMessage(id, body, user) {
   return sessionMessageResult(message);
 }
 
-export async function checkIn(id, user) {
-  if (user.role !== 'student') throw new AppError(403, 'Only students may check in');
-  const session = await getSession(id);
-  if (!session.classroom.students.some((student) => String(student._id ?? student) === String(user._id))) {
-    throw new AppError(403, 'You are not assigned to this classroom');
-  }
+function attendanceForUser(session, userId) {
+  return session.attendance.find(
+    (entry) => String(entry.participant?._id ?? entry.participant ?? entry.student?._id ?? entry.student) === String(userId),
+  );
+}
+
+export async function recordRoomJoin(id, user) {
+  const session = await getSessionForParticipant(id, user);
+  if (session.status === 'cancelled') throw new AppError(400, 'This session has been cancelled');
+  if (!['teacher', 'student'].includes(user.role)) return session;
   const now = new Date();
-  if (session.status === 'cancelled' || now < session.startsAt || now > session.endsAt) {
-    throw new AppError(400, 'Check-in is only available during the scheduled session');
-  }
-  const existing = session.attendance.find((entry) => String(entry.student?._id ?? entry.student) === String(user._id));
-  if (existing?.checkInAt) return sessionResult(session, user);
-  const status = session.attendanceConditionEnabled === false
-    ? 'present'
-    : attendanceStatusForCheckIn(session.startsAt, now);
-  if (existing) {
-    existing.status = status;
-    existing.checkInAt = now;
-  } else {
-    session.attendance.push({ student: user._id, status, checkInAt: now });
+  if (now < session.startsAt || now > session.endsAt) return session;
+  let entry = attendanceForUser(session, user._id);
+  if (!entry) {
+    entry = {
+      participant: user._id,
+      role: user.role,
+      status: session.attendanceConditionEnabled === false ? 'present' : attendanceStatusForCheckIn(session.startsAt, now),
+      checkInAt: now,
+      activeSince: now,
+      durationMs: 0,
+    };
+    session.attendance.push(entry);
+  } else if (!entry.activeSince) {
+    if (!entry.checkInAt) {
+      entry.role = user.role;
+      entry.status = session.attendanceConditionEnabled === false
+        ? 'present'
+        : attendanceStatusForCheckIn(session.startsAt, now);
+      entry.checkInAt = now;
+    }
+    entry.activeSince = now;
+    entry.leftAt = undefined;
   }
   await session.save();
-  return sessionResult(session, user);
+  return session;
+}
+
+export async function recordRoomLeave(id, user) {
+  const session = await getSession(id);
+  const entry = attendanceForUser(session, user._id);
+  if (entry?.activeSince) {
+    const leftAt = new Date(Math.min(Date.now(), session.endsAt.getTime()));
+    entry.durationMs = (entry.durationMs ?? 0) + Math.max(0, leftAt - entry.activeSince);
+    entry.leftAt = leftAt;
+    entry.activeSince = undefined;
+    await session.save();
+  }
+  return session;
+}
+
+export async function createRoomActivity(id, user, action) {
+  const session = await getSessionForParticipant(id, user);
+  if (!session.classroom.openAccess) return null;
+  const message = await SessionMessage.create({
+    session: session._id,
+    type: 'system',
+    body: `${user.firstName} ${user.lastName} ${action} the classroom`,
+  });
+  return sessionMessageResult(message);
 }
 
 export async function getAttendance(id, user) {
   const session = await getSession(id);
   assertAssignedTeacher(session, user);
   await ensureAbsences(session);
-  const classroom = session.classroom;
-  const items = classroom.students.map((student) => {
-    const attendance = session.attendance.find((entry) => String(entry.student) === String(student._id));
+  const assignedTeachers = session.assignedTeachers
+    ?? [session.classroom.teacher, ...(session.classroom.teachers ?? [])].filter(Boolean);
+  const assignedPeople = [
+    ...assignedTeachers
+      .map((teacher) => ({ participant: teacher, role: 'teacher' })),
+    ...(session.assignedStudents ?? session.classroom.students)
+      .map((student) => ({ participant: student, role: 'student' })),
+  ];
+  const people = new Map(assignedPeople.map(({ participant, role }) => [
+    String(participant._id ?? participant),
+    { participant, role },
+  ]));
+  for (const entry of session.attendance) {
+    const participant = entry.participant ?? entry.student;
+    if (participant?._id) {
+      const participantId = String(participant._id);
+      if (!people.has(participantId) || participant.firstName) {
+        people.set(participantId, { participant, role: entry.role ?? participant.role });
+      }
+    }
+  }
+  const items = [...people.values()].map(({ participant, role }) => {
+    const participantId = String(participant._id ?? participant);
+    const attendance = attendanceForUser(session, participantId);
+    const details = participant.firstName ? {
+      id: participantId,
+      name: `${participant.firstName} ${participant.lastName}`,
+      email: participant.email,
+      role: role ?? participant.role,
+    } : {
+      id: participantId,
+      name: 'Participant',
+      role: role ?? 'student',
+    };
     return {
-      student: {
-        id: String(student._id),
-        name: `${student.firstName} ${student.lastName}`,
-        email: student.email,
-      },
+      participant: details,
+      student: details,
+      role: details.role,
       status: attendance?.status ?? null,
       checkInAt: attendance?.checkInAt ?? null,
+      leftAt: attendance?.leftAt ?? null,
+      durationMs: (attendance?.durationMs ?? 0)
+        + (attendance?.activeSince ? Math.max(0, Date.now() - attendance.activeSince.getTime()) : 0),
     };
   });
+  items.sort((left, right) => left.participant.name.localeCompare(right.participant.name));
   return { items };
 }
 
 export async function correctAttendance(id, studentId, status, user, { ipAddress }) {
   const session = await getSession(id);
   assertAssignedTeacher(session, user);
-  const studentIsAssigned = session.classroom.students.some((student) => String(student._id) === studentId);
-  if (!studentIsAssigned) throw new AppError(404, 'Student is not assigned to this classroom');
-  let attendance = session.attendance.find((entry) => String(entry.student) === studentId);
+  const assignedTeacherIds = sessionTeacherIds(session);
+  const isAssigned = sessionStudentIds(session).includes(studentId) || assignedTeacherIds.includes(studentId);
+  const attendance = attendanceForUser(session, studentId);
+  if (!isAssigned && !attendance) throw new AppError(404, 'Participant is not assigned to or present in this classroom');
   if (!attendance) {
-    session.attendance.push({ student: studentId, status });
+    session.attendance.push({
+      participant: studentId,
+      role: assignedTeacherIds.includes(studentId) ? 'teacher' : 'student',
+      status,
+    });
   } else {
     attendance.status = status;
   }

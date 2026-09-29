@@ -11,16 +11,26 @@ const instant = z.string().datetime({ offset: true }).transform((value) => new D
 
 const oneTime = z.object({
   classroomId: objectId,
+  teacherIds: z.array(objectId).min(1).max(100).optional(),
+  studentIds: z.array(objectId).max(500).optional(),
   title,
   startsAt: instant,
   endsAt: instant,
 }).strict().refine((data) => data.endsAt > data.startsAt, {
   path: ['endsAt'],
   message: 'End time must be after start time',
+}).refine((data) => !data.teacherIds || data.teacherIds.length === new Set(data.teacherIds).size, {
+  path: ['teacherIds'],
+  message: 'Teachers must not contain duplicates',
+}).refine((data) => !data.studentIds || data.studentIds.length === new Set(data.studentIds).size, {
+  path: ['studentIds'],
+  message: 'Students must not contain duplicates',
 });
 
 const recurring = z.object({
   classroomId: objectId,
+  teacherIds: z.array(objectId).min(1).max(100).optional(),
+  studentIds: z.array(objectId).max(500).optional(),
   title,
   startDate: date,
   endDate: date,
@@ -34,6 +44,12 @@ const recurring = z.object({
 }).refine((data) => data.weekdays.length === new Set(data.weekdays).size, {
   path: ['weekdays'],
   message: 'Weekdays must not contain duplicates',
+}).refine((data) => !data.teacherIds || data.teacherIds.length === new Set(data.teacherIds).size, {
+  path: ['teacherIds'],
+  message: 'Teachers must not contain duplicates',
+}).refine((data) => !data.studentIds || data.studentIds.length === new Set(data.studentIds).size, {
+  path: ['studentIds'],
+  message: 'Students must not contain duplicates',
 });
 
 export const createSessionSchema = z.union([oneTime, recurring]);
@@ -41,6 +57,10 @@ export const createSessionSchema = z.union([oneTime, recurring]);
 export const listSessionsQuerySchema = z.object({
   view: z.enum(['mine']).optional(),
 });
+
+export const sessionAssignmentOptionsQuerySchema = z.object({
+  classroomId: objectId,
+}).strict();
 
 export const sessionIdParamsSchema = z.object({ id: objectId });
 export const attendanceParamsSchema = z.object({ id: objectId, studentId: objectId });

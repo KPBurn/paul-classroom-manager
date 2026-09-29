@@ -9,6 +9,26 @@ const toList = (value) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+function parseIceServers(value) {
+  if (!value) return [{ urls: 'stun:stun.l.google.com:19302' }];
+  let iceServers;
+  try {
+    iceServers = JSON.parse(value);
+  } catch {
+    throw new Error('WEBRTC_ICE_SERVERS must be a JSON array of WebRTC ICE server definitions');
+  }
+  if (!Array.isArray(iceServers) || iceServers.some((server) => (
+    !server || typeof server !== 'object' || Array.isArray(server)
+      || !(typeof server.urls === 'string' || (Array.isArray(server.urls) && server.urls.length > 0
+        && server.urls.every((url) => typeof url === 'string')))
+      || (server.username !== undefined && typeof server.username !== 'string')
+      || (server.credential !== undefined && typeof server.credential !== 'string')
+  ))) {
+    throw new Error('WEBRTC_ICE_SERVERS must contain valid WebRTC ICE server definitions');
+  }
+  return iceServers;
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: toInt(process.env.PORT, 5050),
@@ -17,6 +37,7 @@ export const env = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1d',
   clientUrls: toList(process.env.CLIENT_URL || 'http://localhost:5173'),
   trustProxy: toInt(process.env.TRUST_PROXY, 0),
+  iceServers: parseIceServers(process.env.WEBRTC_ICE_SERVERS),
 };
 
 export const isProduction = env.nodeEnv === 'production';

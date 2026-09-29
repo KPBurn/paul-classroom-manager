@@ -6,6 +6,7 @@ import { createApp } from '../src/app.js';
 import { Classroom } from '../src/models/Classroom.js';
 import { ClassSession } from '../src/models/ClassSession.js';
 import { attendanceStatusForCheckIn, ATTENDANCE_GRACE_PERIOD_MS } from '../src/utils/attendancePolicy.js';
+import { recordRoomJoin } from '../src/services/session.service.js';
 
 const app = createApp();
 const login = async (user) => {
@@ -20,7 +21,7 @@ after(stopDatabase);
 beforeEach(clearDatabase);
 
 describe('attendance timing policy', () => {
-  it('counts check-ins through five minutes as present and later check-ins as late', () => {
+  it('counts arrivals through five minutes as present and later arrivals as late', () => {
     const startsAt = new Date('2026-09-29T10:00:00.000Z');
 
     assert.equal(
@@ -294,8 +295,95 @@ describe('class sessions and attendance', () => {
     assert.equal(String(teacher._id), String(classroom.teacher));
   });
 
-  it('filters student session lists and enforces check-in timing/idempotence', async () => {
-    const { teacherToken, studentToken, unrelatedToken, classroom } = await setupClass();
+  it('lets teachers and admins update classroom assignments while preserving session rosters', async () => {
+    const teacher = await createUser({ role: 'teacher' });
+    const coTeacher = await createUser({ role: 'teacher' });
+    const inactiveTeacher = await createUser({ role: 'teacher', status: 'inactive' });
+    const student = await createUser({ role: 'student' });
+    const addedStudent = await createUser({ role: 'student' });
+    const inactiveStudent = await createUser({ role: 'student', status: 'inactive' });
+    const admin = await createUser({ role: 'admin' });
+    const classroom = await Classroom.create({
+      name: 'Assigned room',
+      teacher: teacher._id,
+      teachers: [teacher._id],
+      students: [student._id],
+    });
+    const teacherToken = await login(teacher);
+    const coTeacherToken = await login(coTeacher);
+    const adminToken = await login(admin);
+
+    const options = await request(app)
+      .get(`/api/sessions/assignment-options?classroomId=${classroom.id}`)
+      .set(auth(teacherToken));
+    assert.equal(options.status, 200);
+    assert.ok(options.body.data.teachers.some(({ id }) => id === teacher.id));
+    assert.ok(options.body.data.teachers.some(({ id }) => id === coTeacher.id));
+    assert.ok(!options.body.data.teachers.some(({ id }) => id === inactiveTeacher.id));
+    assert.ok(options.body.data.students.some(({ id }) => id === student.id));
+    assert.ok(options.body.data.students.some(({ id }) => id === addedStudent.id));
+    assert.ok(!options.body.data.students.some(({ id }) => id === inactiveStudent.id));
+
+    const startsAt = new Date(Date.now() + 60 * 60_000);
+    const endsAt = new Date(Date.now() + 2 * 60 * 60_000);
+    const first = await request(app)
+      .post('/api/sessions')
+      .set(auth(teacherToken))
+      .send({
+        classroomId: classroom.id,
+        teacherIds: [teacher.id, coTeacher.id],
+        studentIds: [student.id, addedStudent.id],
+        title: 'Shared roster',
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+      });
+    assert.equal(first.status, 201);
+    const firstSession = first.body.data.items[0];
+    assert.equal(firstSession.assignments.teachers.length, 2);
+    assert.equal(firstSession.assignments.students.length, 2);
+
+    const next = await request(app)
+      .post('/api/sessions')
+      .set(auth(adminToken))
+      .send({
+        classroomId: classroom.id,
+        teacherIds: [coTeacher.id],
+        studentIds: [addedStudent.id],
+        title: 'Updated roster',
+        startsAt: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
+        endsAt: new Date(Date.now() + 4 * 60 * 60_000).toISOString(),
+      });
+    assert.equal(next.status, 201);
+    assert.equal(next.body.data.items[0].assignments.teachers.length, 1);
+    assert.equal(next.body.data.items[0].assignments.students.length, 1);
+
+    const savedClassroom = await Classroom.findById(classroom.id);
+    assert.deepEqual(savedClassroom.teachers.map(String), [String(coTeacher._id)]);
+    assert.deepEqual(savedClassroom.students.map(String), [String(addedStudent._id)]);
+
+    const teacherSessions = await request(app).get('/api/sessions').set(auth(teacherToken));
+    assert.deepEqual(teacherSessions.body.data.items.map(({ id }) => id), [firstSession.id]);
+    const coTeacherSessions = await request(app).get('/api/sessions').set(auth(coTeacherToken));
+    assert.equal(coTeacherSessions.body.data.items.length, 2);
+    const oldStudentSessions = await request(app)
+      .get('/api/sessions?view=mine')
+      .set(auth(await login(student)));
+    assert.deepEqual(oldStudentSessions.body.data.items.map(({ id }) => id), [firstSession.id]);
+    const adminSessions = await request(app).get('/api/sessions').set(auth(adminToken));
+    assert.equal(adminSessions.body.data.items.length, 2);
+
+    const oldRosterMessages = await request(app)
+      .get(`/api/sessions/${firstSession.id}/messages`)
+      .set(auth(await login(student)));
+    assert.equal(oldRosterMessages.status, 200);
+    const newRosterDenied = await request(app)
+      .get(`/api/sessions/${next.body.data.items[0].id}/messages`)
+      .set(auth(await login(student)));
+    assert.equal(newRosterDenied.status, 403);
+  });
+
+  it('filters student sessions and records attendance from joining during the class', async () => {
+    const { student, teacherToken, studentToken, unrelatedToken, classroom } = await setupClass();
     const startsAt = new Date(Date.now() - 6 * 60_000);
     const endsAt = new Date(Date.now() + 20 * 60_000);
     const created = await request(app)
@@ -309,13 +397,16 @@ describe('class sessions and attendance', () => {
     assert.equal(mine.body.data.items.length, 1);
     assert.equal((await request(app).get('/api/sessions?view=mine').set(auth(unrelatedToken))).body.data.items.length, 0);
 
-    const checkedIn = await request(app).post(`/api/sessions/${sessionId}/check-in`).set(auth(studentToken));
-    assert.equal(checkedIn.status, 200);
-    assert.equal(checkedIn.body.data.session.attendance.status, 'late');
-    const duplicate = await request(app).post(`/api/sessions/${sessionId}/check-in`).set(auth(studentToken));
-    assert.equal(duplicate.body.data.session.attendance.checkInAt, checkedIn.body.data.session.attendance.checkInAt);
-    const forbidden = await request(app).post(`/api/sessions/${sessionId}/check-in`).set(auth(unrelatedToken));
-    assert.equal(forbidden.status, 403);
+    await recordRoomJoin(sessionId, student);
+    const refreshed = await request(app).get('/api/sessions?view=mine').set(auth(studentToken));
+    assert.equal(refreshed.body.data.items[0].attendance.status, 'late');
+    assert.ok(refreshed.body.data.items[0].attendance.checkInAt);
+    assert.equal(
+      (await ClassSession.findById(sessionId)).attendance.filter((entry) => String(entry.participant) === student.id).length,
+      1,
+    );
+    const unassignedJoin = recordRoomJoin(sessionId, await createUser({ role: 'student' }));
+    await assert.rejects(unassignedJoin, { statusCode: 403 });
 
     const future = await request(app)
       .post('/api/sessions')
@@ -326,10 +417,9 @@ describe('class sessions and attendance', () => {
         startsAt: new Date(Date.now() + 60_000).toISOString(),
         endsAt: new Date(Date.now() + 3_600_000).toISOString(),
       });
-    const earlyCheckIn = await request(app)
-      .post(`/api/sessions/${future.body.data.items[0].id}/check-in`)
-      .set(auth(studentToken));
-    assert.equal(earlyCheckIn.status, 400);
+    await recordRoomJoin(future.body.data.items[0].id, student);
+    const beforeStart = await ClassSession.findById(future.body.data.items[0].id);
+    assert.equal(beforeStart.attendance.length, 0);
 
     const withinGracePeriod = await request(app)
       .post('/api/sessions')
@@ -340,14 +430,13 @@ describe('class sessions and attendance', () => {
         startsAt: new Date(Date.now() - 4 * 60_000).toISOString(),
         endsAt: new Date(Date.now() + 20 * 60_000).toISOString(),
       });
-    const onTimeCheckIn = await request(app)
-      .post(`/api/sessions/${withinGracePeriod.body.data.items[0].id}/check-in`)
-      .set(auth(studentToken));
-    assert.equal(onTimeCheckIn.body.data.session.attendance.status, 'present');
+    await recordRoomJoin(withinGracePeriod.body.data.items[0].id, student);
+    const presentAttendance = await ClassSession.findById(withinGracePeriod.body.data.items[0].id);
+    assert.equal(presentAttendance.attendance[0].status, 'present');
   });
 
-  it('marks every in-session check-in present when attendance conditions are off', async () => {
-    const { teacherToken, studentToken, classroom } = await setupClass();
+  it('marks every in-session arrival present when attendance conditions are off', async () => {
+    const { teacherToken, student, studentToken, classroom } = await setupClass();
     const created = await request(app)
       .post('/api/sessions')
       .set(auth(teacherToken))
@@ -370,9 +459,9 @@ describe('class sessions and attendance', () => {
     const studentSessions = await request(app).get('/api/sessions?view=mine').set(auth(studentToken));
     assert.equal(studentSessions.body.data.items[0].attendanceConditionEnabled, false);
 
-    const checkedIn = await request(app).post(`/api/sessions/${sessionId}/check-in`).set(auth(studentToken));
-    assert.equal(checkedIn.status, 200);
-    assert.equal(checkedIn.body.data.session.attendance.status, 'present');
+    await recordRoomJoin(sessionId, student);
+    const checkedIn = await ClassSession.findById(sessionId);
+    assert.equal(checkedIn.attendance[0].status, 'present');
 
     const future = await request(app)
       .post('/api/sessions')
@@ -388,10 +477,8 @@ describe('class sessions and attendance', () => {
       .patch(`/api/sessions/${futureId}`)
       .set(auth(teacherToken))
       .send({ scope: 'occurrence', attendanceConditionEnabled: false });
-    const earlyCheckIn = await request(app)
-      .post(`/api/sessions/${futureId}/check-in`)
-      .set(auth(studentToken));
-    assert.equal(earlyCheckIn.status, 400);
+    await recordRoomJoin(futureId, student);
+    assert.equal((await ClassSession.findById(futureId)).attendance.length, 0);
   });
 
   it('records absences after session end and allows assigned teachers to correct them', async () => {
@@ -407,16 +494,20 @@ describe('class sessions and attendance', () => {
       .get(`/api/sessions/${session.id}/attendance`)
       .set(auth(teacherToken));
     assert.equal(attendance.status, 200);
-    assert.equal(attendance.body.data.items[0].status, 'absent');
-    assert.equal(attendance.body.data.items[0].student.name, `${student.firstName} ${student.lastName}`);
-    assert.equal(attendance.body.data.items[0].student.email, student.email);
+    const studentAttendance = attendance.body.data.items.find(({ student: item }) => item.id === student.id);
+    assert.equal(studentAttendance.status, 'absent');
+    assert.equal(studentAttendance.student.name, `${student.firstName} ${student.lastName}`);
+    assert.equal(studentAttendance.student.email, student.email);
 
     const corrected = await request(app)
       .patch(`/api/sessions/${session.id}/attendance/${student.id}`)
       .set(auth(teacherToken))
       .send({ status: 'present' });
     assert.equal(corrected.status, 200);
-    assert.equal(corrected.body.data.attendance[0].status, 'present');
+    assert.equal(
+      corrected.body.data.attendance.find(({ participant }) => participant.id === student.id).status,
+      'present',
+    );
   });
 
   it('preserves past occurrence dates and attendance during series operations', async () => {

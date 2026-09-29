@@ -2,9 +2,14 @@ import mongoose from 'mongoose';
 
 const attendanceSchema = new mongoose.Schema(
   {
-    student: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    student: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    participant: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    role: { type: String, enum: ['teacher', 'student'] },
     status: { type: String, enum: ['present', 'late', 'absent'], required: true },
     checkInAt: { type: Date },
+    leftAt: { type: Date },
+    activeSince: { type: Date },
+    durationMs: { type: Number, default: 0 },
   },
   { _id: false },
 );
@@ -12,6 +17,8 @@ const attendanceSchema = new mongoose.Schema(
 const classSessionSchema = new mongoose.Schema(
   {
     classroom: { type: mongoose.Schema.Types.ObjectId, ref: 'Classroom', required: true },
+    assignedTeachers: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], default: undefined },
+    assignedStudents: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], default: undefined },
     title: { type: String, required: true, trim: true, maxlength: 120 },
     startsAt: { type: Date, required: true },
     endsAt: { type: Date, required: true },
@@ -37,6 +44,8 @@ const classSessionSchema = new mongoose.Schema(
 );
 
 classSessionSchema.index({ classroom: 1, startsAt: 1 });
+classSessionSchema.index({ assignedTeachers: 1, startsAt: 1 });
+classSessionSchema.index({ assignedStudents: 1, startsAt: 1 });
 classSessionSchema.index({ startsAt: 1, endsAt: 1, status: 1 });
 classSessionSchema.index({ classroom: 1, seriesId: 1 });
 

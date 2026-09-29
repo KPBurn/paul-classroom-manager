@@ -58,6 +58,7 @@ export default function AppRoutes() {
         <Route index element={<AdminDashboard />} />
         <Route path="announcements" element={<Announcements />} />
         <Route path="classrooms" element={suspense(<Classrooms />)} />
+        <Route path="schedules" element={suspense(<TeacherSchedule />)} />
         {/* Keys stop React reusing one page's filters and search on another. */}
         <Route path="users" element={<Users key="all" />} />
         <Route path="teachers" element={<Users key="teacher" role={ROLES.TEACHER} />} />

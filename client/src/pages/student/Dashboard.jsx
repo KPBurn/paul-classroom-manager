@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarCheck, Clock3 } from 'lucide-react';
-import toast from 'react-hot-toast';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
-import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
 import { sessionService } from '../../services/session.service.js';
@@ -35,11 +33,8 @@ export default function StudentDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [sessions, setSessions] = useState([]);
-  const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [checkingIn, setCheckingIn] = useState(false);
   const [error, setError] = useState('');
-  const [now, setNow] = useState(Date.now());
   const [selectedDate, setSelectedDate] = useState(todayValue);
 
   const load = useCallback(async () => {
@@ -61,7 +56,6 @@ export default function StudentDashboard() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       const currentTime = Date.now();
-      setNow(currentTime);
       if (sessions.some((session) => new Date(session.endsAt).getTime() < currentTime && !session.attendance?.status)) {
         load();
       }
@@ -69,25 +63,11 @@ export default function StudentDashboard() {
     return () => window.clearInterval(timer);
   }, [load, sessions]);
 
-  const confirmCheckIn = async () => {
-    setCheckingIn(true);
-    try {
-      await sessionService.checkIn(selected.id);
-      toast.success('Your attendance has been recorded.');
-      setSelected(null);
-      await load();
-    } catch (checkInError) {
-      toast.error(getErrorMessage(checkInError, 'Unable to record attendance.'));
-    } finally {
-      setCheckingIn(false);
-    }
-  };
-
   const selectedSessions = sessions.filter((session) => localDateValue(session.startsAt) === selectedDate);
 
   return (
     <>
-      <PageHeader title={`Welcome, ${user.firstName}`} description="View and confirm attendance for your scheduled class sessions." />
+      <PageHeader title={`Welcome, ${user.firstName}`} description="Join a scheduled class room; attendance is recorded automatically." />
       <div className="mb-5 max-w-xs">
         <label htmlFor="attendance-date" className="mb-1.5 block text-sm font-medium text-slate-700">
           Session date
@@ -110,9 +90,6 @@ export default function StudentDashboard() {
       ) : (
         <div className="space-y-3">
           {selectedSessions.map((session) => {
-            const start = new Date(session.startsAt).getTime();
-            const end = new Date(session.endsAt).getTime();
-            const canCheckIn = session.status !== 'cancelled' && now >= start && now <= end && !session.attendance?.status;
             const attendanceStatus = session.attendance?.status;
             return (
               <article key={session.id} className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between">
@@ -139,12 +116,8 @@ export default function StudentDashboard() {
                     </span>
                   ) : session.status === 'cancelled' ? (
                     <span className="text-sm text-slate-500">Not attending</span>
-                  ) : canCheckIn ? (
-                    <Button onClick={() => setSelected(session)}>Check in</Button>
-                  ) : now < start ? (
-                    <span className="text-sm text-slate-500">Check-in opens at {formatTime(session.startsAt)}</span>
                   ) : (
-                    <span className="text-sm text-slate-500">Attendance pending</span>
+                    <span className="text-sm text-slate-500">Attendance records when you join</span>
                   )}
                 </div>
               </article>
@@ -153,23 +126,6 @@ export default function StudentDashboard() {
         </div>
       )}
 
-      <ConfirmDialog
-        open={Boolean(selected)}
-        title="Confirm attendance"
-        message={selected
-          ? `Check in to ${selected.title} in ${selected.classroom?.name}? ${
-              selected.attendanceConditionEnabled === false
-                ? 'Attendance conditions are off, so check-ins during class are Present regardless of arrival time.'
-                : 'Check-ins within five minutes of the start are Present; later check-ins during class are Late.'
-            } No check-in by the end of class is Absent.`
-          : ''}
-        confirmLabel="Confirm check-in"
-        isLoading={checkingIn}
-        onConfirm={confirmCheckIn}
-        onCancel={() => {
-          if (!checkingIn) setSelected(null);
-        }}
-      />
     </>
   );
 }

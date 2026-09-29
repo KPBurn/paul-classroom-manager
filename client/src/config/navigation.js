@@ -45,7 +45,7 @@ export const adminNavigation = [
     heading: 'Operations',
     items: [
       { label: 'Announcements', to: '/admin/announcements', icon: Megaphone },
-      { label: 'Schedules', to: '/admin/schedules', icon: CalendarDays, phase: 4 },
+      { label: 'Schedules', to: '/admin/schedules', icon: CalendarDays },
       { label: 'Salaries', to: '/admin/salaries', icon: Wallet, phase: 5 },
       { label: 'Activity Logs', to: '/admin/activity-logs', icon: History, phase: 3 },
       { label: 'Settings', to: '/admin/settings', icon: Settings, phase: 6 },
