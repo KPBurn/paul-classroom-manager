@@ -5,11 +5,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Circle,
+  CircleAlert,
   CircleCheck,
   Clock3,
   Copy,
-  FilePen,
   History,
+  LoaderCircle,
   Pencil,
   School,
 } from 'lucide-react';
@@ -18,6 +19,7 @@ import toast from 'react-hot-toast';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import FeedbackView from '../../components/feedback/FeedbackView.jsx';
 import StarRating from '../../components/feedback/StarRating.jsx';
+import StatusPill, { StatusIcon } from '../../components/feedback/StatusPill.jsx';
 import {
   appendPhrase,
   EMPTY_FEEDBACK,
@@ -34,7 +36,8 @@ import {
 } from '../../components/feedback/feedbackMeta.js';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
-import Spinner from '../../components/common/Spinner.jsx';
+import { Skeleton } from '../../components/common/EmptyState.jsx';
+import { matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
 import TextField, { TextAreaField } from '../../components/common/TextField.jsx';
 import { useFeedbackReminder } from '../../context/FeedbackReminderContext.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
@@ -77,11 +80,16 @@ function Card({ number, title, hint, action, children }) {
   );
 }
 
-function StatusIcon({ status }) {
-  if (status === 'completed') return <CircleCheck className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />;
-  if (status === 'draft') return <FilePen className="size-4 shrink-0 text-amber-600" aria-hidden="true" />;
-  return <Circle className="size-4 shrink-0 text-slate-300" aria-hidden="true" />;
-}
+/** Labels for the fields that must be filled in before submitting, in form order. */
+const REQUIRED_LABELS = {
+  whatWeLearned: '1. What we learned',
+  'speaking.fluency': '4. Speaking: fluency rating',
+  'speaking.pronunciation': '4. Speaking: pronunciation rating',
+  'speaking.confidence': '4. Speaking: confidence rating',
+  didWell: '5. What the student did well',
+  needsImprovement: '6. What needs improvement',
+  recommendation: '7. Recommendation for the next lesson',
+};
 
 export default function FeedbackForm() {
   const { sessionId, studentId } = useParams();
@@ -103,6 +111,8 @@ export default function FeedbackForm() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [previous, setPrevious] = useState(null);
+  const [panelQuery, setPanelQuery] = useState('');
+  const errorSummaryRef = useRef(null);
   const { refresh: refreshReminder } = useFeedbackReminder();
 
   // Refs let autosave, switching students and submitting share one save queue without stale state.
@@ -295,20 +305,25 @@ export default function FeedbackForm() {
     }
   };
 
-  const jumpToFirstMissing = (missing) => {
-    const first = Object.keys(missing)[0];
-    const field = document.getElementById(first.startsWith('speaking.') ? 'speaking-section' : `feedback-${first}`);
+  const jumpToField = (key) => {
+    const rating = key.startsWith('speaking.');
+    const field = document.getElementById(rating ? `speaking-${key.split('.')[1]}-label` : `feedback-${key}`);
     field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    if (!first.startsWith('speaking.')) field?.focus({ preventScroll: true });
+    if (rating) field?.parentElement?.querySelector('button')?.focus({ preventScroll: true });
+    else field?.focus({ preventScroll: true });
   };
+  const jumpToFirstMissing = (missing) => jumpToField(Object.keys(missing)[0]);
 
   const submit = async () => {
     if (submitting) return;
     const missing = missingForSubmit(values);
     setErrors(missing);
     if (Object.keys(missing).length) {
-      toast.error('Complete the highlighted sections before submitting.');
-      jumpToFirstMissing(missing);
+      // Move focus to the summary so keyboard and screen reader users learn what is missing.
+      window.requestAnimationFrame(() => {
+        errorSummaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        errorSummaryRef.current?.focus({ preventScroll: true });
+      });
       return;
     }
     const wasCompleted = isCompleted;
@@ -357,7 +372,22 @@ export default function FeedbackForm() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  if (loading && !roster) return <div className="flex justify-center py-16"><Spinner /></div>;
+  if (loading && !roster) {
+    return (
+      <div className="mx-auto max-w-7xl" role="status" aria-label="Loading feedback form">
+        <Skeleton className="h-5 w-56" />
+        <Skeleton className="mt-3 h-8 w-80 max-w-full" />
+        <div className="mt-6 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-6">
+          <Skeleton className="hidden h-64 rounded-xl lg:block" />
+          <div className="space-y-4">
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-56 rounded-xl" />
+            <Skeleton className="h-40 rounded-xl" />
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (loadError || !roster || !student) {
     return (
       <div className="space-y-3">
@@ -365,13 +395,13 @@ export default function FeedbackForm() {
           <ArrowLeft className="size-4" aria-hidden="true" /> Teacher&apos;s Feedback
         </Link>
         <Alert tone="error">{loadError || 'This feedback could not be found.'}</Alert>
+        <Button variant="secondary" onClick={load}>Try again</Button>
       </div>
     );
   }
 
   const { lesson } = roster;
   const schedule = schedulePattern(lesson, sessions);
-  const status = FEEDBACK_STATUS[feedback?.status ?? 'none'];
   const defaults = roster.lessonDefaults;
   const canCopy = !viewing && !isCompleted && defaults && defaults.fromStudent.id !== studentId && !copiedFrom;
   const nextStudent = nextNeedingFeedback();
@@ -387,8 +417,13 @@ export default function FeedbackForm() {
           <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${students.length ? (completedCount / students.length) * 100 : 0}%` }} />
         </div>
       </div>
-      <ul className="max-h-[60vh] overflow-y-auto p-1.5">
-        {students.map((item) => {
+      {students.length > 8 && (
+        <div className="border-b border-slate-100 p-1.5">
+          <SearchInput id="feedback-panel-search" label="Search students" value={panelQuery} onChange={setPanelQuery} placeholder="Search students" />
+        </div>
+      )}
+      <ul className="max-h-[55vh] overflow-y-auto p-1.5">
+        {students.filter((item) => item.id === studentId || matchesSearch(panelQuery, item.name)).map((item) => {
           const current = item.id === studentId;
           return (
             <li key={item.id}>
@@ -396,7 +431,8 @@ export default function FeedbackForm() {
                 type="button"
                 onClick={() => !current && openStudent(item)}
                 aria-current={current ? 'page' : undefined}
-                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${current ? 'bg-indigo-50 font-semibold text-indigo-800' : 'text-slate-700 hover:bg-slate-50'}`}
+                title={`${item.name}: ${FEEDBACK_STATUS[item.feedback?.status ?? 'none'].label}`}
+                className={`flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${current ? 'bg-indigo-50 font-semibold text-indigo-800' : 'text-slate-700 hover:bg-slate-50'}`}
               >
                 <StatusIcon status={item.feedback?.status} />
                 <span className="min-w-0 flex-1 truncate">{item.name}</span>
@@ -406,6 +442,11 @@ export default function FeedbackForm() {
           );
         })}
       </ul>
+      <p className="flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-100 px-3 py-2 text-xs text-slate-500">
+        <span className="inline-flex items-center gap-1"><StatusIcon status="completed" className="size-3.5" /> Done</span>
+        <span className="inline-flex items-center gap-1"><StatusIcon status="draft" className="size-3.5" /> Draft</span>
+        <span className="inline-flex items-center gap-1"><StatusIcon status="none" className="size-3.5" /> Not started</span>
+      </p>
     </nav>
   );
 
@@ -451,7 +492,13 @@ export default function FeedbackForm() {
         <Link to={lessonPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">
           <ArrowLeft className="size-4" aria-hidden="true" /> {lesson.classroom.name} · {formatLessonDate(lesson.startsAt)}
         </Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Teacher&apos;s Feedback</h1>
+        <h1 className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xl font-semibold tracking-tight text-slate-900">
+          <span className="min-w-0 wrap-break-word">Feedback for {student.name}</span>
+          <StatusPill status={feedback?.status} />
+        </h1>
+        <p className="mt-1 text-sm text-slate-600">
+          {lesson.classroom.name} · {formatTime(lesson.startsAt)} · Student {index + 1} of {students.length}
+        </p>
       </div>
       {compactSwitcher}
     </div>
@@ -492,7 +539,7 @@ export default function FeedbackForm() {
     );
   }
 
-  const area = (path, label, { rows = 4, placeholder, phrases } = {}) => {
+  const area = (path, label, { rows = 4, placeholder, phrases, required = false } = {}) => {
     const [group, key] = path.split('.');
     const value = key ? values[group][key] : values[group];
     const unused = phrases?.filter((phrase) => !value.toLowerCase().includes(phrase.toLowerCase()));
@@ -508,6 +555,7 @@ export default function FeedbackForm() {
           onChange={(event) => setField(path, event.target.value)}
           placeholder={placeholder}
           error={errors[path]}
+          required={required}
         />
         {unused?.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label={`Quick phrases for ${label}`}>
@@ -531,21 +579,50 @@ export default function FeedbackForm() {
   const missingNow = missingForSubmit(values);
   const requiredDone = REQUIRED_COUNT - Object.keys(missingNow).length;
 
-  const saveStatus = {
-    saving: 'Saving…',
-    error: 'Could not autosave. Use Save draft to try again.',
-    saved: feedback ? `Saved ${savedTime(feedback.updatedAt)}` : '',
-    idle: '',
-  }[saveState] || (dirty ? 'Unsaved changes' : 'Drafts save automatically as you type');
+  // One clear save state at a time: saving, failed, unsaved, saved, or the autosave hint.
+  const saveIndicator = saveState === 'saving'
+    ? { icon: LoaderCircle, text: 'Saving…', style: 'text-slate-600', spin: true }
+    : saveState === 'error'
+      ? { icon: CircleAlert, text: 'Could not save your changes.', style: 'text-red-600', retry: true }
+      : dirty
+        ? { icon: Circle, text: 'Unsaved changes', style: 'text-slate-600' }
+        : feedback
+          ? { icon: CircleCheck, text: `Saved ${savedTime(feedback.updatedAt)}`, style: 'text-emerald-700' }
+          : { icon: null, text: isCompleted ? '' : 'Drafts save automatically as you type', style: 'text-slate-500' };
+  const errorKeys = Object.keys(REQUIRED_LABELS).filter((key) => errors[key]);
 
   return layout(
-    <div className="pb-28">
+    <div className="pb-32 sm:pb-28">
       <form onSubmit={(event) => event.preventDefault()} noValidate className="space-y-4">
+        {errorKeys.length > 0 && (
+          <div
+            ref={errorSummaryRef}
+            tabIndex={-1}
+            role="alert"
+            className="rounded-xl border border-red-200 bg-red-50 p-4 outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+          >
+            <h2 className="flex items-center gap-2 font-semibold text-red-900">
+              <CircleAlert className="size-5 shrink-0" aria-hidden="true" />
+              {errorKeys.length === 1 ? '1 section still needs' : `${errorKeys.length} sections still need`} to be filled in before you can submit
+            </h2>
+            <ul className="mt-2 space-y-1 pl-7 text-sm">
+              {errorKeys.map((key) => (
+                <li key={key}>
+                  <button type="button" onClick={() => jumpToField(key)} className="rounded text-left font-medium text-red-800 underline underline-offset-2 hover:text-red-950">
+                    {REQUIRED_LABELS[key]}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold text-slate-900">{student.name}</h2>
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${status.style}`}>{status.label}</span>
-            {isCompleted && <span className="text-xs text-slate-500">Editing submitted feedback</span>}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-semibold text-slate-900">Lesson details</h2>
+            <p className="text-sm text-slate-500">
+              {isCompleted ? 'You are editing submitted feedback.' : <><span className="text-red-600" aria-hidden="true">*</span> Required to submit</>}
+            </p>
           </div>
           <dl className="grid gap-3 text-sm sm:grid-cols-3">
             {[
@@ -636,7 +713,7 @@ export default function FeedbackForm() {
               </button>
             )}
           >
-            {area('whatWeLearned', 'Lesson summary', { rows: 6, placeholder: 'e.g. Practised introducing ourselves and answering basic speaking questions.' })}
+            {area('whatWeLearned', 'Lesson summary', { required: true, rows: 6, placeholder: 'e.g. Practised introducing ourselves and answering basic speaking questions.' })}
           </Card>
           <Card number="2" title="Vocabulary">
             {area('vocabulary.newWords', 'New words learned', { rows: 3, placeholder: 'confident, pronunciation, introduction…' })}
@@ -669,15 +746,16 @@ export default function FeedbackForm() {
                 value={values.speaking[key]}
                 onChange={(rating) => setField(`speaking.${key}`, rating)}
                 error={errors[`speaking.${key}`]}
+                required
               />
             ))}
           </Card>
         </div>
 
         <Card title="Teacher evaluation" hint="Be specific, so the student and the next teacher know exactly what to keep doing and what to work on.">
-          {area('didWell', '5. What the student did well', { placeholder: 'e.g. Shared ideas confidently and asked good follow-up questions.', phrases: QUICK_PHRASES.didWell })}
-          {area('needsImprovement', '6. What needs improvement', { placeholder: 'e.g. Pronunciation of final consonants such as -ed endings.', phrases: QUICK_PHRASES.needsImprovement })}
-          {area('recommendation', '7. Recommendation for the next lesson', { placeholder: 'e.g. Continue pronunciation drills and practise longer answers.', phrases: QUICK_PHRASES.recommendation })}
+          {area('didWell', '5. What the student did well', { required: true, placeholder: 'e.g. Shared ideas confidently and asked good follow-up questions.', phrases: QUICK_PHRASES.didWell })}
+          {area('needsImprovement', '6. What needs improvement', { required: true, placeholder: 'e.g. Pronunciation of final consonants such as -ed endings.', phrases: QUICK_PHRASES.needsImprovement })}
+          {area('recommendation', '7. Recommendation for the next lesson', { required: true, placeholder: 'e.g. Continue pronunciation drills and practise longer answers.', phrases: QUICK_PHRASES.recommendation })}
         </Card>
 
         <Card title="Additional notes" hint="Optional. Anything that does not fit above.">
@@ -703,7 +781,17 @@ export default function FeedbackForm() {
                 <ChevronRight className="size-3.5" aria-hidden="true" />
               </button>
             )}
-            <p className={`text-sm ${saveState === 'error' ? 'text-red-600' : 'text-slate-500'}`} aria-live="polite">{saveStatus}</p>
+            <p className={`flex items-center gap-1.5 text-sm font-medium ${saveIndicator.style}`} aria-live="polite">
+              {saveIndicator.icon && (
+                <saveIndicator.icon className={`size-4 shrink-0 ${saveIndicator.spin ? 'animate-spin' : ''}`} aria-hidden="true" />
+              )}
+              {saveIndicator.text}
+              {saveIndicator.retry && (
+                <button type="button" onClick={() => saveDraft()} className="rounded font-semibold underline underline-offset-2 hover:text-red-800">
+                  Try again
+                </button>
+              )}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {skipTarget && (

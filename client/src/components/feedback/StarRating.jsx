@@ -5,7 +5,7 @@ import { RATING_LABELS } from './feedbackMeta.js';
  * A 1–5 star rating. Interactive when `onChange` is given; the arrow keys
  * move between stars like a radio group.
  */
-export default function StarRating({ id, label, value, onChange, error }) {
+export default function StarRating({ id, label, value, onChange, error, required = false }) {
   const readOnly = !onChange;
   const stars = [1, 2, 3, 4, 5];
 
@@ -33,9 +33,14 @@ export default function StarRating({ id, label, value, onChange, error }) {
         role="radiogroup"
         aria-labelledby={`${id}-label`}
         aria-describedby={error ? `${id}-error` : undefined}
+        aria-required={required || undefined}
+        aria-invalid={Boolean(error) || undefined}
         className="flex flex-wrap items-center gap-x-3 gap-y-1"
       >
-        <span id={`${id}-label`} className="w-28 text-sm font-medium text-slate-700">{label}</span>
+        <span id={`${id}-label`} className="w-32 text-sm font-medium text-slate-700">
+          {label}
+          {required && <span className="ml-0.5 text-red-600" aria-hidden="true">*</span>}
+        </span>
         <span className="flex">
           {stars.map((star) => (
             <button
@@ -55,16 +60,16 @@ export default function StarRating({ id, label, value, onChange, error }) {
                 onChange(rating);
                 event.currentTarget.parentElement.children[rating - 1]?.focus();
               }}
-              className="rounded-md p-1 transition hover:scale-110 focus-visible:outline-2 focus-visible:outline-indigo-600"
+              className="rounded-lg p-1.5 transition hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-indigo-600"
             >
               <Star
-                className={`size-6 ${value >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-300 hover:text-amber-300'}`}
+                className={`size-7 ${value >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-300 hover:text-amber-300'}`}
                 aria-hidden="true"
               />
             </button>
           ))}
         </span>
-        <span className={`text-sm ${value ? 'font-medium text-slate-700' : 'text-slate-400'}`}>
+        <span className={`text-sm ${value ? 'font-medium text-slate-700' : 'text-slate-500'}`}>
           {value ? `${value}/5 · ${RATING_LABELS[value]}` : 'Not rated'}
         </span>
       </div>

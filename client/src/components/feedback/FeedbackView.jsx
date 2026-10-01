@@ -1,6 +1,7 @@
 import { BookOpen, CalendarDays, Clock3, School, UserRound } from 'lucide-react';
 import StarRating from './StarRating.jsx';
-import { FEEDBACK_STATUS, formatLessonDate, formatTime, SPEAKING_SKILLS } from './feedbackMeta.js';
+import StatusPill from './StatusPill.jsx';
+import { formatLessonDate, formatTime, SPEAKING_SKILLS } from './feedbackMeta.js';
 
 const formatDateTime = (value) => new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -32,8 +33,6 @@ function Section({ number, title, children }) {
 
 /** A read-only teacher feedback record, laid out section by section. */
 export default function FeedbackView({ feedback, schedule, actions }) {
-  const status = FEEDBACK_STATUS[feedback.status] ?? FEEDBACK_STATUS.none;
-
   return (
     <div className="space-y-4">
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
@@ -41,7 +40,7 @@ export default function FeedbackView({ feedback, schedule, actions }) {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold text-slate-900">{feedback.student.name}</h2>
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${status.style}`}>{status.label}</span>
+              <StatusPill status={feedback.status} />
             </div>
             <p className="mt-0.5 text-sm text-slate-500">
               Feedback by {feedback.teacher.name ?? 'Teacher'}
