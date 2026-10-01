@@ -1,3 +1,4 @@
+import { Classroom } from '../models/Classroom.js';
 import { ClassSession } from '../models/ClassSession.js';
 import { TeacherFeedback } from '../models/TeacherFeedback.js';
 import { AppError } from '../utils/AppError.js';
@@ -85,6 +86,13 @@ export async function getLessonRoster(sessionId, user) {
     TeacherFeedback.findOne({ classroom: session.classroom._id, book: { $ne: '' } }).sort({ lessonAt: -1 }).select('book'),
   ]);
   const byStudent = new Map(feedback.map((item) => [idOf(item.student), item]));
+  // What was taught is usually the same for the whole class, so offer this teacher's most
+  // recently saved lesson details for prefilling the next student's feedback.
+  const latestOwn = feedback
+    .filter((item) => idOf(item.teacher) === String(user._id)
+      && (item.whatWeLearned || item.vocabulary?.newWords || item.grammar?.topic))
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  const latestStudent = latestOwn && lessonStudents(session).find((student) => idOf(student) === idOf(latestOwn.student));
 
   return {
     lesson: {
@@ -98,6 +106,15 @@ export async function getLessonRoster(sessionId, user) {
     },
     // Teachers usually keep the same book across lessons, so offer the last one used.
     suggestedBook: lastWithBook?.book ?? '',
+    lessonDefaults: latestOwn
+      ? {
+          fromStudent: { id: idOf(latestOwn.student), name: nameOf(latestStudent) ?? 'another student' },
+          book: latestOwn.book,
+          whatWeLearned: latestOwn.whatWeLearned,
+          newWords: latestOwn.vocabulary?.newWords ?? '',
+          grammarTopic: latestOwn.grammar?.topic ?? '',
+        }
+      : null,
     students: lessonStudents(session)
       .map((student) => {
         const item = byStudent.get(idOf(student));
@@ -118,6 +135,70 @@ export async function getLessonRoster(sessionId, user) {
       })
       .sort((a, b) => a.name.localeCompare(b.name)),
   };
+}
+
+const PENDING_WINDOW_DAYS = 14;
+const PENDING_LIMIT = 6;
+
+/**
+ * The teacher's recent lessons that still have students without completed
+ * feedback, newest first, with the next student to open.
+ */
+export async function listPendingLessons(user) {
+  const now = new Date();
+  const since = new Date(now.getTime() - PENDING_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const classrooms = await Classroom.find({ $or: [{ teacher: user._id }, { teachers: user._id }] }).select('_id');
+  const sessions = await ClassSession.find({
+    status: 'scheduled',
+    startsAt: { $gte: since, $lte: now },
+    $or: [
+      { assignedTeachers: user._id },
+      { assignedTeachers: { $exists: false }, classroom: { $in: classrooms.map(({ _id }) => _id) } },
+    ],
+  })
+    .sort({ startsAt: -1 })
+    .limit(40)
+    .populate({ path: 'classroom', select: 'name students', populate: { path: 'students', select: 'firstName lastName' } })
+    .populate('assignedStudents', 'firstName lastName');
+  if (!sessions.length) return { items: [] };
+
+  const feedback = await TeacherFeedback.find({ session: { $in: sessions.map(({ _id }) => _id) } })
+    .select('session student teacher status');
+  const bySession = new Map();
+  for (const item of feedback) {
+    const key = idOf(item.session);
+    bySession.set(key, [...(bySession.get(key) ?? []), item]);
+  }
+
+  const items = [];
+  for (const session of sessions) {
+    const records = new Map((bySession.get(idOf(session)) ?? []).map((item) => [idOf(item.student), item]));
+    const students = [...lessonStudents(session)].sort((a, b) => (nameOf(a) ?? '').localeCompare(nameOf(b) ?? ''));
+    const completed = students.filter((student) => records.get(idOf(student))?.status === 'completed').length;
+    const drafts = students.filter((student) => {
+      const record = records.get(idOf(student));
+      return record?.status === 'draft' && idOf(record.teacher) === String(user._id);
+    }).length;
+    const next = students.find((student) => {
+      const record = records.get(idOf(student));
+      return !record || (record.status === 'draft' && idOf(record.teacher) === String(user._id));
+    });
+    if (!next) continue;
+    items.push({
+      lesson: {
+        id: idOf(session),
+        title: session.title,
+        startsAt: session.startsAt,
+        classroom: { id: idOf(session.classroom), name: session.classroom?.name },
+      },
+      total: students.length,
+      completed,
+      drafts,
+      nextStudent: { id: idOf(next), name: nameOf(next) ?? 'Student' },
+    });
+    if (items.length === PENDING_LIMIT) break;
+  }
+  return { items };
 }
 
 /** Teachers see the feedback they wrote; admins see everyone's. */

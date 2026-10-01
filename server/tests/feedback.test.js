@@ -159,6 +159,35 @@ describe('teacher feedback', () => {
     assert.equal(otherTeachersList.body.data.items.length, 0);
   });
 
+  it('lists lessons still needing feedback and offers the lesson details to reuse', async () => {
+    const { lesson, duke, mai, teacherToken, otherTeacherToken } = await setup();
+
+    const before = await request(app).get('/api/feedback/pending').set(auth(teacherToken));
+    assert.equal(before.status, 200);
+    assert.equal(before.body.data.items.length, 1);
+    assert.equal(before.body.data.items[0].nextStudent.name, 'Duc Hung Hoang');
+    assert.equal(before.body.data.items[0].completed, 0);
+    assert.equal((await request(app).get('/api/feedback/pending').set(auth(otherTeacherToken))).body.data.items.length, 0);
+
+    await request(app).post('/api/feedback').set(auth(teacherToken)).send({
+      sessionId: lesson.id, studentId: duke.id, ...completeContent, status: 'completed',
+    });
+    const roster = await request(app).get(`/api/feedback/lessons/${lesson.id}`).set(auth(teacherToken));
+    assert.equal(roster.body.data.lessonDefaults.fromStudent.name, 'Duc Hung Hoang');
+    assert.equal(roster.body.data.lessonDefaults.whatWeLearned, completeContent.whatWeLearned);
+    assert.equal(roster.body.data.lessonDefaults.grammarTopic, 'Getting to Know You');
+
+    const middle = await request(app).get('/api/feedback/pending').set(auth(teacherToken));
+    assert.equal(middle.body.data.items[0].nextStudent.name, 'Mai Tran');
+    assert.equal(middle.body.data.items[0].completed, 1);
+
+    await request(app).post('/api/feedback').set(auth(teacherToken)).send({
+      sessionId: lesson.id, studentId: mai.id, ...completeContent, status: 'completed',
+    });
+    const after = await request(app).get('/api/feedback/pending').set(auth(teacherToken));
+    assert.deepEqual(after.body.data.items, []);
+  });
+
   it('rejects out-of-range ratings and cancelled lessons', async () => {
     const { lesson, duke, teacherToken } = await setup();
     const badRating = await request(app).post('/api/feedback').set(auth(teacherToken)).send({

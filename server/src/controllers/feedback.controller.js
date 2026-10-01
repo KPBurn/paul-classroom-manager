@@ -8,6 +8,11 @@ export async function list(req, res) {
   sendSuccess(res, { data });
 }
 
+export async function pending(req, res) {
+  const data = await feedbackService.listPendingLessons(req.user);
+  sendSuccess(res, { data });
+}
+
 export async function lessonRoster(req, res) {
   const data = await feedbackService.getLessonRoster(req.params.sessionId, req.user);
   sendSuccess(res, { data });
