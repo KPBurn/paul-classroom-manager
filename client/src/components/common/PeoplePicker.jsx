@@ -8,7 +8,7 @@ const SELECTED_PREVIEW = 8;
  * A searchable checkbox list for choosing teachers or students. `people`
  * are user objects; `lockedIds` stay selected (for example, yourself).
  */
-export default function PeoplePicker({ label, people, selectedIds, onChange, lockedIds = [], emptyMessage, hint }) {
+export default function PeoplePicker({ label, people, selectedIds, onChange, lockedIds = [], emptyMessage, hint, name, required = false, error }) {
   const [query, setQuery] = useState('');
   const searchId = useId();
   const shown = people.filter((person) => matchesSearch(query, person.firstName, person.lastName, person.email));
@@ -27,12 +27,15 @@ export default function PeoplePicker({ label, people, selectedIds, onChange, loc
   };
 
   return (
-    <fieldset className="min-w-0">
+    <fieldset className="min-w-0" data-picker={name} aria-invalid={Boolean(error) || undefined} aria-describedby={error ? `${searchId}-error` : undefined}>
       <legend className="mb-1.5 flex w-full items-baseline justify-between gap-2 text-sm font-medium text-slate-700">
-        {label}
+        <span>
+          {label}
+          {required && <span className="ml-0.5 text-red-600" aria-hidden="true">*</span>}
+        </span>
         <span className="text-xs font-normal text-slate-500">{selectedIds.length} selected</span>
       </legend>
-      <div className="rounded-lg border border-slate-200">
+      <div className={`rounded-lg border ${error ? 'border-red-400' : 'border-slate-200'}`}>
         {people.length > 0 && (
           <div className="flex items-center gap-2 border-b border-slate-100 p-1.5">
             <SearchInput
@@ -75,7 +78,7 @@ export default function PeoplePicker({ label, people, selectedIds, onChange, loc
                 />
                 <span className="min-w-0 flex-1 truncate">
                   {person.firstName} {person.lastName}
-                  <span className="ml-1.5 text-xs text-slate-400">{person.email}</span>
+                  <span className="ml-1.5 text-xs text-slate-500">{person.email}</span>
                 </span>
                 {locked && <span className="shrink-0 text-xs text-slate-500">You</span>}
               </label>
@@ -92,7 +95,7 @@ export default function PeoplePicker({ label, people, selectedIds, onChange, loc
                 <button
                   type="button"
                   onClick={() => toggle(person.id)}
-                  className="flex size-4 items-center justify-center rounded-full hover:bg-indigo-100"
+                  className="flex size-5 items-center justify-center rounded-full hover:bg-indigo-100"
                   aria-label={`Remove ${person.firstName} ${person.lastName}`}
                 >
                   <X className="size-3" aria-hidden="true" />
@@ -105,6 +108,7 @@ export default function PeoplePicker({ label, people, selectedIds, onChange, loc
           )}
         </ul>
       )}
+      {error && <p id={`${searchId}-error`} className="mt-1.5 text-sm text-red-600">{error}</p>}
       {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
     </fieldset>
   );

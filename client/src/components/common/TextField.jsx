@@ -5,13 +5,14 @@ const inputClass = (error, extra = '') =>
       : 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-100'
   } ${extra}`;
 
-/** Label row with an optional "12/120" character counter. */
-function FieldLabel({ id, label, count, maxLength }) {
+/** Label row with an optional required marker and "12/120" character counter. */
+function FieldLabel({ id, label, count, maxLength, required }) {
   const showCount = count !== undefined && maxLength;
   return (
     <div className="mb-1.5 flex items-baseline justify-between gap-2">
       <label htmlFor={id} className="block text-sm font-medium text-slate-700">
         {label}
+        {required && <span className="ml-0.5 text-red-600" aria-hidden="true">*</span>}
       </label>
       {showCount && (
         <span className={`text-xs tabular-nums ${count >= maxLength ? 'text-amber-600' : 'text-slate-400'}`}>
@@ -41,7 +42,7 @@ export default function TextField({ id, label, error, trailing, count, className
 
   return (
     <div className={className}>
-      <FieldLabel id={id} label={label} count={count} maxLength={inputProps.maxLength} />
+      <FieldLabel id={id} label={label} count={count} maxLength={inputProps.maxLength} required={inputProps.required} />
       <div className="relative">
         <input
           id={id}
@@ -63,7 +64,7 @@ export function SelectField({ id, label, error, options, className = '', ...sele
 
   return (
     <div className={className}>
-      <FieldLabel id={id} label={label} />
+      <FieldLabel id={id} label={label} required={selectProps.required} />
       <select
         id={id}
         aria-invalid={Boolean(error)}
@@ -87,7 +88,7 @@ export function TextAreaField({ id, label, error, count, className = '', rows = 
 
   return (
     <div className={className}>
-      <FieldLabel id={id} label={label} count={count} maxLength={textareaProps.maxLength} />
+      <FieldLabel id={id} label={label} count={count} maxLength={textareaProps.maxLength} required={textareaProps.required} />
       <textarea
         id={id}
         rows={rows}

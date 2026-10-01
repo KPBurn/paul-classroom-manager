@@ -4,8 +4,39 @@
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+@layer base {
+  /* Tailwind v4 leaves buttons with the default cursor; show a pointer on anything clickable. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  [role='tab'],
+  [role='radio'],
+  [role='menuitem'],
+  select:not(:disabled),
+  summary,
+  label[for],
+  input[type='checkbox']:not(:disabled),
+  input[type='radio']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled {
+    cursor: not-allowed;
+  }
+
+  /* A baseline keyboard focus ring for controls that do not define their own. */
+  :where(a, button, summary, [role='tab'], [role='radio'], [role='menuitem']):focus-visible {
+    outline: 2px solid var(--color-indigo-600);
+    outline-offset: 2px;
+  }
 }
 
 dialog[open] {
@@ -24,16 +55,6 @@ dialog::backdrop {
 
 .landing-preview {
   animation: landing-rise-in 750ms 100ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.landing-feature {
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
-}
-
-.landing-feature:hover {
-  transform: translateY(-4px);
-  border-color: rgb(199 210 254);
-  box-shadow: 0 18px 35px -24px rgb(30 41 59 / 35%);
 }
 
 @keyframes login-pop-in {
