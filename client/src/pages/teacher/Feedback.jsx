@@ -42,8 +42,9 @@ export default function TeacherFeedback() {
         classroomService.list(),
         sessionService.list(),
         feedbackService.list({ limit: 100 }),
-        feedbackService.pending(),
-        feedbackService.list({ status: 'draft', limit: 5 }),
+        // Shortcuts are a convenience; the page still works without them.
+        feedbackService.pending().catch(() => []),
+        feedbackService.list({ status: 'draft', limit: 5 }).catch(() => ({ items: [] })),
       ]);
       setData({ classrooms, sessions, recent: recent.items, pending, drafts: drafts.items });
     } catch (loadError) {
