@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import ActionMenu from '../../components/common/ActionMenu.jsx';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
+import EmptyState from '../../components/common/EmptyState.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
 import Modal from '../../components/common/Modal.jsx';
@@ -29,7 +30,6 @@ import {
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const PAGE_SIZE = 40;
-const smallButton = '!px-2.5 !py-1.5 text-xs';
 const WHEN_OPTIONS = [
   { value: 'upcoming', label: 'Upcoming' },
   { value: 'today', label: 'Today' },
@@ -250,18 +250,14 @@ export default function TeacherSchedule() {
 
       {error && <div className="mb-3"><Alert tone="error">{error}</Alert></div>}
       {loading ? <div className="flex justify-center py-16"><Spinner /></div> : filtered.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
-          <CalendarDays className="mx-auto size-7 text-slate-400" aria-hidden="true" />
-          <p className="mt-2 text-sm font-medium text-slate-900">
-            {sessions.length === 0 ? 'No sessions scheduled yet' : 'No sessions match your filters'}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">
-            {sessions.length === 0 ? 'Create a schedule to see it here.' : 'Try another search, date range or classroom.'}
-          </p>
-          {hasFilters && sessions.length > 0 && (
-            <Button variant="secondary" className="mt-4" onClick={clearFilters}>Clear filters</Button>
+        <EmptyState
+          icon={CalendarDays}
+          title={sessions.length === 0 ? 'No sessions scheduled yet' : 'No sessions match your filters'}
+          message={sessions.length === 0 ? 'Create a schedule to see it here.' : 'Try another search, date range or classroom.'}
+          action={hasFilters && sessions.length > 0 && (
+            <Button variant="secondary" onClick={clearFilters}>Clear filters</Button>
           )}
-        </div>
+        />
       ) : (
         <div className="space-y-4">
           {days.map((day) => (
@@ -314,7 +310,7 @@ export default function TeacherSchedule() {
                         <div className="flex items-center gap-2 sm:justify-end">
                           {joinable && (
                             <Button
-                              className={smallButton}
+                              size="sm"
                               variant={session.phase === 'live' ? 'primary' : 'secondary'}
                               onClick={() => navigate(`/sessions/${session.id}/room`)}
                             >
@@ -324,13 +320,13 @@ export default function TeacherSchedule() {
                           {canGiveFeedback && (
                             <Button
                               variant="secondary"
-                              className={smallButton}
+                              size="sm"
                               onClick={() => navigate(`/teacher/feedback?class=${session.classroom?.id}&lesson=${session.id}`)}
                             >
                               <MessageSquareText className="size-3.5" aria-hidden="true" /> Feedback
                             </Button>
                           )}
-                          <Button variant="secondary" className={smallButton} onClick={() => setAttendanceSession(session)}>
+                          <Button variant="secondary" size="sm" onClick={() => setAttendanceSession(session)}>
                             <UsersRound className="size-3.5" aria-hidden="true" /> Attendance
                           </Button>
                           <ActionMenu

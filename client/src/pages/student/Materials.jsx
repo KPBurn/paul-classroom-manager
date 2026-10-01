@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BookOpen, School } from 'lucide-react';
+import { BookOpen, School, SearchX } from 'lucide-react';
+import EmptyState from '../../components/common/EmptyState.jsx';
 import Alert from '../../components/common/Alert.jsx';
 import { FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
@@ -78,15 +79,13 @@ export default function StudentMaterials() {
       {loading ? (
         <div className="flex justify-center py-16"><Spinner /></div>
       ) : subjects.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
-          <BookOpen className="mx-auto size-8 text-slate-400" aria-hidden="true" />
-          <h2 className="mt-3 font-semibold text-slate-900">No materials yet</h2>
-          <p className="mt-1 text-sm text-slate-500">Materials will appear here when your teacher shares them with your class.</p>
-        </div>
+        <EmptyState
+          icon={BookOpen}
+          title="No materials yet"
+          message="Materials will appear here when your teacher shares them with your class."
+        />
       ) : shown.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-sm text-slate-500">
-          No materials match your search.
-        </p>
+        <EmptyState icon={SearchX} title="No materials match your search" message="Try a different word or clear the search." />
       ) : (
         <div className="space-y-3">
           {shown.map((subject) => (

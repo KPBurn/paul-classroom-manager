@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CalendarCheck, Clock3 } from 'lucide-react';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
+import EmptyState from '../../components/common/EmptyState.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
 import { sessionService } from '../../services/session.service.js';
@@ -82,11 +83,11 @@ export default function StudentDashboard() {
       </div>
       {error && <Alert tone="error">{error}</Alert>}
       {loading ? <div className="flex justify-center py-16"><Spinner /></div> : selectedSessions.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
-          <CalendarCheck className="mx-auto size-8 text-slate-400" aria-hidden="true" />
-          <h2 className="mt-3 font-semibold text-slate-900">No sessions on this date</h2>
-          <p className="mt-1 text-sm text-slate-500">Choose another date or check back when your teacher schedules a session.</p>
-        </div>
+        <EmptyState
+          icon={CalendarCheck}
+          title="No sessions on this date"
+          message="Choose another date or check back when your teacher schedules a session."
+        />
       ) : (
         <div className="space-y-3">
           {selectedSessions.map((session) => {

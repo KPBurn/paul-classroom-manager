@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { CalendarDays, ChevronRight, School, UsersRound } from 'lucide-react';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
+import EmptyState from '../../components/common/EmptyState.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
@@ -67,17 +68,13 @@ export default function MyClassrooms() {
       {loading ? (
         <div className="flex justify-center py-16"><Spinner /></div>
       ) : classrooms.length === 0 && !error ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
-          <School className="mx-auto size-8 text-slate-400" aria-hidden="true" />
-          <h2 className="mt-3 font-semibold text-slate-900">
-            {isStudent ? 'You are not enrolled in a class yet' : 'No classrooms assigned yet'}
-          </h2>
-          <p className="mt-1 text-sm text-slate-600">
-            {isStudent
-              ? 'Your classes will appear here once your school enrolls you.'
-              : 'Ask your administrator to assign your teacher account to a classroom.'}
-          </p>
-        </div>
+        <EmptyState
+          icon={School}
+          title={isStudent ? 'You are not enrolled in a class yet' : 'No classrooms assigned yet'}
+          message={isStudent
+            ? 'Your classes will appear here once your school enrolls you.'
+            : 'Ask your administrator to assign your teacher account to a classroom.'}
+        />
       ) : (
         <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {classrooms.map((classroom) => {

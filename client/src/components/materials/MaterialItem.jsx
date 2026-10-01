@@ -141,11 +141,11 @@ export default function MaterialItem({ subjectId, material, now, onDelete, showU
       </div>
       <div className="flex shrink-0 items-center gap-2 pl-15 sm:pl-0">
         {canPreview(material) && (
-          <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" disabled={!openable} onClick={() => setPreviewing(true)}>
+          <Button variant="secondary" size="sm" disabled={!openable} onClick={() => setPreviewing(true)}>
             <Eye className="size-3.5" aria-hidden="true" /> View
           </Button>
         )}
-        <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" disabled={!openable} isLoading={downloading} onClick={download}>
+        <Button variant="secondary" size="sm" disabled={!openable} isLoading={downloading} onClick={download}>
           <Download className="size-3.5" aria-hidden="true" /> Download
         </Button>
         {onDelete && (
