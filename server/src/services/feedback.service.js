@@ -137,16 +137,20 @@ export async function getLessonRoster(sessionId, user) {
   };
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
 const PENDING_WINDOW_DAYS = 14;
-const PENDING_LIMIT = 6;
+// Feedback is a gentle reminder for the first week after a lesson, then counts as overdue.
+const OVERDUE_AFTER_DAYS = 7;
+const PENDING_LIMIT = 20;
 
 /**
- * The teacher's recent lessons that still have students without completed
- * feedback, newest first, with the next student to open.
+ * The teacher's lessons from the last two weeks that still have students
+ * without completed feedback, newest first, with the next student to open
+ * and totals for reminders.
  */
 export async function listPendingLessons(user) {
   const now = new Date();
-  const since = new Date(now.getTime() - PENDING_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const since = new Date(now.getTime() - PENDING_WINDOW_DAYS * DAY_MS);
   const classrooms = await Classroom.find({ $or: [{ teacher: user._id }, { teachers: user._id }] }).select('_id');
   const sessions = await ClassSession.find({
     status: 'scheduled',
@@ -157,10 +161,11 @@ export async function listPendingLessons(user) {
     ],
   })
     .sort({ startsAt: -1 })
-    .limit(40)
+    .limit(200)
     .populate({ path: 'classroom', select: 'name students', populate: { path: 'students', select: 'firstName lastName' } })
     .populate('assignedStudents', 'firstName lastName');
-  if (!sessions.length) return { items: [] };
+  const summary = { lessons: 0, students: 0, overdueLessons: 0, overdueStudents: 0 };
+  if (!sessions.length) return { items: [], summary };
 
   const feedback = await TeacherFeedback.find({ session: { $in: sessions.map(({ _id }) => _id) } })
     .select('session student teacher status');
@@ -179,26 +184,39 @@ export async function listPendingLessons(user) {
       const record = records.get(idOf(student));
       return record?.status === 'draft' && idOf(record.teacher) === String(user._id);
     }).length;
-    const next = students.find((student) => {
+    // Students this teacher still has to write for: nothing yet, or their own unfinished draft.
+    const waiting = students.filter((student) => {
       const record = records.get(idOf(student));
       return !record || (record.status === 'draft' && idOf(record.teacher) === String(user._id));
     });
-    if (!next) continue;
-    items.push({
-      lesson: {
-        id: idOf(session),
-        title: session.title,
-        startsAt: session.startsAt,
-        classroom: { id: idOf(session.classroom), name: session.classroom?.name },
-      },
-      total: students.length,
-      completed,
-      drafts,
-      nextStudent: { id: idOf(next), name: nameOf(next) ?? 'Student' },
-    });
-    if (items.length === PENDING_LIMIT) break;
+    if (!waiting.length) continue;
+    const daysAgo = Math.floor((now.getTime() - session.startsAt.getTime()) / DAY_MS);
+    const overdue = daysAgo >= OVERDUE_AFTER_DAYS;
+    summary.lessons += 1;
+    summary.students += waiting.length;
+    if (overdue) {
+      summary.overdueLessons += 1;
+      summary.overdueStudents += waiting.length;
+    }
+    if (items.length < PENDING_LIMIT) {
+      items.push({
+        lesson: {
+          id: idOf(session),
+          title: session.title,
+          startsAt: session.startsAt,
+          classroom: { id: idOf(session.classroom), name: session.classroom?.name },
+        },
+        total: students.length,
+        completed,
+        drafts,
+        left: waiting.length,
+        daysAgo,
+        overdue,
+        nextStudent: { id: idOf(waiting[0]), name: nameOf(waiting[0]) ?? 'Student' },
+      });
+    }
   }
-  return { items };
+  return { items, summary };
 }
 
 /** Teachers see the feedback they wrote; admins see everyone's. */

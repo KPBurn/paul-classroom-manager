@@ -188,6 +188,27 @@ describe('teacher feedback', () => {
     assert.deepEqual(after.body.data.items, []);
   });
 
+  it('totals unfinished feedback for reminders and marks lessons older than a week as overdue', async () => {
+    const { classroom, lesson, duke, teacherToken } = await setup();
+    const day = 24 * 60 * 60 * 1000;
+    await ClassSession.create({
+      classroom: classroom._id, title: 'Older lesson', startsAt: new Date(Date.now() - 10 * day), endsAt: new Date(Date.now() - 10 * day + 3_600_000),
+    });
+    await ClassSession.create({
+      classroom: classroom._id, title: 'Too old to remind', startsAt: new Date(Date.now() - 20 * day), endsAt: new Date(Date.now() - 20 * day + 3_600_000),
+    });
+    await request(app).post('/api/feedback').set(auth(teacherToken)).send({
+      sessionId: lesson.id, studentId: duke.id, ...completeContent, status: 'completed',
+    });
+
+    const pending = await request(app).get('/api/feedback/pending').set(auth(teacherToken));
+    assert.deepEqual(pending.body.data.summary, { lessons: 2, students: 3, overdueLessons: 1, overdueStudents: 2 });
+    assert.deepEqual(
+      pending.body.data.items.map((item) => [item.lesson.title, item.left, item.overdue]),
+      [['Speaking practice', 1, false], ['Older lesson', 2, true]],
+    );
+  });
+
   it('rejects out-of-range ratings and cancelled lessons', async () => {
     const { lesson, duke, teacherToken } = await setup();
     const badRating = await request(app).post('/api/feedback').set(auth(teacherToken)).send({
