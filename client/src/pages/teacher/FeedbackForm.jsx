@@ -9,6 +9,7 @@ import {
   Clock3,
   Copy,
   FilePen,
+  History,
   Pencil,
   School,
 } from 'lucide-react';
@@ -18,11 +19,15 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import FeedbackView from '../../components/feedback/FeedbackView.jsx';
 import StarRating from '../../components/feedback/StarRating.jsx';
 import {
+  appendPhrase,
   EMPTY_FEEDBACK,
   FEEDBACK_STATUS,
   formatLessonDate,
+  formatShortDate,
   formatTime,
   missingForSubmit,
+  QUICK_PHRASES,
+  REQUIRED_COUNT,
   schedulePattern,
   SPEAKING_SKILLS,
   valuesFrom,
@@ -31,6 +36,7 @@ import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
 import TextField, { TextAreaField } from '../../components/common/TextField.jsx';
+import { useFeedbackReminder } from '../../context/FeedbackReminderContext.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { feedbackService } from '../../services/feedback.service.js';
 import { sessionService } from '../../services/session.service.js';
@@ -96,6 +102,8 @@ export default function FeedbackForm() {
   const [copiedFrom, setCopiedFrom] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [previous, setPrevious] = useState(null);
+  const { refresh: refreshReminder } = useFeedbackReminder();
 
   // Refs let autosave, switching students and submitting share one save queue without stale state.
   const feedbackRef = useRef(null);
@@ -117,7 +125,13 @@ export default function FeedbackForm() {
       ]);
       const entry = lessonRoster.students.find((student) => student.id === studentId);
       if (!entry) throw new Error('This student is not part of the lesson.');
-      const existing = entry.feedback ? await feedbackService.get(entry.feedback.id) : null;
+      const [existing, history] = await Promise.all([
+        entry.feedback ? feedbackService.get(entry.feedback.id) : null,
+        // The last thing this teacher told the student, to follow up on. Optional.
+        feedbackService.list({ studentId, status: 'completed', limit: 5 }).catch(() => ({ items: [] })),
+      ]);
+      setPrevious(history.items.find((item) => item.session.id !== sessionId
+        && new Date(item.session.startsAt) < new Date(lessonRoster.lesson.startsAt)) ?? null);
       const classSubjects = subjects
         .filter((subject) => subject.classroom?.id === lessonRoster.lesson.classroom.id)
         .map((subject) => subject.name);
@@ -281,14 +295,20 @@ export default function FeedbackForm() {
     }
   };
 
+  const jumpToFirstMissing = (missing) => {
+    const first = Object.keys(missing)[0];
+    const field = document.getElementById(first.startsWith('speaking.') ? 'speaking-section' : `feedback-${first}`);
+    field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (!first.startsWith('speaking.')) field?.focus({ preventScroll: true });
+  };
+
   const submit = async () => {
+    if (submitting) return;
     const missing = missingForSubmit(values);
     setErrors(missing);
     if (Object.keys(missing).length) {
       toast.error('Complete the highlighted sections before submitting.');
-      const first = Object.keys(missing)[0];
-      document.getElementById(first.startsWith('speaking.') ? 'speaking-section' : `feedback-${first}`)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      jumpToFirstMissing(missing);
       return;
     }
     const wasCompleted = isCompleted;
@@ -305,6 +325,7 @@ export default function FeedbackForm() {
         ? { ...item, feedback: { id: saved.id, status: 'completed', teacher: saved.teacher } }
         : item));
       const next = nextNeedingFeedback(updatedList);
+      refreshReminder();
       toast.success(next ? `${student.name} done. Next: ${next.name}` : 'All feedback for this lesson is done.');
       navigate(next ? `/teacher/feedback/lesson/${sessionId}/student/${next.id}` : lessonPath);
     } catch (error) {
@@ -315,6 +336,26 @@ export default function FeedbackForm() {
       setSubmitting(false);
     }
   };
+
+  // Ctrl/Cmd+S saves a draft and Ctrl/Cmd+Enter submits, from anywhere in the form.
+  const shortcutsRef = useRef({});
+  shortcutsRef.current = { submit, saveDraft, enabled: !viewing && !loading, canSaveDraft: canAutosave };
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const { submit: runSubmit, saveDraft: runSaveDraft, enabled, canSaveDraft } = shortcutsRef.current;
+      if (!enabled) return;
+      if (event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        if (canSaveDraft) runSaveDraft();
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        runSubmit();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   if (loading && !roster) return <div className="flex justify-center py-16"><Spinner /></div>;
   if (loadError || !roster || !student) {
@@ -451,23 +492,44 @@ export default function FeedbackForm() {
     );
   }
 
-  const area = (path, label, { rows = 4, placeholder } = {}) => {
+  const area = (path, label, { rows = 4, placeholder, phrases } = {}) => {
     const [group, key] = path.split('.');
     const value = key ? values[group][key] : values[group];
+    const unused = phrases?.filter((phrase) => !value.toLowerCase().includes(phrase.toLowerCase()));
     return (
-      <TextAreaField
-        id={`feedback-${path}`}
-        label={label}
-        rows={rows}
-        maxLength={LONG}
-        count={value.length}
-        value={value}
-        onChange={(event) => setField(path, event.target.value)}
-        placeholder={placeholder}
-        error={errors[path]}
-      />
+      <div>
+        <TextAreaField
+          id={`feedback-${path}`}
+          label={label}
+          rows={rows}
+          maxLength={LONG}
+          count={value.length}
+          value={value}
+          onChange={(event) => setField(path, event.target.value)}
+          placeholder={placeholder}
+          error={errors[path]}
+        />
+        {unused?.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label={`Quick phrases for ${label}`}>
+            <span className="text-xs text-slate-500">Quick add:</span>
+            {unused.map((phrase) => (
+              <button
+                key={phrase}
+                type="button"
+                onClick={() => setField(path, appendPhrase(value, phrase).slice(0, LONG))}
+                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-800"
+              >
+                + {phrase}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     );
   };
+
+  const missingNow = missingForSubmit(values);
+  const requiredDone = REQUIRED_COUNT - Object.keys(missingNow).length;
 
   const saveStatus = {
     saving: 'Saving…',
@@ -516,6 +578,26 @@ export default function FeedbackForm() {
               {bookSuggestions.map((book) => <option key={book} value={book} />)}
             </datalist>
           </div>
+          {previous && (
+            <details className="group mt-4 rounded-lg border border-slate-200 bg-slate-50/70">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 [&::-webkit-details-marker]:hidden">
+                <History className="size-4 text-slate-400" aria-hidden="true" />
+                Last lesson’s feedback · {formatShortDate(previous.session.startsAt)}
+                <ChevronRight className="ml-auto size-4 text-slate-400 transition group-open:rotate-90" aria-hidden="true" />
+              </summary>
+              <dl className="grid gap-3 border-t border-slate-200 px-3 py-3 text-sm sm:grid-cols-2">
+                {[
+                  ['Needed improvement', previous.needsImprovement],
+                  ['Recommended for this lesson', previous.recommendation],
+                ].map(([term, text]) => (
+                  <div key={term}>
+                    <dt className="text-xs font-semibold uppercase tracking-wider text-slate-500">{term}</dt>
+                    <dd className="mt-0.5 whitespace-pre-line text-slate-700">{text || 'Not provided'}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          )}
           {copiedFrom && (
             <div className="mt-4 flex flex-col gap-2 rounded-lg bg-indigo-50 px-3 py-2.5 text-sm text-indigo-900 sm:flex-row sm:items-center sm:justify-between">
               <p>
@@ -593,9 +675,9 @@ export default function FeedbackForm() {
         </div>
 
         <Card title="Teacher evaluation" hint="Be specific, so the student and the next teacher know exactly what to keep doing and what to work on.">
-          {area('didWell', '5. What the student did well', { placeholder: 'e.g. Shared ideas confidently and asked good follow-up questions.' })}
-          {area('needsImprovement', '6. What needs improvement', { placeholder: 'e.g. Pronunciation of final consonants such as -ed endings.' })}
-          {area('recommendation', '7. Recommendation for the next lesson', { placeholder: 'e.g. Continue pronunciation drills and practise longer answers.' })}
+          {area('didWell', '5. What the student did well', { placeholder: 'e.g. Shared ideas confidently and asked good follow-up questions.', phrases: QUICK_PHRASES.didWell })}
+          {area('needsImprovement', '6. What needs improvement', { placeholder: 'e.g. Pronunciation of final consonants such as -ed endings.', phrases: QUICK_PHRASES.needsImprovement })}
+          {area('recommendation', '7. Recommendation for the next lesson', { placeholder: 'e.g. Continue pronunciation drills and practise longer answers.', phrases: QUICK_PHRASES.recommendation })}
         </Card>
 
         <Card title="Additional notes" hint="Optional. Anything that does not fit above.">
@@ -605,7 +687,24 @@ export default function FeedbackForm() {
 
       <div className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur lg:left-64">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className={`text-sm ${saveState === 'error' ? 'text-red-600' : 'text-slate-500'}`} aria-live="polite">{saveStatus}</p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {requiredDone === REQUIRED_COUNT ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                <CircleCheck className="size-3.5" aria-hidden="true" /> Ready to submit
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => jumpToFirstMissing(missingNow)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
+                title="Go to the next section that still needs filling in"
+              >
+                Required: {requiredDone} of {REQUIRED_COUNT} done
+                <ChevronRight className="size-3.5" aria-hidden="true" />
+              </button>
+            )}
+            <p className={`text-sm ${saveState === 'error' ? 'text-red-600' : 'text-slate-500'}`} aria-live="polite">{saveStatus}</p>
+          </div>
           <div className="flex flex-wrap gap-2">
             {skipTarget && (
               <Button variant="ghost" className="!px-3" onClick={() => openStudent(skipTarget)} disabled={submitting} title={`Go to ${skipTarget.name} without submitting`}>
@@ -613,11 +712,11 @@ export default function FeedbackForm() {
               </Button>
             )}
             {!isCompleted && (
-              <Button variant="secondary" onClick={() => saveDraft()} isLoading={saveState === 'saving' && !submitting} disabled={submitting}>
+              <Button variant="secondary" onClick={() => saveDraft()} isLoading={saveState === 'saving' && !submitting} disabled={submitting} title="Save draft (Ctrl+S)">
                 Save draft
               </Button>
             )}
-            <Button className="min-w-0 flex-1 sm:flex-none" onClick={submit} isLoading={submitting}>
+            <Button className="min-w-0 flex-1 sm:flex-none" onClick={submit} isLoading={submitting} title="Submit (Ctrl+Enter)">
               <span className="truncate">
                 {isCompleted
                   ? 'Save changes'

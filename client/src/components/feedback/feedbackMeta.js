@@ -18,6 +18,43 @@ export const SPEAKING_SKILLS = [
   { key: 'confidence', label: 'Confidence' },
 ];
 
+/** One-click starter phrases for the evaluation sections; teachers edit them after inserting. */
+export const QUICK_PHRASES = {
+  didWell: [
+    'Participated actively',
+    'Spoke confidently',
+    'Used the new vocabulary correctly',
+    'Pronounced words clearly',
+    'Answered in full sentences',
+    'Completed all the tasks',
+  ],
+  needsImprovement: [
+    'Pronunciation of difficult sounds',
+    'Grammar accuracy when speaking',
+    'Using a wider range of vocabulary',
+    'Speaking in longer sentences',
+    'Listening for details',
+    'Confidence when speaking',
+  ],
+  recommendation: [
+    'Review today’s vocabulary',
+    'Practise speaking for ten minutes a day',
+    'Continue the pronunciation exercises',
+    'Complete the homework before the next class',
+    'Practise giving longer answers',
+    'Read the next unit in advance',
+  ],
+};
+
+/** Adds a phrase to existing text as its own sentence. */
+export function appendPhrase(text, phrase) {
+  const current = text.trimEnd();
+  if (!current) return `${phrase}.`;
+  return `${current}${/[.!?]$/.test(current) ? '' : '.'} ${phrase}.`;
+}
+
+export const REQUIRED_COUNT = 7;
+
 /** Must match REQUIRED_ON_SUBMIT in server/src/services/feedback.service.js. */
 export function missingForSubmit(values) {
   const errors = {};

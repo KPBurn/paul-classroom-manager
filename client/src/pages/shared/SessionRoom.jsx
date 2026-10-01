@@ -913,6 +913,14 @@ export default function SessionRoom() {
     leaveRoom();
     navigate(user.role === 'admin' ? '/admin' : user.role === 'teacher' ? '/teacher' : '/student');
   };
+  // Teachers of this lesson can go straight from the room to its feedback list.
+  const feedbackPath = user.role === 'teacher' && session?.canManageRoom && session.classroom?.id
+    ? `/teacher/feedback?class=${session.classroom.id}&lesson=${id}`
+    : null;
+  const leaveToFeedback = () => {
+    leaveRoom();
+    navigate(feedbackPath);
+  };
   // Teachers choose between leaving and ending the class for everyone.
   const requestLeave = () => {
     if (canManageRoom) setLeaveChoiceOpen(true);
@@ -1027,9 +1035,20 @@ export default function SessionRoom() {
           </span>
           <h1 className="mt-5 text-xl font-semibold">{exitNotice.title}</h1>
           <p className="mt-2 text-sm leading-6 text-slate-400">{exitNotice.message}</p>
-          <Button className="mt-6" onClick={exitRoom}>
-            <ArrowLeft className="size-4" /> Back to dashboard
-          </Button>
+          <div className="mt-6 flex flex-col items-center justify-center gap-2 sm:flex-row">
+            {feedbackPath && (
+              <Button onClick={() => leaveToFeedback()}>
+                <MessageSquare className="size-4" aria-hidden="true" /> Write feedback
+              </Button>
+            )}
+            <Button
+              variant={feedbackPath ? 'secondary' : 'primary'}
+              className={feedbackPath ? '!bg-slate-800 !text-white !ring-slate-700 hover:!bg-slate-700' : ''}
+              onClick={exitRoom}
+            >
+              <ArrowLeft className="size-4" /> Back to dashboard
+            </Button>
+          </div>
         </div>
       </main>
     );
@@ -1575,6 +1594,11 @@ export default function SessionRoom() {
           <Button variant="secondary" onClick={exitRoom} className="justify-start">
             <LogOut className="size-4" aria-hidden="true" /> Leave the class
           </Button>
+          {feedbackPath && (
+            <Button variant="secondary" onClick={leaveToFeedback} className="justify-start">
+              <MessageSquare className="size-4" aria-hidden="true" /> Leave and write feedback
+            </Button>
+          )}
           <Button variant="danger" onClick={endClassForEveryone} isLoading={moderating} className="justify-start">
             <CircleStop className="size-4" aria-hidden="true" /> End class for everyone
           </Button>

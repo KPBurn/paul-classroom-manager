@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, CalendarX, Clock3, Pencil, Plus, Repeat, UsersRound, Video } from 'lucide-react';
+import { CalendarDays, CalendarX, Clock3, MessageSquareText, Pencil, Plus, Repeat, UsersRound, Video } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ActionMenu from '../../components/common/ActionMenu.jsx';
 import Alert from '../../components/common/Alert.jsx';
@@ -272,6 +272,10 @@ export default function TeacherSchedule() {
                   const cancelled = session.status === 'cancelled';
                   const joinable = isJoinable(session.phase) || session.phase === 'closed';
                   const teacherNames = session.assignments?.teachers?.map((teacher) => teacher.name ?? 'Teacher').join(', ');
+                  // Teachers write feedback for lessons they taught, once the lesson has started.
+                  const canGiveFeedback = !isAdmin
+                    && new Date(session.startsAt).getTime() <= now
+                    && session.assignments?.teachers?.some((teacher) => teacher.id === user.id);
                   return (
                     <li
                       key={session.id}
@@ -315,6 +319,15 @@ export default function TeacherSchedule() {
                               onClick={() => navigate(`/sessions/${session.id}/room`)}
                             >
                               <Video className="size-3.5" aria-hidden="true" /> Join
+                            </Button>
+                          )}
+                          {canGiveFeedback && (
+                            <Button
+                              variant="secondary"
+                              className={smallButton}
+                              onClick={() => navigate(`/teacher/feedback?class=${session.classroom?.id}&lesson=${session.id}`)}
+                            >
+                              <MessageSquareText className="size-3.5" aria-hidden="true" /> Feedback
                             </Button>
                           )}
                           <Button variant="secondary" className={smallButton} onClick={() => setAttendanceSession(session)}>
