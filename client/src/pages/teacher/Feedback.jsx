@@ -1,4 +1,4 @@
-import { CalendarDays, Check, ChevronRight, MessageSquareText, School, UsersRound } from 'lucide-react';
+import { CalendarDays, Check, ChevronRight, FilePen, MessageSquareText, School, UsersRound } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import FeedbackHistory from '../../components/feedback/FeedbackHistory.jsx';
@@ -30,7 +30,7 @@ export default function TeacherFeedback() {
   const classroomId = params.get('class');
   const lessonId = params.get('lesson');
 
-  const [data, setData] = useState({ classrooms: [], sessions: [], recent: [] });
+  const [data, setData] = useState({ classrooms: [], sessions: [], recent: [], pending: [], drafts: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -38,12 +38,14 @@ export default function TeacherFeedback() {
     setLoading(true);
     setError('');
     try {
-      const [classrooms, sessions, recent] = await Promise.all([
+      const [classrooms, sessions, recent, pending, drafts] = await Promise.all([
         classroomService.list(),
         sessionService.list(),
         feedbackService.list({ limit: 100 }),
+        feedbackService.pending(),
+        feedbackService.list({ status: 'draft', limit: 5 }),
       ]);
-      setData({ classrooms, sessions, recent: recent.items });
+      setData({ classrooms, sessions, recent: recent.items, pending, drafts: drafts.items });
     } catch (loadError) {
       setError(getErrorMessage(loadError, 'Unable to load your classes.'));
     } finally {
@@ -97,6 +99,7 @@ export default function TeacherFeedback() {
         <FeedbackHistory classrooms={data.classrooms} basePath="/teacher/feedback" />
       ) : (
         <>
+          {!classroom && <QuickStart pending={data.pending} drafts={data.drafts} />}
           <Steps
             classroom={classroom}
             lesson={lessonId ? myLessons.find((session) => session.id === lessonId) : null}
@@ -113,6 +116,77 @@ export default function TeacherFeedback() {
         </>
       )}
     </>
+  );
+}
+
+/** Shortcuts straight to the next student for recent lessons, and to unfinished drafts. */
+function QuickStart({ pending, drafts }) {
+  const navigate = useNavigate();
+  const openForm = (lessonId, studentId) => navigate(`/teacher/feedback/lesson/${lessonId}/student/${studentId}`);
+  if (!pending.length && !drafts.length) return null;
+
+  return (
+    <div className="mb-6 space-y-4">
+      {drafts.length > 0 && (
+        <section className="rounded-xl border border-amber-200 bg-amber-50/70 p-4" aria-labelledby="drafts-heading">
+          <h2 id="drafts-heading" className="flex items-center gap-2 text-sm font-semibold text-amber-950">
+            <FilePen className="size-4" aria-hidden="true" />
+            You have {drafts.length === 5 ? '5 or more' : drafts.length} unfinished {drafts.length === 1 ? 'draft' : 'drafts'}
+          </h2>
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {drafts.map((draft) => (
+              <li key={draft.id}>
+                <button
+                  type="button"
+                  onClick={() => openForm(draft.session.id, draft.student.id)}
+                  className="group flex items-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2 text-left text-sm shadow-xs transition hover:border-amber-400"
+                >
+                  <span>
+                    <span className="block font-medium text-slate-900">{draft.student.name}</span>
+                    <span className="block text-xs text-slate-500">{draft.classroom.name} · {formatShortDate(draft.session.startsAt)}</span>
+                  </span>
+                  <span className="ml-2 text-xs font-semibold text-amber-800 group-hover:text-amber-900">Continue →</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {pending.length > 0 && (
+        <section aria-labelledby="pending-heading">
+          <h2 id="pending-heading" className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Needs feedback</h2>
+          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {pending.map((item) => {
+              const left = item.total - item.completed;
+              const percent = item.total ? Math.round((item.completed / item.total) * 100) : 0;
+              return (
+                <li key={item.lesson.id} className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-900">{item.lesson.classroom.name}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {isSameLocalDay(item.lesson.startsAt, Date.now()) ? 'Today' : formatShortDate(item.lesson.startsAt)} · {formatTime(item.lesson.startsAt)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                      {left} of {item.total} left
+                    </span>
+                  </div>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
+                    <div className="h-full rounded-full bg-emerald-500" style={{ width: `${percent}%` }} />
+                  </div>
+                  <Button className="mt-3 w-full !py-2" onClick={() => openForm(item.lesson.id, item.nextStudent.id)}>
+                    {item.completed || item.drafts ? 'Continue' : 'Start'} with {item.nextStudent.name}
+                    <ChevronRight className="size-4" aria-hidden="true" />
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+    </div>
   );
 }
 

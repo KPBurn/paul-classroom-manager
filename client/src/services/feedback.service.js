@@ -8,6 +8,12 @@ export const feedbackService = {
     return data.data; // { items, pagination }
   },
 
+  /** Recent lessons that still have students waiting for feedback, with the next student to open. */
+  async pending() {
+    const { data } = await api.get('/feedback/pending');
+    return data.data.items;
+  },
+
   /** A lesson's students with their feedback status, plus the last book used for the class. */
   async lesson(sessionId) {
     const { data } = await api.get(`/feedback/lessons/${sessionId}`);
