@@ -1,14 +1,15 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, ChevronDown, Pencil, Plus, School } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Alert from '../../components/common/Alert.jsx';
 import Button from '../../components/common/Button.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
+import EmptyState, { Skeleton } from '../../components/common/EmptyState.jsx';
 import { FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
 import Modal from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import PeoplePicker from '../../components/common/PeoplePicker.jsx';
-import Spinner from '../../components/common/Spinner.jsx';
+import TextField from '../../components/common/TextField.jsx';
 import { classroomService } from '../../services/classroom.service.js';
 import { userService } from '../../services/user.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -23,7 +24,7 @@ const TYPE_OPTIONS = [
   { value: 'standard', label: 'Standard' },
   { value: 'open', label: 'Open classrooms' },
 ];
-const smallButton = '!px-2.5 !py-1.5 text-xs';
+const NEW_CLASSROOM = { name: '', teacherIds: [], studentIds: [], openAccess: false };
 
 const personName = (person) => person.name ?? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim();
 const teachersOf = (classroom) => (classroom.teachers?.length
@@ -117,6 +118,11 @@ export default function Classrooms() {
     )
   ));
   const hasFilters = Boolean(query || type || status !== 'active');
+  const clearFilters = () => {
+    setQuery('');
+    setType('');
+    setStatus('active');
+  };
 
   return (
     <>
@@ -124,7 +130,7 @@ export default function Classrooms() {
         title="Classrooms"
         description="Create classrooms, assign one or more teachers, and manage each student roster."
         actions={
-          <Button onClick={() => setForm({ name: '', teacherIds: [], studentIds: [] })}>
+          <Button onClick={() => setForm(NEW_CLASSROOM)}>
             <Plus className="size-4" aria-hidden="true" />
             Add Classroom
           </Button>
@@ -141,40 +147,44 @@ export default function Classrooms() {
           className="sm:w-80"
         />
         <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-          <FilterSelect id="classroom-status" label="Status" value={status} onChange={setStatus} options={STATUS_OPTIONS} className="sm:w-44" />
+          <FilterSelect id="classroom-status" label="Status" value={status} onChange={setStatus} options={STATUS_OPTIONS} className="sm:w-52" />
           <FilterSelect id="classroom-type" label="Type" value={type} onChange={setType} options={TYPE_OPTIONS} className="sm:w-40" />
         </div>
       </ListToolbar>
 
-      {error && <div className="mb-3"><Alert tone="error">{error}</Alert></div>}
       {loading ? (
-        <div className="flex justify-center py-16"><Spinner /></div>
-      ) : shown.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
-          <School className="mx-auto size-7 text-slate-400" aria-hidden="true" />
-          <p className="mt-2 text-sm font-medium text-slate-900">
-            {classrooms.length === 0 ? 'No classrooms yet' : 'No classrooms match your filters'}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">
-            {classrooms.length === 0 ? 'Create one to organize students and sessions.' : 'Try another search or filter.'}
-          </p>
-          {hasFilters && classrooms.length > 0 && (
-            <Button
-              variant="secondary"
-              className="mt-4"
-              onClick={() => {
-                setQuery('');
-                setType('');
-                setStatus('active');
-              }}
-            >
-              Clear filters
-            </Button>
-          )}
+        <div className="space-y-2" role="status" aria-label="Loading classrooms">
+          {[0, 1, 2, 3, 4].map((item) => <Skeleton key={item} className="h-14 rounded-xl" />)}
         </div>
+      ) : error ? (
+        <div className="space-y-3">
+          <Alert tone="error">{error}</Alert>
+          <Button variant="secondary" onClick={load}>Try again</Button>
+        </div>
+      ) : shown.length === 0 ? (
+        classrooms.length === 0 && !hasFilters ? (
+          <EmptyState
+            icon={School}
+            title="No classrooms yet"
+            message="Create a classroom to assign teachers, enrol students and schedule sessions."
+            action={(
+              <Button onClick={() => setForm(NEW_CLASSROOM)}>
+                <Plus className="size-4" aria-hidden="true" />
+                Add Classroom
+              </Button>
+            )}
+          />
+        ) : (
+          <EmptyState
+            icon={School}
+            title="No classrooms match your filters"
+            message="Try another search, status or type."
+            action={<Button variant="secondary" onClick={clearFilters}>Clear filters</Button>}
+          />
+        )
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white shadow-xs">
-          <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_9rem_10rem] gap-4 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 md:grid">
+          <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_9rem_12rem] gap-4 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 md:grid">
             <span>Classroom</span>
             <span>Teachers</span>
             <span>Students</span>
@@ -185,9 +195,10 @@ export default function Classrooms() {
               const archived = isArchived(classroom);
               const roster = classroom.students ?? [];
               const expanded = expandedId === classroom.id;
+              const rosterId = `roster-${classroom.id}`;
               return (
                 <li key={classroom.id} className={archived ? 'bg-slate-50/60' : ''}>
-                  <div className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_9rem_10rem] md:items-center md:gap-4">
+                  <div className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_9rem_12rem] md:items-center md:gap-4">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <span className="truncate font-medium text-slate-900">{classroom.name}</span>
                       {classroom.openAccess && (
@@ -198,7 +209,7 @@ export default function Classrooms() {
                       )}
                     </div>
                     <p className="truncate text-sm text-slate-600" title={teachersOf(classroom).map(personName).join(', ')}>
-                      <span className="text-slate-400 md:hidden">Teachers: </span>
+                      <span className="text-slate-500 md:hidden">Teachers: </span>
                       {teachersOf(classroom).map(personName).join(', ') || 'Unassigned'}
                     </p>
                     <div>
@@ -206,8 +217,10 @@ export default function Classrooms() {
                         type="button"
                         onClick={() => setExpandedId(expanded ? null : classroom.id)}
                         disabled={roster.length === 0}
-                        aria-expanded={expanded}
-                        className="inline-flex items-center gap-1 rounded-md py-0.5 text-sm text-slate-600 hover:text-indigo-700 disabled:cursor-default disabled:hover:text-slate-600"
+                        aria-expanded={roster.length > 0 ? expanded : undefined}
+                        aria-controls={expanded ? rosterId : undefined}
+                        title={roster.length > 0 ? (expanded ? 'Hide students' : 'Show students') : undefined}
+                        className="-mx-2 inline-flex min-h-9 items-center gap-1 rounded-md px-2 text-sm text-slate-700 hover:bg-slate-100 hover:text-indigo-700 disabled:cursor-default disabled:text-slate-500 disabled:hover:bg-transparent"
                       >
                         {roster.length} {roster.length === 1 ? 'student' : 'students'}
                         {roster.length > 0 && (
@@ -216,20 +229,22 @@ export default function Classrooms() {
                       </button>
                     </div>
                     <div className="flex gap-2 md:justify-end">
-                      {!archived && (
+                      {archived ? (
+                        <span className="text-sm text-slate-500">Read only</span>
+                      ) : (
                         <Fragment>
-                          <Button variant="secondary" className={smallButton} onClick={() => openEdit(classroom)}>
-                            <Pencil className="size-3.5" aria-hidden="true" /> Edit
+                          <Button variant="secondary" size="sm" onClick={() => openEdit(classroom)} aria-label={`Edit ${classroom.name}`}>
+                            <Pencil className="size-4" aria-hidden="true" /> Edit
                           </Button>
-                          <Button variant="secondary" className={smallButton} onClick={() => setArchiving(classroom)}>
-                            <Archive className="size-3.5" aria-hidden="true" /> Archive
+                          <Button variant="secondary" size="sm" onClick={() => setArchiving(classroom)} aria-label={`Archive ${classroom.name}`}>
+                            <Archive className="size-4" aria-hidden="true" /> Archive
                           </Button>
                         </Fragment>
                       )}
                     </div>
                   </div>
                   {expanded && (
-                    <ul className="flex flex-wrap gap-1.5 px-4 pb-3" aria-label={`${classroom.name} students`}>
+                    <ul id={rosterId} className="flex flex-wrap gap-1.5 px-4 pb-3" aria-label={`${classroom.name} students`}>
                       {roster.map((student) => (
                         <li key={student.id ?? student} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700">
                           {personName(student)}
@@ -279,11 +294,21 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
   const [openAccess, setOpenAccess] = useState(initial.openAccess ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const formRef = useRef(null);
 
   const submit = async (event) => {
     event.preventDefault();
-    if (!name.trim() || teacherIds.length === 0) {
-      setError('Enter a classroom name and assign at least one teacher.');
+    const problems = {};
+    if (!name.trim()) problems.name = 'Enter a classroom name.';
+    if (teacherIds.length === 0) problems.teachers = 'Assign at least one teacher.';
+    setFieldErrors(problems);
+    if (Object.keys(problems).length > 0) {
+      // Move focus to the first field that needs attention.
+      const target = problems.name
+        ? formRef.current?.querySelector('#classroom-name')
+        : formRef.current?.querySelector('[data-picker="teachers"] input');
+      target?.focus();
       return;
     }
     setSaving(true);
@@ -298,21 +323,26 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
   };
 
   return (
-    <form className="space-y-4" onSubmit={submit}>
+    <form ref={formRef} className="space-y-4" onSubmit={submit} noValidate>
       {error && <Alert tone="error">{error}</Alert>}
-      <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-        <label className="block text-sm font-medium text-slate-700">
-          Classroom name
-          <input
-            value={name}
-            maxLength={80}
-            onChange={(event) => setName(event.target.value)}
-            className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-            required
-          />
-        </label>
+      <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+        <TextField
+          id="classroom-name"
+          label="Classroom name"
+          value={name}
+          maxLength={80}
+          count={name.length}
+          placeholder="For example, IELTS 6001"
+          autoComplete="off"
+          required
+          error={fieldErrors.name}
+          onChange={(event) => {
+            setName(event.target.value);
+            setFieldErrors((current) => ({ ...current, name: undefined }));
+          }}
+        />
         <label
-          className="flex items-center gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-medium text-amber-950"
+          className="flex items-center sm:mt-[1.625rem] gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-medium text-amber-950"
           title="Any signed-in active account can join its session rooms (up to 20 participants)."
         >
           <input
@@ -332,7 +362,13 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
           label="Teachers"
           people={teachers}
           selectedIds={teacherIds}
-          onChange={setTeacherIds}
+          onChange={(ids) => {
+            setTeacherIds(ids);
+            setFieldErrors((current) => ({ ...current, teachers: undefined }));
+          }}
+          name="teachers"
+          required
+          error={fieldErrors.teachers}
           emptyMessage="No active teacher accounts."
           hint="Every assigned teacher can manage this classroom’s sessions."
         />
@@ -342,6 +378,7 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
           selectedIds={studentIds}
           onChange={setStudentIds}
           emptyMessage="No active student accounts."
+          hint="Optional. You can add students later."
         />
       </div>
       <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
