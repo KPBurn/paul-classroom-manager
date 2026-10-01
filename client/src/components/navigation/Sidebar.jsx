@@ -6,7 +6,13 @@ const linkClass = ({ isActive }) =>
     isActive ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800/60 hover:text-white'
   }`;
 
-export default function Sidebar({ navigation, portalName, open, onClose }) {
+const BADGE_TONES = {
+  info: 'bg-indigo-500 text-white',
+  warning: 'bg-amber-400 text-amber-950',
+};
+
+/** `badges` maps a link's path to `{ count, tone, label }` shown next to it. */
+export default function Sidebar({ navigation, portalName, badges = {}, open, onClose }) {
   return (
     <>
       {/* Backdrop for the mobile drawer */}
@@ -58,6 +64,15 @@ export default function Sidebar({ navigation, portalName, open, onClose }) {
                     <NavLink to={to} end={end} className={linkClass} onClick={onClose}>
                       <Icon className="size-4.5 shrink-0" aria-hidden="true" />
                       <span className="flex-1">{label}</span>
+                      {badges[to] && (
+                        <span
+                          className={`min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-semibold leading-none ${BADGE_TONES[badges[to].tone] ?? BADGE_TONES.info}`}
+                          title={badges[to].label}
+                        >
+                          {badges[to].count > 99 ? '99+' : badges[to].count}
+                          <span className="sr-only"> – {badges[to].label}</span>
+                        </span>
+                      )}
                       {phase && (
                         <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 group-hover:bg-slate-700">
                           Soon

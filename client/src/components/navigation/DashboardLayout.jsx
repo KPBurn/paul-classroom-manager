@@ -3,7 +3,7 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar.jsx';
 import Topbar from './Topbar.jsx';
 
-export default function DashboardLayout({ navigation, portalName }) {
+export default function DashboardLayout({ navigation, portalName, badges }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -20,6 +20,7 @@ export default function DashboardLayout({ navigation, portalName }) {
       <Sidebar
         navigation={navigation}
         portalName={portalName}
+        badges={badges}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />

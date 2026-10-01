@@ -2,6 +2,7 @@ import { CalendarDays, Check, ChevronRight, FilePen, MessageSquareText, School, 
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import FeedbackHistory from '../../components/feedback/FeedbackHistory.jsx';
+import FeedbackReminder from '../../components/feedback/FeedbackReminder.jsx';
 import {
   FEEDBACK_STATUS,
   formatLessonDate,
@@ -14,6 +15,7 @@ import Button from '../../components/common/Button.jsx';
 import { ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
+import { useFeedbackReminder } from '../../context/FeedbackReminderContext.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { classroomService } from '../../services/classroom.service.js';
 import { feedbackService } from '../../services/feedback.service.js';
@@ -22,6 +24,7 @@ import { getErrorMessage } from '../../utils/errors.js';
 import { isSameLocalDay } from '../../utils/sessionTiming.js';
 
 const LESSONS_SHOWN = 12;
+const QUICK_START_SHOWN = 6;
 
 export default function TeacherFeedback() {
   const { user } = useAuth();
@@ -30,23 +33,23 @@ export default function TeacherFeedback() {
   const classroomId = params.get('class');
   const lessonId = params.get('lesson');
 
-  const [data, setData] = useState({ classrooms: [], sessions: [], recent: [], pending: [], drafts: [] });
+  const [data, setData] = useState({ classrooms: [], sessions: [], recent: [], drafts: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const { pending, refresh: refreshReminder } = useFeedbackReminder();
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [classrooms, sessions, recent, pending, drafts] = await Promise.all([
+      const [classrooms, sessions, recent, drafts] = await Promise.all([
         classroomService.list(),
         sessionService.list(),
         feedbackService.list({ limit: 100 }),
         // Shortcuts are a convenience; the page still works without them.
-        feedbackService.pending().catch(() => []),
         feedbackService.list({ status: 'draft', limit: 5 }).catch(() => ({ items: [] })),
       ]);
-      setData({ classrooms, sessions, recent: recent.items, pending, drafts: drafts.items });
+      setData({ classrooms, sessions, recent: recent.items, drafts: drafts.items });
     } catch (loadError) {
       setError(getErrorMessage(loadError, 'Unable to load your classes.'));
     } finally {
@@ -56,7 +59,8 @@ export default function TeacherFeedback() {
 
   useEffect(() => {
     load();
-  }, [load]);
+    refreshReminder();
+  }, [load, refreshReminder]);
 
   const go = (next) => {
     const nextParams = new URLSearchParams();
@@ -100,7 +104,12 @@ export default function TeacherFeedback() {
         <FeedbackHistory classrooms={data.classrooms} basePath="/teacher/feedback" />
       ) : (
         <>
-          {!classroom && <QuickStart pending={data.pending} drafts={data.drafts} />}
+          {!classroom && (
+            <>
+              <FeedbackReminder pending={pending} showLink={false} />
+              <QuickStart pending={pending.items} drafts={data.drafts} />
+            </>
+          )}
           <Steps
             classroom={classroom}
             lesson={lessonId ? myLessons.find((session) => session.id === lessonId) : null}
@@ -123,6 +132,7 @@ export default function TeacherFeedback() {
 /** Shortcuts straight to the next student for recent lessons, and to unfinished drafts. */
 function QuickStart({ pending, drafts }) {
   const navigate = useNavigate();
+  const [showAll, setShowAll] = useState(false);
   const openForm = (lessonId, studentId) => navigate(`/teacher/feedback/lesson/${lessonId}/student/${studentId}`);
   if (!pending.length && !drafts.length) return null;
 
@@ -158,11 +168,14 @@ function QuickStart({ pending, drafts }) {
         <section aria-labelledby="pending-heading">
           <h2 id="pending-heading" className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Needs feedback</h2>
           <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {pending.map((item) => {
-              const left = item.total - item.completed;
+            {pending.slice(0, showAll ? pending.length : QUICK_START_SHOWN).map((item) => {
+              const left = item.left ?? item.total - item.completed;
               const percent = item.total ? Math.round((item.completed / item.total) * 100) : 0;
               return (
-                <li key={item.lesson.id} className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+                <li
+                  key={item.lesson.id}
+                  className={`flex flex-col rounded-xl border bg-white p-4 shadow-xs ${item.overdue ? 'border-amber-300' : 'border-slate-200'}`}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-slate-900">{item.lesson.classroom.name}</p>
@@ -170,8 +183,8 @@ function QuickStart({ pending, drafts }) {
                         {isSameLocalDay(item.lesson.startsAt, Date.now()) ? 'Today' : formatShortDate(item.lesson.startsAt)} · {formatTime(item.lesson.startsAt)}
                       </p>
                     </div>
-                    <span className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
-                      {left} of {item.total} left
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${item.overdue ? 'bg-amber-100 text-amber-900' : 'bg-indigo-50 text-indigo-700'}`}>
+                      {item.overdue ? `Overdue · ${left} left` : `${left} of ${item.total} left`}
                     </span>
                   </div>
                   <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
@@ -185,6 +198,15 @@ function QuickStart({ pending, drafts }) {
               );
             })}
           </ul>
+          {pending.length > QUICK_START_SHOWN && (
+            <button
+              type="button"
+              onClick={() => setShowAll((current) => !current)}
+              className="mt-2 text-sm font-medium text-indigo-700 hover:text-indigo-900"
+            >
+              {showAll ? 'Show fewer' : `Show all ${pending.length} lessons`}
+            </button>
+          )}
         </section>
       )}
     </div>

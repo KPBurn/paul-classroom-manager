@@ -16,6 +16,8 @@ import Button from '../../components/common/Button.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
+import FeedbackReminder from '../../components/feedback/FeedbackReminder.jsx';
+import { useFeedbackReminder } from '../../context/FeedbackReminderContext.jsx';
 import { useNow } from '../../hooks/useNow.js';
 import { announcementService } from '../../services/announcement.service.js';
 import { classroomService } from '../../services/classroom.service.js';
@@ -40,6 +42,7 @@ export default function TeacherDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const now = useNow();
+  const { pending, refresh: refreshReminder } = useFeedbackReminder();
   const [data, setData] = useState({ sessions: [], classrooms: [], announcements: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -66,7 +69,8 @@ export default function TeacherDashboard() {
 
   useEffect(() => {
     load();
-  }, [load]);
+    refreshReminder();
+  }, [load, refreshReminder]);
 
   const join = (session) => navigate(`/sessions/${session.id}/room`);
 
@@ -129,6 +133,8 @@ export default function TeacherDashboard() {
           </div>
         }
       />
+
+      <FeedbackReminder pending={pending} />
 
       {error && (
         <div className="mb-6 space-y-3">

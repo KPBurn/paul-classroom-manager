@@ -8,10 +8,22 @@ export const feedbackService = {
     return data.data; // { items, pagination }
   },
 
-  /** Recent lessons that still have students waiting for feedback, with the next student to open. */
+  /**
+   * Lessons from the last two weeks that still have students waiting for
+   * feedback (`items`, newest first), with totals for reminders (`summary`).
+   */
   async pending() {
     const { data } = await api.get('/feedback/pending');
-    return data.data.items;
+    const items = data.data.items ?? [];
+    return {
+      items,
+      summary: data.data.summary ?? {
+        lessons: items.length,
+        students: items.reduce((total, item) => total + (item.total - item.completed), 0),
+        overdueLessons: 0,
+        overdueStudents: 0,
+      },
+    };
   },
 
   /** A lesson's students with their feedback status, plus the last book used for the class. */
