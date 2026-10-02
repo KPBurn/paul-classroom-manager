@@ -486,3 +486,69 @@ describe('teacher room moderation', () => {
     }
   });
 });
+
+describe('live room state and account changes', () => {
+  it('tells someone who joins late who is already speaking', async () => {
+    const { session, teacherSocket, studentSocket, cleanup } = await setupRoom();
+    try {
+      await emitAck(studentSocket, 'room:join', String(session._id));
+      await emitAck(studentSocket, 'room:microphone', false);
+      await emitAck(studentSocket, 'room:speaking', true);
+
+      const speaking = await emitAck(teacherSocket, 'room:join', String(session._id));
+      assert.equal(speaking.participants.find(({ id }) => id === studentSocket.id).speaking, true);
+
+      await emitAck(teacherSocket, 'room:leave');
+      await emitAck(studentSocket, 'room:speaking', false);
+      const quiet = await emitAck(teacherSocket, 'room:join', String(session._id));
+      assert.equal(quiet.participants.find(({ id }) => id === studentSocket.id).speaking, false);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('removes a deactivated user from the room straight away', async () => {
+    const { session, student, teacherSocket, studentSocket, adminToken, cleanup } = await setupRoom();
+    try {
+      await emitAck(teacherSocket, 'room:join', String(session._id));
+      await emitAck(studentSocket, 'room:join', String(session._id));
+      const studentSocketId = studentSocket.id;
+      const left = waitForEvent(teacherSocket, 'room:participant-left');
+      const signedOut = waitForEvent(studentSocket, 'room:signed-out');
+      const disconnected = waitForEvent(studentSocket, 'disconnect');
+
+      const res = await request(app)
+        .patch(`/api/users/${student.id}`)
+        .set(auth(adminToken))
+        .send({ status: 'suspended' });
+
+      assert.equal(res.status, 200);
+      assert.match((await signedOut).message, /no longer active/);
+      assert.deepEqual(await left, { participantId: studentSocketId });
+      await disconnected;
+      assert.equal(studentSocket.connected, false);
+      // The teacher is unaffected.
+      assert.equal(teacherSocket.connected, true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('ends a user’s room connection when their password is reset', async () => {
+    const { session, student, studentSocket, adminToken, cleanup } = await setupRoom();
+    try {
+      await emitAck(studentSocket, 'room:join', String(session._id));
+      const signedOut = waitForEvent(studentSocket, 'room:signed-out');
+
+      const res = await request(app)
+        .put(`/api/users/${student.id}/password`)
+        .set(auth(adminToken))
+        .send({ password: 'NewPassword123' });
+
+      assert.equal(res.status, 200);
+      assert.match((await signedOut).message, /password was reset/);
+    } finally {
+      await cleanup();
+    }
+  });
+});

@@ -2,11 +2,13 @@ import mongoose from 'mongoose';
 import { Server } from 'socket.io';
 import { z } from 'zod';
 import { env } from '../config/environment.js';
+import { SystemSettings } from '../models/SystemSettings.js';
 import { User } from '../models/User.js';
 import { canManageSession } from '../authz/policies.js';
 import * as sessionService from '../services/session.service.js';
 import { AppError } from '../utils/AppError.js';
 import { verifyToken } from '../utils/jwt.js';
+import { registerSocketServer } from './connections.js';
 import { sessionMessageSchema } from '../validators/session.validators.js';
 
 const roomName = (sessionId) => `session:${sessionId}`;
@@ -41,6 +43,8 @@ function participantResult(socket) {
     role: user.role,
     muted,
     cameraEnabled,
+    // Included so someone who joins mid-sentence sees who is talking straight away.
+    speaking: Boolean(socket.data.speaking),
     // Teachers of the session and admins run the room and cannot be moderated.
     moderator: Boolean(socket.data.canManageRoom),
   };
@@ -79,6 +83,7 @@ export function attachSessionSocket(httpServer) {
     cors: { origin: env.clientUrls, methods: ['GET', 'POST'] },
     maxHttpBufferSize: 100_000,
   });
+  registerSocketServer(io);
 
   io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
@@ -112,7 +117,17 @@ export function attachSessionSocket(httpServer) {
       return;
     }
 
+    // Same rule as the API: a role-testing token stops working once testing is switched off.
+    if (payload.roleTestSession) {
+      const settings = await SystemSettings.findById('system').select('roleTestingEnabled').lean().catch(() => null);
+      if (!settings?.roleTestingEnabled) {
+        next(new Error('Temporary role testing has been disabled. Please sign in with your account.'));
+        return;
+      }
+    }
+
     socket.data.user = user;
+    socket.data.roleTestSession = Boolean(payload.roleTestSession);
     socket.data.tokenExpiresAt = payload.exp ? payload.exp * 1000 : null;
     next();
   });
@@ -326,6 +341,7 @@ export function attachSessionSocket(httpServer) {
       }
       if (socket.data.speaking !== speaking) {
         socket.data.speaking = speaking;
+        rooms.get(sessionId)?.participants.set(socket.id, participantResult(socket));
         io.to(roomName(sessionId)).emit('room:participant-speaking', {
           participantId: socket.id,
           speaking,

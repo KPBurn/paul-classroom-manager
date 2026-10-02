@@ -43,6 +43,10 @@ const MEDIA_SECTIONS = [
   { kind: 'video', streamKey: 'screenStream' },
   { kind: 'audio', streamKey: 'presentationAudioStream' },
 ];
+// Microphone level (0–1) at which someone counts as speaking, and how long a pause is ignored.
+const SPEAKING_START_LEVEL = 0.06;
+const SPEAKING_STOP_LEVEL = 0.035;
+const SPEAKING_HOLD_MS = 700;
 const formatFileSize = (size) => size < 1024 * 1024
   ? `${Math.max(1, Math.round(size / 1024))} KB`
   : `${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -417,6 +421,10 @@ export default function SessionRoom() {
               },
               ...result.participants,
             ]);
+            // Whoever is already talking, so it shows straight away instead of at their next pause.
+            setSpeakingParticipantIds(new Set(
+              result.participants.filter((participant) => participant.speaking).map((participant) => participant.id),
+            ));
             setScreenSharerId(result.screenSharerId);
             setRoomSettings(result.roomSettings ?? { screenSharingEnabled: true, fileUploadsEnabled: true });
             setCanManageRoom(Boolean(result.canManageRoom));
@@ -507,6 +515,14 @@ export default function SessionRoom() {
           });
           leaveRoom();
         });
+        // The account was deactivated, changed role or had its password reset while in the room.
+        socket.on('room:signed-out', ({ message: reason } = {}) => {
+          setExitNotice({
+            title: 'You were signed out of the class',
+            message: reason ?? 'Your account changed. Sign in again to continue.',
+          });
+          leaveRoom();
+        });
         socket.on('room:ended', ({ by } = {}) => {
           const endedByYou = by === `${user.firstName} ${user.lastName}`;
           setExitNotice({
@@ -589,6 +605,7 @@ export default function SessionRoom() {
     const samples = new Uint8Array(analyser.fftSize);
     let active = true;
     let interval;
+    let lastLoudAt = 0;
 
     context.resume()
       .then(() => {
@@ -602,9 +619,13 @@ export default function SessionRoom() {
           }
           const level = Math.min(1, Math.sqrt(sum / samples.length) * 5);
           setMicLevel(level);
+          // Starting needs a clearly raised level; once speaking, short pauses between words
+          // do not count as stopping, so the room is not told "stopped, started" several times a second.
+          const now = Date.now();
+          if (level >= SPEAKING_STOP_LEVEL) lastLoudAt = now;
           const nextSpeaking = localSpeakingRef.current
-            ? level >= 0.035
-            : level >= 0.06;
+            ? now - lastLoudAt < SPEAKING_HOLD_MS
+            : level >= SPEAKING_START_LEVEL;
           if (nextSpeaking !== localSpeakingRef.current) {
             localSpeakingRef.current = nextSpeaking;
             socketRef.current?.emit('room:speaking', nextSpeaking, (response) => {

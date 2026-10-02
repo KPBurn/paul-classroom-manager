@@ -1,4 +1,5 @@
 import { SystemSettings } from '../models/SystemSettings.js';
+import { disconnectRoleTestSessions } from '../realtime/connections.js';
 import { logActivity } from '../utils/activityLogger.js';
 
 export async function getSystemSettings() {
@@ -20,6 +21,9 @@ export async function updateSystemSettings({ roleTestingEnabled }, { actor, ipAd
     description: `Temporary role testing ${roleTestingEnabled ? 'enabled' : 'disabled'}`,
     ipAddress,
   });
+  if (!settings.roleTestingEnabled) {
+    await disconnectRoleTestSessions('Temporary role testing has been disabled. Please sign in with your account.');
+  }
 
   return { roleTestingEnabled: settings.roleTestingEnabled };
 }

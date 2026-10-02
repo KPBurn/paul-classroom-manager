@@ -1,4 +1,5 @@
 import { User } from '../models/User.js';
+import { disconnectUser } from '../realtime/connections.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { AppError } from '../utils/AppError.js';
 import { assertDeletable, leaveClassrooms } from './userLinks.service.js';
@@ -103,6 +104,13 @@ export async function updateUser(id, changes, { actor, ipAddress }) {
     ipAddress,
   });
 
+  // Anyone in a live class is checked only when they connect, so end their connection now.
+  if (changedFields.includes('status') && user.status !== 'active') {
+    await disconnectUser(user._id, 'Your account is no longer active. Please contact an administrator.');
+  } else if (changedFields.includes('role')) {
+    await disconnectUser(user._id, 'Your role was changed. Sign in again to continue.');
+  }
+
   return user;
 }
 
@@ -122,6 +130,7 @@ export async function resetPassword(id, { password }, { actor, ipAddress }) {
     description: `Reset the password of ${user.fullName}`,
     ipAddress,
   });
+  await disconnectUser(user._id, 'Your password was reset. Sign in again with the new password.');
 
   return user;
 }
@@ -135,6 +144,7 @@ export async function deleteUser(id, { actor, ipAddress }) {
   await assertDeletable(user);
 
   await user.deleteOne();
+  await disconnectUser(user._id, 'Your account was removed.');
   await logActivity({
     actorId: actor._id,
     action: 'user.deleted',
