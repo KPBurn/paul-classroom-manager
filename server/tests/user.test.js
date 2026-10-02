@@ -5,6 +5,8 @@ import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { ActivityLog } from '../src/models/ActivityLog.js';
 import { Announcement } from '../src/models/Announcement.js';
+import { Classroom } from '../src/models/Classroom.js';
+import { ClassSession } from '../src/models/ClassSession.js';
 import { User } from '../src/models/User.js';
 
 const app = createApp();
@@ -276,5 +278,104 @@ describe('DELETE /api/users/:id', () => {
 
     assert.equal(res.status, 409);
     assert.ok(await User.exists({ _id: author._id }));
+  });
+});
+
+describe('users who belong to classrooms', () => {
+  const hours = (count) => new Date(Date.now() + count * 60 * 60_000);
+
+  it('refuses to delete a user that classrooms, sessions or feedback still refer to', async () => {
+    const { token } = await signedIn('admin');
+    const teacher = await createUser({ role: 'teacher' });
+    const student = await createUser({ role: 'student' });
+    const classroom = await Classroom.create({ name: 'Room A', teacher: teacher._id, teachers: [teacher._id], students: [student._id] });
+    await ClassSession.create({
+      classroom: classroom._id,
+      assignedTeachers: [teacher._id],
+      assignedStudents: [student._id],
+      title: 'Lesson',
+      startsAt: hours(-2),
+      endsAt: hours(-1),
+    });
+
+    const res = await as(token).delete(`/api/users/${student.id}`);
+
+    assert.equal(res.status, 409);
+    assert.match(res.body.message, /1 classroom and 1 session/);
+    assert.match(res.body.message, /Inactive/);
+    assert.ok(await User.exists({ _id: student._id }));
+  });
+
+  it('takes a teacher out of their classrooms and unfinished sessions when their role changes', async () => {
+    const { token } = await signedIn('admin');
+    const teacher = await createUser({ role: 'teacher' });
+    const coTeacher = await createUser({ role: 'teacher' });
+    const classroom = await Classroom.create({ name: 'Room B', teacher: teacher._id, teachers: [teacher._id, coTeacher._id] });
+    const session = (startsAt, endsAt, assignedTeachers) => ClassSession.create({
+      classroom: classroom._id, assignedTeachers, assignedStudents: [], title: 'Lesson', startsAt, endsAt,
+    });
+    const past = await session(hours(-2), hours(-1), [teacher._id, coTeacher._id]);
+    const shared = await session(hours(1), hours(2), [teacher._id, coTeacher._id]);
+    const alone = await session(hours(3), hours(4), [teacher._id]);
+
+    const res = await as(token).patch(`/api/users/${teacher.id}`, { role: 'student' });
+
+    assert.equal(res.status, 200);
+    const saved = await Classroom.findById(classroom._id);
+    assert.deepEqual(saved.teachers.map(String), [coTeacher.id]);
+    assert.equal(String(saved.teacher), coTeacher.id);
+    const teachersOf = async (item) => (await ClassSession.findById(item._id)).assignedTeachers.map(String);
+    // The finished lesson keeps its record of who taught it.
+    assert.deepEqual(await teachersOf(past), [teacher.id, coTeacher.id]);
+    assert.deepEqual(await teachersOf(shared), [coTeacher.id]);
+    // A session must keep a teacher, so it takes the classroom's remaining one.
+    assert.deepEqual(await teachersOf(alone), [coTeacher.id]);
+  });
+
+  it('refuses to change the role of a classroom’s only teacher', async () => {
+    const { token } = await signedIn('admin');
+    const teacher = await createUser({ role: 'teacher' });
+    await Classroom.create({ name: 'Room C', teacher: teacher._id, teachers: [teacher._id] });
+
+    const res = await as(token).patch(`/api/users/${teacher.id}`, { role: 'student' });
+
+    assert.equal(res.status, 409);
+    assert.match(res.body.message, /only teacher of Room C/);
+    assert.equal((await User.findById(teacher._id)).role, 'teacher');
+  });
+
+  it('takes a student out of their classrooms when they become a teacher', async () => {
+    const { token } = await signedIn('admin');
+    const teacher = await createUser({ role: 'teacher' });
+    const student = await createUser({ role: 'student' });
+    const classmate = await createUser({ role: 'student' });
+    const classroom = await Classroom.create({
+      name: 'Room D', teacher: teacher._id, teachers: [teacher._id], students: [student._id, classmate._id],
+    });
+    const upcoming = await ClassSession.create({
+      classroom: classroom._id,
+      assignedTeachers: [teacher._id],
+      assignedStudents: [student._id, classmate._id],
+      title: 'Lesson',
+      startsAt: hours(1),
+      endsAt: hours(2),
+    });
+
+    const res = await as(token).patch(`/api/users/${student.id}`, { role: 'teacher' });
+
+    assert.equal(res.status, 200);
+    assert.deepEqual((await Classroom.findById(classroom._id)).students.map(String), [classmate.id]);
+    assert.deepEqual((await ClassSession.findById(upcoming._id)).assignedStudents.map(String), [classmate.id]);
+  });
+
+  it('leaves classrooms alone when only the name or status changes', async () => {
+    const { token } = await signedIn('admin');
+    const teacher = await createUser({ role: 'teacher' });
+    const classroom = await Classroom.create({ name: 'Room E', teacher: teacher._id, teachers: [teacher._id] });
+
+    const res = await as(token).patch(`/api/users/${teacher.id}`, { firstName: 'Renamed', status: 'inactive' });
+
+    assert.equal(res.status, 200);
+    assert.deepEqual((await Classroom.findById(classroom._id)).teachers.map(String), [teacher.id]);
   });
 });

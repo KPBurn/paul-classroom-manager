@@ -18,6 +18,7 @@ import { PageLoader } from '../../components/common/Spinner.jsx';
 import TextField, { SelectField } from '../../components/common/TextField.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { useUsers } from '../../hooks/useUsers.js';
+import { classroomService } from '../../services/classroom.service.js';
 import { userService } from '../../services/user.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { formatDateTime } from '../../utils/format.js';
@@ -374,6 +375,22 @@ function FormActions({ onCancel, isSubmitting, submitLabel }) {
   );
 }
 
+/**
+ * The active classrooms a teacher or student belongs to. If they cannot be
+ * loaded the list is empty: the server applies the same rules either way.
+ */
+async function classroomsOf(user) {
+  try {
+    const members = (classroom) => (user.role === 'teacher'
+      ? [classroom.teacher, ...(classroom.teachers ?? [])]
+      : classroom.students ?? []);
+    return (await classroomService.list())
+      .filter((classroom) => members(classroom).some((person) => (person?.id ?? person) === user.id));
+  } catch {
+    return [];
+  }
+}
+
 function UserForm({ user, fixedRole, isSelf, onCancel, onSaved }) {
   const isEdit = Boolean(user);
   const [serverError, setServerError] = useState('');
@@ -395,7 +412,11 @@ function UserForm({ user, fixedRole, isSelf, onCancel, onSaved }) {
       : { firstName: '', lastName: '', email: '', password: '', role: fixedRole ?? 'teacher', status: 'active' },
   });
 
-  const onSubmit = async (values) => {
+  // A role change waiting for the admin to confirm: `{ values, classrooms }`.
+  const [roleChange, setRoleChange] = useState(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+
+  const save = async (values) => {
     setServerError('');
     try {
       const saved = isEdit ? await userService.update(user.id, values) : await userService.create(values);
@@ -406,8 +427,49 @@ function UserForm({ user, fixedRole, isSelf, onCancel, onSaved }) {
     }
   };
 
+  const onSubmit = async (values) => {
+    // Changing a teacher's or student's role takes them out of their classrooms, so say which first.
+    if (isEdit && values.role && values.role !== user.role && user.role !== 'admin') {
+      const classrooms = await classroomsOf(user);
+      if (classrooms.length) {
+        setRoleChange({ values, classrooms });
+        return;
+      }
+    }
+    await save(values);
+  };
+
+  const confirmRoleChange = async () => {
+    setIsConfirming(true);
+    await save(roleChange.values);
+    setIsConfirming(false);
+    setRoleChange(null);
+  };
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
+      <ConfirmDialog
+        open={Boolean(roleChange)}
+        title={`Change ${user?.firstName}’s role?`}
+        message={roleChange && (
+          <>
+            <p>
+              <span className="font-medium text-ink-900">{user.firstName} {user.lastName}</span> will become
+              a {ROLE_LABELS[roleChange.values.role].toLowerCase()} and be removed from{' '}
+              {roleChange.classrooms.length === 1 ? 'this classroom' : `these ${roleChange.classrooms.length} classrooms`} and
+              its upcoming sessions:
+            </p>
+            <ul className="mt-2 max-h-40 list-disc space-y-0.5 overflow-y-auto pl-5 text-ink-900">
+              {roleChange.classrooms.map((classroom) => <li key={classroom.id}>{classroom.name}</li>)}
+            </ul>
+            <p className="mt-2">Past sessions and attendance are kept.</p>
+          </>
+        )}
+        confirmLabel="Change role"
+        isLoading={isConfirming}
+        onConfirm={confirmRoleChange}
+        onCancel={() => setRoleChange(null)}
+      />
       {serverError && <Alert tone="error">{serverError}</Alert>}
 
       <div className="grid gap-5 sm:grid-cols-2">

@@ -1,7 +1,7 @@
-import { Announcement } from '../models/Announcement.js';
 import { User } from '../models/User.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { AppError } from '../utils/AppError.js';
+import { assertDeletable, leaveClassrooms } from './userLinks.service.js';
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -81,6 +81,10 @@ export async function updateUser(id, changes, { actor, ipAddress }) {
     await assertEmailAvailable(changes.email, 'Unable to update user');
   }
 
+  // A teacher who becomes a student (or the reverse) no longer belongs in the classrooms
+  // their old role put them in. This runs before the role changes, while it still says which.
+  const leftClassrooms = changes.role && changes.role !== user.role ? await leaveClassrooms(user) : [];
+
   user.set(changes);
   const changedFields = user.modifiedPaths();
   if (changedFields.length === 0) {
@@ -93,7 +97,9 @@ export async function updateUser(id, changes, { actor, ipAddress }) {
     action: 'user.updated',
     entityType: 'User',
     entityId: user._id,
-    description: `Updated ${user.fullName} (${changedFields.join(', ')})`,
+    description: `Updated ${user.fullName} (${changedFields.join(', ')})${
+      leftClassrooms.length ? `; removed from ${leftClassrooms.length} classroom(s)` : ''
+    }`,
     ipAddress,
   });
 
@@ -126,10 +132,7 @@ export async function deleteUser(id, { actor, ipAddress }) {
   if (user._id.equals(actor._id)) {
     throw new AppError(403, 'You cannot delete your own account');
   }
-  // Deleting would leave their records without an author.
-  if (await Announcement.exists({ createdBy: user._id })) {
-    throw new AppError(409, 'This user has created announcements. Deactivate the account instead.');
-  }
+  await assertDeletable(user);
 
   await user.deleteOne();
   await logActivity({
