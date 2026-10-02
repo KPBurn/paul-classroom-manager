@@ -38,7 +38,7 @@ export default function TeacherDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const now = useNow();
-  const { pending, refresh: refreshReminder } = useFeedbackReminder();
+  const { pending, refreshIfStale: refreshReminder } = useFeedbackReminder();
   const [data, setData] = useState({ sessions: [], classrooms: [], announcements: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

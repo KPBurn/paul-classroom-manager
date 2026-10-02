@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import mongoose from 'mongoose';
 import { Classroom } from '../models/Classroom.js';
 import { ClassSession } from '../models/ClassSession.js';
 import { SessionFile } from '../models/SessionFile.js';
@@ -16,6 +17,7 @@ import {
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { attendanceStatusForCheckIn } from '../utils/attendancePolicy.js';
+import { LIST_BATCH_SIZE } from '../config/database.js';
 import { env } from '../config/environment.js';
 import { fetchMeteredTurnIceServers } from './meteredTurn.service.js';
 
@@ -200,7 +202,8 @@ async function ensureAbsences(session) {
 }
 
 function sessionResult(session, user) {
-  const attendance = session.attendance.find(
+  // Lean documents carry no schema defaults, so nothing here may rely on one.
+  const attendance = (session.attendance ?? []).find(
     (entry) => String(entry.participant?._id ?? entry.participant ?? entry.student?._id ?? entry.student) === String(user._id),
   );
   return {
@@ -220,7 +223,7 @@ function sessionResult(session, user) {
     },
     status: session.status,
     endedAt: session.endedAt ?? null,
-    seriesId: session.seriesId,
+    seriesId: session.seriesId ?? null,
     assignments: {
       teachers: (session.assignedTeachers ?? classroomTeacherIds(session.classroom ?? {})).map((teacher) => ({
         id: String(teacher._id ?? teacher),
@@ -261,67 +264,130 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** How far back a list goes when the caller does not say. */
 const DEFAULT_HISTORY_DAYS = 90;
 
-/**
- * Sessions that overlap a period, oldest first. Without `from`, the period
- * starts 90 days ago; without `to`, it has no end. Callers ask for the period
- * they show, so a list never has to carry a school's whole history.
- */
-export async function listSessions(user, { view, from, to, classroomId } = {}) {
-  let filter;
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const MAX_SEARCH_WORDS = 5;
+const uniqueIds = (values) => [...new Set(values.filter(Boolean).map(String))];
+
+/** The sessions a user may list: their own, plus those of open classrooms. */
+async function sessionScope(user, view) {
   if (user.role === 'teacher' && !view) {
     const [assignedClassrooms, openClassrooms] = await Promise.all([
-      Classroom.find(classroomsTaughtBy(user)).select('_id'),
-      Classroom.find({ openAccess: true }).select('_id'),
+      Classroom.find(classroomsTaughtBy(user)).distinct('_id'),
+      Classroom.find({ openAccess: true }).distinct('_id'),
     ]);
-    filter = {
+    return {
       $or: [
         { assignedTeachers: user._id },
-        { classroom: { $in: openClassrooms.map(({ _id }) => _id) } },
-        {
-          assignedTeachers: { $exists: false },
-          classroom: { $in: assignedClassrooms.map(({ _id }) => _id) },
-        },
+        { classroom: { $in: openClassrooms } },
+        { assignedTeachers: { $exists: false }, classroom: { $in: assignedClassrooms } },
       ],
     };
-  } else if (user.role === 'student' && view === 'mine') {
+  }
+  if (user.role === 'student' && view === 'mine') {
     const [assignedClassrooms, openClassrooms] = await Promise.all([
-      Classroom.find({ students: user._id }).select('_id'),
-      Classroom.find({ openAccess: true }).select('_id'),
+      Classroom.find({ students: user._id }).distinct('_id'),
+      Classroom.find({ openAccess: true }).distinct('_id'),
     ]);
-    filter = {
+    return {
       $or: [
         { assignedStudents: user._id },
-        { classroom: { $in: openClassrooms.map(({ _id }) => _id) } },
-        {
-          assignedStudents: { $exists: false },
-          classroom: { $in: assignedClassrooms.map(({ _id }) => _id) },
-        },
+        { classroom: { $in: openClassrooms } },
+        { assignedStudents: { $exists: false }, classroom: { $in: assignedClassrooms } },
       ],
     };
-  } else if (user.role === 'admin' && !view) {
-    filter = {};
-  } else {
-    throw new AppError(403, 'You do not have permission to view these sessions');
   }
+  if (user.role === 'admin' && !view) return {};
+  throw new AppError(403, 'You do not have permission to view these sessions');
+}
+
+/** One condition per word: it must be in the session's title, its classroom's name or a teacher's name. */
+function searchConditions(search) {
+  const words = (search ?? '').split(/\s+/).filter(Boolean).slice(0, MAX_SEARCH_WORDS);
+  return Promise.all(words.map(async (word) => {
+    const pattern = new RegExp(escapeRegex(word), 'i');
+    const [classrooms, people] = await Promise.all([
+      Classroom.find({ name: pattern }).distinct('_id'),
+      User.find({ $or: [{ firstName: pattern }, { lastName: pattern }] }).distinct('_id'),
+    ]);
+    return { $or: [{ title: pattern }, { classroom: { $in: classrooms } }, { assignedTeachers: { $in: people } }] };
+  }));
+}
+
+/** A page ends at a session; the cursor names it so the next page starts right after it. */
+const cursorFor = (session) => Buffer
+  .from(JSON.stringify([session.startsAt.toISOString(), String(session._id)]))
+  .toString('base64url');
+
+function afterCursor(cursor, direction) {
+  let startsAt;
+  let id;
+  try {
+    [startsAt, id] = JSON.parse(Buffer.from(cursor, 'base64url').toString());
+    startsAt = new Date(startsAt);
+  } catch {
+    startsAt = null;
+  }
+  if (!startsAt || Number.isNaN(startsAt.getTime()) || typeof id !== 'string' || !mongoose.isValidObjectId(id)) {
+    throw new AppError(400, 'Invalid cursor');
+  }
+  const beyond = direction === 1 ? '$gt' : '$lt';
+  return { $or: [{ startsAt: { [beyond]: startsAt } }, { startsAt, _id: { [beyond]: id } }] };
+}
+
+/**
+ * Sessions that overlap a period, oldest first (`order: 'desc'` for newest
+ * first). Without `from`, the period starts 90 days ago; without `to`, it has
+ * no end. Callers ask for the period they show, so a list never has to carry a
+ * school's whole history.
+ *
+ * With `limit`, the list comes a page at a time: the result also has `total`
+ * and a `nextCursor` to pass back as `cursor` for the following page.
+ *
+ * Each item names its teachers; students are given by id only, which is all a
+ * list needs to count them.
+ */
+export async function listSessions(user, { view, from, to, classroomId, status, search, order, limit, cursor } = {}) {
+  const [scope, words] = await Promise.all([sessionScope(user, view), searchConditions(search)]);
   const period = {
     endsAt: { $gt: from ?? new Date(Date.now() - DEFAULT_HISTORY_DAYS * DAY_MS) },
     ...(to && { startsAt: { $lt: to } }),
     ...(classroomId && { classroom: classroomId }),
+    ...(status && { status }),
   };
-  const sessions = await ClassSession.find({ $and: [filter, period] })
-    .sort({ startsAt: 1 })
-    .populate({
-      path: 'classroom',
-      select: 'name openAccess teacher teachers students',
-      populate: [
-        { path: 'teacher', select: 'firstName lastName' },
-        { path: 'teachers', select: 'firstName lastName' },
-        { path: 'students', select: 'firstName lastName email' },
-      ],
-    })
-    .populate('assignedTeachers', 'firstName lastName')
-    .populate('assignedStudents', 'firstName lastName email');
-  return { items: sessions.map((session) => sessionResult(session, user)) };
+  const conditions = [scope, period, ...words];
+  const direction = order === 'desc' ? -1 : 1;
+
+  const query = ClassSession.find({ $and: cursor ? [...conditions, afterCursor(cursor, direction)] : conditions })
+    .batchSize(LIST_BATCH_SIZE)
+    .lean();
+  // Pages need an order with no ties, or a session could be skipped or repeated between them.
+  if (limit) query.sort({ startsAt: direction, _id: direction }).limit(limit + 1);
+  else query.sort({ startsAt: direction });
+  const [found, total] = await Promise.all([
+    query,
+    limit ? ClassSession.countDocuments({ $and: conditions }) : undefined,
+  ]);
+  const sessions = limit ? found.slice(0, limit) : found;
+
+  // Classrooms and teachers are looked up together, once for the whole list.
+  const [classrooms, teachers] = await Promise.all([
+    Classroom.find({ _id: { $in: uniqueIds(sessions.map((session) => session.classroom)) } })
+      .select('name openAccess teacher teachers students')
+      .lean(),
+    User.find({ _id: { $in: uniqueIds(sessions.flatMap((session) => session.assignedTeachers ?? [])) } })
+      .select('firstName lastName')
+      .lean(),
+  ]);
+  const classroomById = new Map(classrooms.map((classroom) => [String(classroom._id), classroom]));
+  const teacherById = new Map(teachers.map((teacher) => [String(teacher._id), teacher]));
+
+  const items = sessions.map((session) => sessionResult({
+    ...session,
+    classroom: classroomById.get(String(session.classroom)) ?? null,
+    assignedTeachers: session.assignedTeachers?.map((id) => teacherById.get(String(id))).filter(Boolean),
+  }, user));
+  if (!limit) return { items };
+  return { items, total, nextCursor: found.length > limit ? cursorFor(sessions.at(-1)) : null };
 }
 
 async function getSession(id) {

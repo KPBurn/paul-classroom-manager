@@ -1,3 +1,4 @@
+import { LIST_BATCH_SIZE } from '../config/database.js';
 import { Classroom } from '../models/Classroom.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
@@ -48,7 +49,8 @@ export async function listClassrooms({ includeArchived = false } = {}, user) {
     .sort({ status: 1, name: 1 })
     .populate('teacher', 'firstName lastName email status')
     .populate('teachers', 'firstName lastName email status')
-    .populate('students', 'firstName lastName email status');
+    // Every roster in one answer: a school soon has more students than fit in a first batch.
+    .populate({ path: 'students', select: 'firstName lastName email status', options: { batchSize: LIST_BATCH_SIZE } });
 }
 
 export async function getClassroom(id, user) {

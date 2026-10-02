@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, CalendarX, Clock3, MessageSquareText, Pencil, Plus, Repeat, UsersRound, Video } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -9,7 +9,7 @@ import Button from '../../components/common/Button.jsx';
 import Card, { SectionLabel } from '../../components/common/Card.jsx';
 import EmptyState from '../../components/common/EmptyState.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
-import { controlClass, FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
+import { controlClass, FilterSelect, ListToolbar, SearchInput } from '../../components/common/ListFilters.jsx';
 import Modal, { ModalActions } from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
@@ -31,6 +31,9 @@ import {
 } from '../../utils/sessionTiming.js';
 
 const PAGE_SIZE = 40;
+// The most the API returns in one page.
+const MAX_PAGE_SIZE = 100;
+const SEARCH_DELAY_MS = 300;
 const PAST_DAYS = 90;
 const WHEN_OPTIONS = [
   { value: 'upcoming', label: 'Upcoming' },
@@ -98,10 +101,17 @@ export default function TeacherSchedule() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user.role === ROLES.ADMIN;
+  // The sessions loaded so far; the server holds `total` and hands out the rest a page at a time.
   const [sessions, setSessions] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [classrooms, setClassrooms] = useState([]);
+  const [classroomsLoaded, setClassroomsLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Counts list requests, so an answer that arrives after a newer request is ignored.
+  const latestRequest = useRef(0);
   const [formOpen, setFormOpen] = useState(false);
   const [editSession, setEditSession] = useState(null);
   const [attendanceSession, setAttendanceSession] = useState(null);
@@ -110,6 +120,8 @@ export default function TeacherSchedule() {
   const [busy, setBusy] = useState(false);
   const [attendanceSettingsId, setAttendanceSettingsId] = useState(null);
   const [query, setQuery] = useState('');
+  // What was last searched for: `query`, once typing has paused.
+  const [search, setSearch] = useState('');
   const [when, setWhen] = useState('upcoming');
   // The dates for "Choose dates": the last and the next 30 days to begin with.
   const [custom, setCustom] = useState(() => ({
@@ -119,42 +131,105 @@ export default function TeacherSchedule() {
   const customValid = Boolean(custom.from && custom.to && custom.from <= custom.to);
   const [classroomFilter, setClassroomFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const now = useNow();
 
   useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [query, when, classroomFilter, statusFilter]);
+    const text = query.trim();
+    if (text === search) return undefined;
+    const timer = setTimeout(() => setSearch(text), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [query, search]);
 
-  const load = useCallback(async () => {
+  // The filters are applied by the server, so a page holds only sessions that match.
+  const listParams = useCallback(() => ({
+    ...periodParams(...periodFor(when, custom)),
+    ...(when === 'past' && { order: 'desc' }),
+    ...(statusFilter && { status: statusFilter }),
+    ...(classroomFilter && { classroomId: classroomFilter }),
+    ...(search && { search }),
+  }), [when, custom, statusFilter, classroomFilter, search]);
+
+  // Loads the list from its start. `size` reloads as many sessions as are already shown.
+  const load = useCallback(async ({ size = PAGE_SIZE } = {}) => {
     if (when === 'custom' && !customValid) return;
+    latestRequest.current += 1;
+    const request = latestRequest.current;
     setLoading(true);
     setError('');
     try {
-      const [items, classes] = await Promise.all([
-        sessionService.list(periodParams(...periodFor(when, custom))),
-        classroomService.list(),
-      ]);
-      setSessions(items);
-      setClassrooms(classes);
+      const page = await sessionService.page({ ...listParams(), limit: size });
+      if (request !== latestRequest.current) return;
+      setSessions(page.items);
+      setTotal(page.total);
+      setNextCursor(page.nextCursor);
     } catch (loadError) {
-      setError(getErrorMessage(loadError, 'Unable to load your schedule.'));
+      if (request === latestRequest.current) setError(getErrorMessage(loadError, 'Unable to load your schedule.'));
     } finally {
-      setLoading(false);
+      if (request === latestRequest.current) setLoading(false);
     }
-  }, [when, custom, customValid]);
+  }, [listParams, when, customValid]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  useEffect(() => {
+    let cancelled = false;
+    classroomService.list()
+      .then((classes) => {
+        if (!cancelled) setClassrooms(classes);
+      })
+      .catch((loadError) => {
+        if (!cancelled) setError(getErrorMessage(loadError, 'Unable to load your classrooms.'));
+      })
+      .finally(() => {
+        if (!cancelled) setClassroomsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const showMore = async () => {
+    const request = latestRequest.current;
+    setLoadingMore(true);
+    try {
+      const page = await sessionService.page({ ...listParams(), limit: PAGE_SIZE, cursor: nextCursor });
+      // The filters changed while this page was on its way: it belongs to the old list.
+      if (request !== latestRequest.current) return;
+      setSessions((current) => {
+        const shown = new Set(current.map((session) => session.id));
+        return [...current, ...page.items.filter((session) => !shown.has(session.id))];
+      });
+      setTotal(page.total);
+      setNextCursor(page.nextCursor);
+    } catch (loadError) {
+      toast.error(getErrorMessage(loadError, 'Unable to load more sessions.'));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // After a change that can move sessions around, reload what is shown without clearing the list.
+  const refresh = () => load({ size: Math.min(MAX_PAGE_SIZE, Math.max(PAGE_SIZE, sessions.length)) });
+
+  // Puts the changed details of saved sessions into the rows already shown.
+  const applyChanges = (changed) => {
+    const byId = new Map(changed.map((session) => [session.id, session]));
+    setSessions((current) => current.map((session) => {
+      const saved = byId.get(session.id);
+      return saved
+        ? { ...session, status: saved.status, attendanceConditionEnabled: saved.attendanceConditionEnabled }
+        : session;
+    }));
+  };
+
   const cancel = async (scope = cancelScope) => {
     setBusy(true);
     try {
-      await sessionService.cancel(cancelSession.id, scope);
+      applyChanges(await sessionService.cancel(cancelSession.id, scope));
       toast.success(scope === 'series' ? 'Schedule series cancelled.' : 'Session cancelled.');
       setCancelSession(null);
-      await load();
     } catch (cancelError) {
       toast.error(getErrorMessage(cancelError, 'Unable to cancel session.'));
     } finally {
@@ -165,16 +240,15 @@ export default function TeacherSchedule() {
   const toggleAttendanceCondition = async (session) => {
     setAttendanceSettingsId(session.id);
     try {
-      await sessionService.update(session.id, {
+      applyChanges(await sessionService.update(session.id, {
         scope: 'occurrence',
         attendanceConditionEnabled: !session.attendanceConditionEnabled,
-      });
+      }));
       toast.success(
         session.attendanceConditionEnabled
           ? 'Attendance conditions turned off for this session.'
           : 'Attendance conditions turned on for this session.',
       );
-      await load();
     } catch (toggleError) {
       toast.error(getErrorMessage(toggleError, 'Unable to update attendance conditions.'));
     } finally {
@@ -196,7 +270,8 @@ export default function TeacherSchedule() {
   const filtered = sessions
     .map((session) => ({ ...session, phase: sessionPhase(session, now) }))
     .filter((session) => {
-      // The period was applied when loading; this keeps the list right as time passes on an open page.
+      // The server applied the filters when loading; this keeps the list right as time passes
+      // on an open page, and after a session shown here is cancelled.
       const endsAt = new Date(session.endsAt).getTime();
       const inRange = {
         upcoming: endsAt > now,
@@ -207,20 +282,13 @@ export default function TeacherSchedule() {
       }[when];
       const statusMatches = !statusFilter
         || (statusFilter === 'cancelled') === (session.status === 'cancelled');
-      return inRange
-        && statusMatches
-        && (!classroomFilter || session.classroom?.id === classroomFilter)
-        && matchesSearch(
-          query,
-          session.title,
-          session.classroom?.name,
-          session.assignments?.teachers?.map((teacher) => teacher.name),
-        );
+      return inRange && statusMatches && (!classroomFilter || session.classroom?.id === classroomFilter);
     })
     .sort((a, b) => (when === 'past' ? -1 : 1) * (new Date(a.startsAt) - new Date(b.startsAt)));
-  const visible = filtered.slice(0, visibleCount);
+  // Sessions that match on the server, less any loaded ones that no longer belong in the list.
+  const matching = Math.max(filtered.length, total - (sessions.length - filtered.length));
   const days = [];
-  for (const session of visible) {
+  for (const session of filtered) {
     const key = new Date(session.startsAt).toDateString();
     if (days.at(-1)?.key !== key) days.push({ key, date: session.startsAt, sessions: [] });
     days.at(-1).sessions.push(session);
@@ -228,6 +296,7 @@ export default function TeacherSchedule() {
   const hasFilters = Boolean(query || classroomFilter || statusFilter || when !== 'upcoming');
   const clearFilters = () => {
     setQuery('');
+    setSearch('');
     setClassroomFilter('');
     setStatusFilter('');
     setWhen('upcoming');
@@ -247,7 +316,7 @@ export default function TeacherSchedule() {
           </Button>
         }
       />
-      {!classrooms.length && !loading && (
+      {!classrooms.length && classroomsLoaded && (
         <div className="mb-4">
           <Alert>{isAdmin
             ? 'Create an active classroom before scheduling classes.'
@@ -255,7 +324,7 @@ export default function TeacherSchedule() {
         </div>
       )}
 
-      <ListToolbar count={loading ? undefined : filtered.length} noun="session">
+      <ListToolbar count={loading ? undefined : matching} noun="session">
         <SearchInput
           id="schedule-search"
           label="Search sessions"
@@ -295,7 +364,7 @@ export default function TeacherSchedule() {
       {error && <div className="mb-4"><Alert tone="error">{error}</Alert></div>}
       {when === 'custom' && !customValid ? (
         <EmptyState icon={CalendarDays} title="Choose a start and an end date" message="The end date must be on or after the start date." />
-      ) : loading ? <PageLoader label="Loading schedule…" /> : filtered.length === 0 ? (
+      ) : loading && filtered.length === 0 ? <PageLoader label="Loading schedule…" /> : filtered.length === 0 ? (
         <EmptyState
           icon={CalendarDays}
           title={hasFilters ? 'No sessions match your filters' : 'No upcoming sessions'}
@@ -305,7 +374,8 @@ export default function TeacherSchedule() {
           )}
         />
       ) : (
-        <div className="space-y-6">
+        // The list stays in view, dimmed, while it is reloaded.
+        <div className={`space-y-6 transition-opacity ${loading ? 'opacity-60' : ''}`}>
           {days.map((day) => (
             <section key={day.key} aria-label={dayLabel(day.date, now)}>
               <SectionLabel className="mb-2">{dayLabel(day.date, now)}</SectionLabel>
@@ -401,10 +471,10 @@ export default function TeacherSchedule() {
               </Card>
             </section>
           ))}
-          {filtered.length > visible.length && (
+          {nextCursor && (
             <div className="flex justify-center">
-              <Button variant="secondary" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
-                Show more ({filtered.length - visible.length} left)
+              <Button variant="secondary" onClick={showMore} isLoading={loadingMore} disabled={loading}>
+                Show more ({Math.max(1, total - sessions.length)} left)
               </Button>
             </div>
           )}
@@ -420,7 +490,7 @@ export default function TeacherSchedule() {
             const created = await sessionService.create(values);
             toast.success(`${created.length} session${created.length === 1 ? '' : 's'} scheduled.`);
             setFormOpen(false);
-            await load();
+            await refresh();
           }}
         />
       </Modal>
@@ -435,13 +505,13 @@ export default function TeacherSchedule() {
           <EditSessionForm
             key={editSession.id}
             session={editSession}
-            seriesSessions={sessions.filter((item) => item.seriesId === editSession.seriesId)}
             onCancel={() => setEditSession(null)}
             onSave={async (changes) => {
               await sessionService.update(editSession.id, changes);
               toast.success('Session updated.');
               setEditSession(null);
-              await load();
+              // A new date or time can move the session, so the list is read again.
+              await refresh();
             }}
           />
         )}
@@ -485,7 +555,7 @@ export default function TeacherSchedule() {
   );
 }
 
-function EditSessionForm({ session, seriesSessions, onCancel, onSave }) {
+function EditSessionForm({ session, onCancel, onSave }) {
   const start = new Date(session.startsAt);
   const end = new Date(session.endsAt);
   const localDate = (value) => {
@@ -552,8 +622,8 @@ function EditSessionForm({ session, seriesSessions, onCancel, onSave }) {
           <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
         </label>
       </div>
-      {scope === 'series' && seriesSessions.length > 0 && (
-        <p className="text-xs text-ink-500">Applies to {seriesSessions.length} occurrences in this series.</p>
+      {scope === 'series' && (
+        <p className="text-xs text-ink-500">Applies to every occurrence in this series that has not started yet.</p>
       )}
       <ModalActions>
         <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>

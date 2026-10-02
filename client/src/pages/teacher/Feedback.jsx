@@ -56,7 +56,7 @@ export default function TeacherFeedback() {
   const [data, setData] = useState({ classrooms: [], sessions: [], recent: [], draftCount: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const { pending, refresh: refreshReminder } = useFeedbackReminder();
+  const { pending, refreshIfStale: refreshReminder } = useFeedbackReminder();
 
   const load = useCallback(async () => {
     setLoading(true);

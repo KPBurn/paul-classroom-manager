@@ -694,4 +694,92 @@ describe('listing sessions by period', () => {
     const all = await request(app).get('/api/sessions').set(auth(await login(admin)));
     assert.equal(all.body.data.items.find(({ title }) => title === 'Last week').attendance.status, null);
   });
+
+  it('names the classroom and teachers of each session and gives students by id', async () => {
+    const { teacher, student, admin } = await setup();
+
+    const list = await request(app).get(`/api/sessions?from=${at(0).toISOString()}`).set(auth(await login(admin)));
+    const [tomorrow] = list.body.data.items;
+    assert.equal(tomorrow.classroom.name, 'Period room');
+    assert.deepEqual(tomorrow.assignments.teachers, [{ id: teacher.id, name: `${teacher.firstName} ${teacher.lastName}` }]);
+    assert.deepEqual(tomorrow.assignments.students, [{ id: student.id }]);
+    // Without a limit the answer is the whole list, as before.
+    assert.equal(list.body.data.nextCursor, undefined);
+  });
+
+  it('hands out a long list a page at a time, in either order', async () => {
+    const { admin } = await setup();
+    const token = await login(admin);
+    const page = (query) => request(app).get(`/api/sessions?from=${at(-200 * DAY).toISOString()}&${query}`).set(auth(token));
+
+    const first = await page('limit=2');
+    assert.deepEqual(titles(first), ['Long ago', 'Last week']);
+    assert.equal(first.body.data.total, 5);
+    const second = await page(`limit=2&cursor=${first.body.data.nextCursor}`);
+    assert.deepEqual(titles(second), ['Cancelled last week', 'Tomorrow']);
+    const last = await page(`limit=2&cursor=${second.body.data.nextCursor}`);
+    assert.deepEqual(titles(last), ['Elsewhere']);
+    assert.equal(last.body.data.nextCursor, null);
+
+    const newest = await page('limit=3&order=desc');
+    assert.deepEqual(titles(newest), ['Elsewhere', 'Tomorrow', 'Cancelled last week']);
+    const older = await page(`limit=3&order=desc&cursor=${newest.body.data.nextCursor}`);
+    assert.deepEqual(titles(older), ['Last week', 'Long ago']);
+
+    assert.equal((await page('limit=2&cursor=nonsense')).status, 400);
+    assert.equal((await page('limit=1000')).status, 400);
+  });
+
+  it('keeps sessions that start at the same time apart across pages', async () => {
+    const { admin, teacher, classroom } = await setup();
+    const startsAt = at(3 * DAY);
+    for (const title of ['Same time A', 'Same time B', 'Same time C']) {
+      await ClassSession.create({
+        classroom: classroom._id, assignedTeachers: [teacher._id], assignedStudents: [], title, startsAt, endsAt: new Date(startsAt.getTime() + 60 * 60_000),
+      });
+    }
+    const token = await login(admin);
+    const seen = [];
+    let cursor = '';
+    do {
+      const response = await request(app)
+        .get(`/api/sessions?from=${at(2.5 * DAY).toISOString()}&limit=1${cursor && `&cursor=${cursor}`}`)
+        .set(auth(token));
+      seen.push(...titles(response));
+      cursor = response.body.data.nextCursor;
+    } while (cursor);
+    assert.deepEqual(seen.sort(), ['Same time A', 'Same time B', 'Same time C']);
+  });
+
+  it('filters by status and searches titles, classrooms and teachers', async () => {
+    const { admin, teacher } = await setup();
+    const token = await login(admin);
+    const list = (query) => request(app).get(`/api/sessions?from=${at(-30 * DAY).toISOString()}&${query}`).set(auth(token));
+
+    assert.deepEqual(titles(await list('status=cancelled')), ['Cancelled last week']);
+    assert.deepEqual(titles(await list('status=scheduled')), ['Last week', 'Tomorrow', 'Elsewhere']);
+    assert.deepEqual(titles(await list('search=WEEK')), ['Last week', 'Cancelled last week']);
+    assert.deepEqual(titles(await list('search=other')), ['Elsewhere']);
+    // Every word must match something: here a title and a classroom.
+    assert.deepEqual(titles(await list(`search=${encodeURIComponent('week period')}`)), ['Last week', 'Cancelled last week']);
+    assert.deepEqual(titles(await list(`search=${encodeURIComponent('week other')}`)), []);
+    assert.equal(titles(await list(`search=${teacher.lastName}`)).length, 4);
+    // Characters with a meaning in patterns are searched for as written.
+    assert.deepEqual(titles(await list(`search=${encodeURIComponent('.*')}`)), []);
+    assert.equal((await list('limit=2&search=week')).body.data.total, 2);
+  });
+
+  it('pages only through the sessions a teacher or student may see', async () => {
+    const { teacher, student } = await setup();
+    const stranger = await createUser({ role: 'teacher' });
+    const from = `from=${at(-30 * DAY).toISOString()}`;
+
+    const own = await request(app).get(`/api/sessions?${from}&limit=10`).set(auth(await login(teacher)));
+    assert.equal(own.body.data.total, 4);
+    const none = await request(app).get(`/api/sessions?${from}&limit=10&search=week`).set(auth(await login(stranger)));
+    assert.deepEqual(none.body.data, { items: [], total: 0, nextCursor: null });
+    const mine = await request(app).get(`/api/sessions?view=mine&${from}&limit=10`).set(auth(await login(student)));
+    assert.equal(mine.body.data.total, 4);
+    assert.equal((await request(app).get(`/api/sessions?${from}&limit=10`).set(auth(await login(student)))).status, 403);
+  });
 });

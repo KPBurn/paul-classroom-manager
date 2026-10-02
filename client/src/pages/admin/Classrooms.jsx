@@ -48,28 +48,42 @@ export default function Classrooms() {
   const [error, setError] = useState('');
   const includeArchived = status !== 'active';
 
+  // The people who can be assigned do not depend on the status filter, so they are loaded once.
+  const loadPeople = useCallback(async () => {
+    const [teacherList, studentList] = await Promise.all([
+      userService.listAll({ role: 'teacher', status: 'active' }),
+      userService.listAll({ role: 'student', status: 'active' }),
+    ]);
+    setTeachers(teacherList);
+    setStudents(studentList);
+  }, []);
+  const peopleLoaded = useRef(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [classItems, teacherList, studentList] = await Promise.all([
+      const [classItems] = await Promise.all([
         classroomService.list({ includeArchived }),
-        userService.listAll({ role: 'teacher', status: 'active' }),
-        userService.listAll({ role: 'student', status: 'active' }),
+        peopleLoaded.current ? null : loadPeople(),
       ]);
+      peopleLoaded.current = true;
       setClassrooms(classItems);
-      setTeachers(teacherList);
-      setStudents(studentList);
     } catch (loadError) {
       setError(getErrorMessage(loadError, 'Unable to load classrooms.'));
     } finally {
       setLoading(false);
     }
-  }, [includeArchived]);
+  }, [includeArchived, loadPeople]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Puts a saved classroom into the list where the server would list it: active first, then by name.
+  const showSaved = (saved) => setClassrooms((current) => [...current.filter((classroom) => classroom.id !== saved.id), saved]
+    .filter((classroom) => includeArchived || !isArchived(classroom))
+    .sort((a, b) => Number(isArchived(a)) - Number(isArchived(b)) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)));
 
   const save = async (values) => {
     try {
@@ -79,11 +93,9 @@ export default function Classrooms() {
         studentIds: values.studentIds,
         openAccess: values.openAccess,
       };
-      if (form.id) await classroomService.update(form.id, changes);
-      else await classroomService.create(changes);
+      showSaved(form.id ? await classroomService.update(form.id, changes) : await classroomService.create(changes));
       toast.success(`Classroom ${form.id ? 'updated' : 'created'}.`);
       setForm(null);
-      await load();
     } catch (saveError) {
       toast.error(getErrorMessage(saveError, 'Unable to save classroom.'));
     }
@@ -91,10 +103,9 @@ export default function Classrooms() {
 
   const archive = async () => {
     try {
-      await classroomService.archive(archiving.id);
+      showSaved(await classroomService.archive(archiving.id));
       toast.success(`${archiving.name} was archived.`);
       setArchiving(null);
-      await load();
     } catch (archiveError) {
       toast.error(getErrorMessage(archiveError, 'Unable to archive classroom.'));
       setArchiving(null);

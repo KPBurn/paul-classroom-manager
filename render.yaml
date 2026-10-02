@@ -4,8 +4,12 @@ services:
     name: paul-classroom-api
     runtime: node
     plan: free
+    # The region is chosen in the Render dashboard. Use the one the Atlas cluster is in:
+    # each request makes several database trips and pays the distance on every one (see README).
     rootDir: server
     buildCommand: npm ci --omit=dev
+    # The seed runs on every start, wake-ups from sleep included: it connects to the database,
+    # checks the seed accounts and disconnects before the API starts and connects again.
     startCommand: npm run seed && npm start
     healthCheckPath: /api/health
     envVars:

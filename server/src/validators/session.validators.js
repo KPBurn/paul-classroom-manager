@@ -44,6 +44,12 @@ export const listSessionsQuerySchema = z.object({
   from: instant.optional(),
   to: instant.optional(),
   classroomId: objectId.optional(),
+  status: z.enum(['scheduled', 'cancelled']).optional(),
+  search: z.string().trim().max(100).optional(),
+  order: z.enum(['asc', 'desc']).optional(),
+  // With a limit the list is paged; `cursor` is the `nextCursor` of the page before.
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  cursor: z.string().max(200).optional(),
 }).refine((query) => !query.from || !query.to || query.to > query.from, {
   path: ['to'],
   message: 'The end of the period must be after its start',

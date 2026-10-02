@@ -113,7 +113,9 @@ GitHub Pages only serves static files, so the API runs on Render.
 5. Once deployed, open `https://<service-name>.onrender.com/api/health` and check it says `"database":"connected"`.
 6. For reliable classroom audio/video, activate a Metered TURN plan and create an active TURN credential. In Metered's **Developers** page, copy the workspace's Metered domain for `METERED_TURN_HOST`; in **TURN Server → Credentials**, open that credential's **Get credential → Show API Key** and use its credential-scoped key for `METERED_TURN_API_KEY`. Add both values to the Render service's **Environment** settings. Do not use the workspace Secret Key: it is not accepted by the credential-fetch endpoint. Keep the TURN API key in Render only; never add it to GitHub Pages or client variables. Redeploy the API after setting both values.
 
-Free Render services sleep after 15 minutes idle, so the first request after that can take up to a minute.
+Free Render services sleep after 15 minutes idle, so the first request after that can take up to a minute. The start command in `render.yaml` is `npm run seed && npm start`, so every start, including each wake-up, first connects to the database to check the seed accounts and then connects again for the API.
+
+**Keep the API and the database in the same region.** Every request makes several trips to MongoDB, one after another, so the distance between the Render service and the Atlas cluster is paid on each of them. When they were in different regions a trip took about 155 ms and a list page spent over a second waiting; in the same region a trip takes a few milliseconds. Choose the Render region and the Atlas cluster region to match (and near the people using the app). To check, compare `/api/health`, which does not touch the database, with `/api/auth/test-login/status`, which makes one trip: the difference is the cost of a trip.
 
 ### Client on GitHub Pages (one time)
 
@@ -167,7 +169,7 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | POST   | `/api/classrooms` | Admin | Create `{ name, teacherId, studentIds }` with active assigned users |
 | PATCH  | `/api/classrooms/:id` | Admin | Update classroom name or assignments |
 | POST   | `/api/classrooms/:id/archive` | Admin | Archive a classroom without deleting its history |
-| GET    | `/api/sessions` | Teacher | List sessions in teacher-assigned classrooms |
+| GET    | `/api/sessions` | Teacher | List sessions in teacher-assigned classrooms. Optional: `from`, `to`, `classroomId`, `status`, `search` (title, classroom or teacher), `order` (`asc`/`desc`). With `limit` (1–100) the answer is one page, `{ items, total, nextCursor }`; send `nextCursor` back as `cursor` for the next. Items name their teachers and give students by id |
 | GET    | `/api/sessions?view=mine` | Student | List sessions in the student's classrooms |
 | POST   | `/api/sessions` | Assigned teacher | Create `{ classroomId, title, startsAt, endsAt }` or a weekly schedule with `{ classroomId, title, startDate, endDate, startTime, endTime, weekdays, timezone }` |
 | GET    | `/api/sessions/:id/messages` | Assigned teacher or student | Read the latest 100 persistent room chat messages |

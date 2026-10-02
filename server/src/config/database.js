@@ -15,3 +15,10 @@ export async function connectDatabase(uri) {
 export async function disconnectDatabase() {
   await mongoose.disconnect();
 }
+
+/**
+ * MongoDB answers a query with its first 101 documents and sends the rest only
+ * when asked again, which costs a second trip to the database. Reads that
+ * return a whole list ask for this many at once instead.
+ */
+export const LIST_BATCH_SIZE = 1000;

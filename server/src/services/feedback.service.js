@@ -1,6 +1,8 @@
+import { LIST_BATCH_SIZE } from '../config/database.js';
 import { Classroom } from '../models/Classroom.js';
 import { ClassSession } from '../models/ClassSession.js';
 import { TeacherFeedback } from '../models/TeacherFeedback.js';
+import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { canManageSession, classroomsTaughtBy, isSessionTeacher } from '../authz/policies.js';
@@ -162,13 +164,33 @@ export async function listPendingLessons(user) {
   })
     .sort({ startsAt: -1 })
     .limit(200)
-    .populate({ path: 'classroom', select: 'name students', populate: { path: 'students', select: 'firstName lastName' } })
-    .populate('assignedStudents', 'firstName lastName');
+    .select('title startsAt classroom assignedStudents')
+    .batchSize(LIST_BATCH_SIZE)
+    .lean();
   const summary = { lessons: 0, students: 0, overdueLessons: 0, overdueStudents: 0 };
   if (!sessions.length) return { items: [], summary };
 
-  const feedback = await TeacherFeedback.find({ session: { $in: sessions.map(({ _id }) => _id) } })
-    .select('session student teacher status');
+  // Feedback, classrooms and the lessons' students are looked up together.
+  const namesOf = (ids) => User.find({ _id: { $in: ids } }).select('firstName lastName').batchSize(LIST_BATCH_SIZE).lean();
+  const [feedback, lessonClassrooms, snapshotStudents] = await Promise.all([
+    TeacherFeedback.find({ session: { $in: sessions.map(({ _id }) => _id) } })
+      .select('session student teacher status')
+      .lean(),
+    Classroom.find({ _id: { $in: sessions.map((session) => session.classroom) } }).select('name students').lean(),
+    namesOf(sessions.flatMap((session) => session.assignedStudents ?? [])),
+  ]);
+  const classroomById = new Map(lessonClassrooms.map((classroom) => [idOf(classroom), classroom]));
+  const studentById = new Map(snapshotStudents.map((student) => [idOf(student), student]));
+  // Older sessions have no snapshot of their own and take the classroom's roster.
+  const rosterIds = sessions
+    .filter((session) => !session.assignedStudents)
+    .flatMap((session) => classroomById.get(idOf(session.classroom))?.students ?? [])
+    .filter((id) => !studentById.has(idOf(id)));
+  for (const student of rosterIds.length ? await namesOf(rosterIds) : []) studentById.set(idOf(student), student);
+  const studentsOf = (session) => (session.assignedStudents ?? classroomById.get(idOf(session.classroom))?.students ?? [])
+    .map((id) => studentById.get(idOf(id)))
+    .filter(Boolean);
+
   const bySession = new Map();
   for (const item of feedback) {
     const key = idOf(item.session);
@@ -178,7 +200,7 @@ export async function listPendingLessons(user) {
   const items = [];
   for (const session of sessions) {
     const records = new Map((bySession.get(idOf(session)) ?? []).map((item) => [idOf(item.student), item]));
-    const students = [...lessonStudents(session)].sort((a, b) => (nameOf(a) ?? '').localeCompare(nameOf(b) ?? ''));
+    const students = studentsOf(session).sort((a, b) => (nameOf(a) ?? '').localeCompare(nameOf(b) ?? ''));
     const completed = students.filter((student) => records.get(idOf(student))?.status === 'completed').length;
     const drafts = students.filter((student) => {
       const record = records.get(idOf(student));
@@ -204,7 +226,7 @@ export async function listPendingLessons(user) {
           id: idOf(session),
           title: session.title,
           startsAt: session.startsAt,
-          classroom: { id: idOf(session.classroom), name: session.classroom?.name },
+          classroom: { id: idOf(session.classroom), name: classroomById.get(idOf(session.classroom))?.name },
         },
         total: students.length,
         completed,

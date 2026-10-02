@@ -6,6 +6,18 @@ export const sessionService = {
     return data.data.items;
   },
 
+  /**
+   * One page of a list, for lists too long to load whole. Pass `limit`, and the
+   * `nextCursor` of the page before as `cursor`. Also takes `status`, `search`
+   * and `order` ('desc' for newest first).
+   */
+  async page(params = {}) {
+    const { data } = await api.get('/sessions', { params });
+    const { items, total, nextCursor } = data.data;
+    // An API from before paging answers with the whole list and nothing else.
+    return { items, total: total ?? items.length, nextCursor: nextCursor ?? null };
+  },
+
   async messages(id) {
     const { data } = await api.get(`/sessions/${id}/messages`);
     return data.data.items;
