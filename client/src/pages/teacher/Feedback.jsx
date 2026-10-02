@@ -33,9 +33,12 @@ import { classroomService } from '../../services/classroom.service.js';
 import { feedbackService } from '../../services/feedback.service.js';
 import { sessionService } from '../../services/session.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { addDays, periodParams, startOfDay } from '../../utils/period.js';
 import { isSameLocalDay } from '../../utils/sessionTiming.js';
 
 const LESSONS_SHOWN = 12;
+// How far back lessons are offered for feedback.
+const LESSON_HISTORY_DAYS = 180;
 const QUICK_START_SHOWN = 6;
 const rowButton = 'group flex w-full items-center gap-3 px-5 py-3 text-left transition hover:bg-ink-50 focus-visible:-outline-offset-2';
 const TABS = [
@@ -61,7 +64,8 @@ export default function TeacherFeedback() {
     try {
       const [classrooms, sessions, recent, drafts] = await Promise.all([
         classroomService.list(),
-        sessionService.list(),
+        // Feedback follows a lesson, so only lessons up to the end of today are needed.
+        sessionService.list(periodParams(addDays(startOfDay(), -LESSON_HISTORY_DAYS), addDays(startOfDay(), 1))),
         feedbackService.list({ limit: 100 }),
         // The draft count is a convenience; the page still works without it.
         feedbackService.list({ status: 'draft', limit: 1 }).catch(() => ({ pagination: { total: 0 } })),

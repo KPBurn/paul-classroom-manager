@@ -242,11 +242,31 @@ function sessionResult(session, user) {
           leftAt: attendance.leftAt ?? null,
           durationMs: attendance.durationMs ?? 0,
         }
-      : { status: null, checkInAt: null },
+      : { status: missedSession(session, user) ? 'absent' : null, checkInAt: null },
   };
 }
 
-export async function listSessions(user, { view } = {}) {
+/**
+ * Someone expected at a session that is over, with no attendance recorded, was
+ * absent. Lists work this out as they are read; the absence is only written to
+ * the session when its attendance is opened (see `ensureAbsences`).
+ */
+function missedSession(session, user) {
+  if (session.status === 'cancelled' || session.endsAt > new Date()) return false;
+  const userId = String(user._id);
+  return sessionTeacherIds(session).includes(userId) || sessionStudentIds(session).includes(userId);
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** How far back a list goes when the caller does not say. */
+const DEFAULT_HISTORY_DAYS = 90;
+
+/**
+ * Sessions that overlap a period, oldest first. Without `from`, the period
+ * starts 90 days ago; without `to`, it has no end. Callers ask for the period
+ * they show, so a list never has to carry a school's whole history.
+ */
+export async function listSessions(user, { view, from, to, classroomId } = {}) {
   let filter;
   if (user.role === 'teacher' && !view) {
     const [assignedClassrooms, openClassrooms] = await Promise.all([
@@ -283,7 +303,12 @@ export async function listSessions(user, { view } = {}) {
   } else {
     throw new AppError(403, 'You do not have permission to view these sessions');
   }
-  const sessions = await ClassSession.find(filter)
+  const period = {
+    endsAt: { $gt: from ?? new Date(Date.now() - DEFAULT_HISTORY_DAYS * DAY_MS) },
+    ...(to && { startsAt: { $lt: to } }),
+    ...(classroomId && { classroom: classroomId }),
+  };
+  const sessions = await ClassSession.find({ $and: [filter, period] })
     .sort({ startsAt: 1 })
     .populate({
       path: 'classroom',
@@ -295,10 +320,7 @@ export async function listSessions(user, { view } = {}) {
       ],
     })
     .populate('assignedTeachers', 'firstName lastName')
-      .populate('assignedStudents', 'firstName lastName email')
-      .populate('attendance.participant', 'firstName lastName email role')
-      .populate('attendance.student', 'firstName lastName email role');
-  for (const session of sessions) await ensureAbsences(session);
+    .populate('assignedStudents', 'firstName lastName email');
   return { items: sessions.map((session) => sessionResult(session, user)) };
 }
 

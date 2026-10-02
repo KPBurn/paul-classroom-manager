@@ -13,14 +13,12 @@ import { labelClass } from '../../components/common/TextField.jsx';
 import { sessionService } from '../../services/session.service.js';
 import { useAuth } from '../../hooks/useAuth.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { addDays, dateInputToDate, dateInputValue, periodParams } from '../../utils/period.js';
 
 const formatTime = (value) => new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const formatDate = (value) => new Date(value).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
-const localDateValue = (value) => {
-  const date = new Date(value);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-};
-const todayValue = () => localDateValue(new Date());
+const localDateValue = dateInputValue;
+const todayValue = () => dateInputValue();
 
 const STATUS_LABELS = {
   present: 'Present',
@@ -38,27 +36,32 @@ export default function StudentDashboard() {
   const [error, setError] = useState('');
   const [selectedDate, setSelectedDate] = useState(todayValue);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // Only the chosen day is loaded. `quiet` refreshes it without replacing the list with a spinner.
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!selectedDate) return;
+    if (!quiet) setLoading(true);
     setError('');
     try {
-      setSessions(await sessionService.list({ view: 'mine' }));
+      const day = dateInputToDate(selectedDate);
+      setSessions(await sessionService.list({ view: 'mine', ...periodParams(day, addDays(day, 1)) }));
     } catch (loadError) {
       setError(getErrorMessage(loadError, 'Unable to load your sessions.'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedDate]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  // A session that has just finished gets its attendance result; pick it up without a manual refresh.
   useEffect(() => {
     const timer = window.setInterval(() => {
       const currentTime = Date.now();
-      if (sessions.some((session) => new Date(session.endsAt).getTime() < currentTime && !session.attendance?.status)) {
-        load();
+      if (sessions.some((session) => session.status !== 'cancelled'
+        && new Date(session.endsAt).getTime() < currentTime && !session.attendance?.status)) {
+        load({ quiet: true });
       }
     }, 30_000);
     return () => window.clearInterval(timer);

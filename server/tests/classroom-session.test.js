@@ -622,3 +622,76 @@ describe('class sessions and attendance', () => {
     assert.equal(pastCancel.status, 400);
   });
 });
+
+describe('listing sessions by period', () => {
+  const DAY = 24 * 60 * 60_000;
+  const at = (offset) => new Date(Date.now() + offset);
+
+  async function setup() {
+    const teacher = await createUser({ role: 'teacher' });
+    const student = await createUser({ role: 'student' });
+    const admin = await createUser({ role: 'admin' });
+    const room = (name) => Classroom.create({ name, teacher: teacher._id, teachers: [teacher._id], students: [student._id] });
+    const [classroom, other] = [await room('Period room'), await room('Other room')];
+    const session = (title, startsAt, target = classroom, extra = {}) => ClassSession.create({
+      classroom: target._id,
+      assignedTeachers: [teacher._id],
+      assignedStudents: [student._id],
+      title,
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 60 * 60_000),
+      ...extra,
+    });
+    await session('Long ago', at(-120 * DAY));
+    await session('Last week', at(-7 * DAY));
+    await session('Cancelled last week', at(-6 * DAY), classroom, { status: 'cancelled' });
+    await session('Tomorrow', at(DAY));
+    await session('Elsewhere', at(2 * DAY), other);
+    return { teacher, student, admin, classroom };
+  }
+  const titles = (response) => response.body.data.items.map(({ title }) => title);
+
+  it('goes back 90 days unless a period is given', async () => {
+    const { admin } = await setup();
+    const token = await login(admin);
+
+    const recent = await request(app).get('/api/sessions').set(auth(token));
+    assert.deepEqual(titles(recent), ['Last week', 'Cancelled last week', 'Tomorrow', 'Elsewhere']);
+
+    const older = await request(app)
+      .get(`/api/sessions?from=${at(-200 * DAY).toISOString()}&to=${at(-30 * DAY).toISOString()}`)
+      .set(auth(token));
+    assert.deepEqual(titles(older), ['Long ago']);
+
+    const ahead = await request(app).get(`/api/sessions?from=${at(0).toISOString()}`).set(auth(token));
+    assert.deepEqual(titles(ahead), ['Tomorrow', 'Elsewhere']);
+  });
+
+  it('narrows to one classroom and rejects a period that ends before it starts', async () => {
+    const { teacher, classroom } = await setup();
+    const token = await login(teacher);
+
+    const one = await request(app).get(`/api/sessions?from=${at(0).toISOString()}&classroomId=${classroom.id}`).set(auth(token));
+    assert.deepEqual(titles(one), ['Tomorrow']);
+
+    const backwards = await request(app)
+      .get(`/api/sessions?from=${at(DAY).toISOString()}&to=${at(0).toISOString()}`)
+      .set(auth(token));
+    assert.equal(backwards.status, 400);
+  });
+
+  it('reports a missed session as absent without writing to it', async () => {
+    const { student, admin } = await setup();
+
+    const mine = await request(app).get('/api/sessions?view=mine').set(auth(await login(student)));
+    const status = Object.fromEntries(mine.body.data.items.map(({ title, attendance }) => [title, attendance.status]));
+    assert.equal(status['Last week'], 'absent');
+    assert.equal(status['Cancelled last week'], null);
+    assert.equal(status.Tomorrow, null);
+
+    // Reading a list changes nothing; an administrator, who was not expected, is not marked absent.
+    assert.equal((await ClassSession.findOne({ title: 'Last week' })).attendance.length, 0);
+    const all = await request(app).get('/api/sessions').set(auth(await login(admin)));
+    assert.equal(all.body.data.items.find(({ title }) => title === 'Last week').attendance.status, null);
+  });
+});

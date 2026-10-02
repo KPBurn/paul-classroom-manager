@@ -48,6 +48,7 @@ import { feedbackService } from '../../services/feedback.service.js';
 import { sessionService } from '../../services/session.service.js';
 import { subjectService } from '../../services/subject.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { addDays, periodParams } from '../../utils/period.js';
 
 const LONG = 3000;
 const AUTOSAVE_DELAY_MS = 2500;
@@ -129,11 +130,16 @@ export default function FeedbackForm() {
     setLoading(true);
     setLoadError('');
     try {
-      const [lessonRoster, allSessions, subjects] = await Promise.all([
+      const [lessonRoster, subjects] = await Promise.all([
         feedbackService.lesson(sessionId),
-        sessionService.list(),
         subjectService.list().catch(() => []),
       ]);
+      // The lessons around this one in the same class, to show its weekly pattern ("Tue–Thu"). Optional.
+      const lessonAt = new Date(lessonRoster.lesson.startsAt);
+      const allSessions = await sessionService.list({
+        classroomId: lessonRoster.lesson.classroom.id,
+        ...periodParams(addDays(lessonAt, -7), addDays(lessonAt, 7)),
+      }).catch(() => []);
       const entry = lessonRoster.students.find((student) => student.id === studentId);
       if (!entry) throw new Error('This student is not part of the lesson.');
       const [existing, history] = await Promise.all([

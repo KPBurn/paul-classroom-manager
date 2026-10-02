@@ -40,6 +40,13 @@ export const createSessionSchema = z.union([oneTime, recurring]);
 
 export const listSessionsQuerySchema = z.object({
   view: z.enum(['mine']).optional(),
+  // The period to list: sessions that end after `from` and start before `to`.
+  from: instant.optional(),
+  to: instant.optional(),
+  classroomId: objectId.optional(),
+}).refine((query) => !query.from || !query.to || query.to > query.from, {
+  path: ['to'],
+  message: 'The end of the period must be after its start',
 });
 
 export const sessionIdParamsSchema = z.object({ id: objectId });

@@ -19,6 +19,7 @@ import { useNow } from '../../hooks/useNow.js';
 import { classroomService } from '../../services/classroom.service.js';
 import { sessionService } from '../../services/session.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { periodParams } from '../../utils/period.js';
 import {
   formatTime,
   isJoinable,
@@ -63,7 +64,8 @@ export default function ClassroomDetail() {
     try {
       const [loadedClassroom, allSessions] = await Promise.all([
         classroomService.get(id),
-        sessionService.list(isStudent ? { view: 'mine' } : {}),
+        // Only this class's sessions that are still to come.
+        sessionService.list({ ...(isStudent && { view: 'mine' }), classroomId: id, ...periodParams(new Date()) }),
       ]);
       setClassroom(loadedClassroom);
       setSessions(allSessions.filter((session) => session.classroom?.id === id));

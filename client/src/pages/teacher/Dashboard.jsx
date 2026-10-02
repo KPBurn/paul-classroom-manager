@@ -17,6 +17,7 @@ import { announcementService } from '../../services/announcement.service.js';
 import { classroomService } from '../../services/classroom.service.js';
 import { sessionService } from '../../services/session.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { addDays, periodParams, startOfDay } from '../../utils/period.js';
 import { formatDateTime } from '../../utils/format.js';
 import {
   formatTime,
@@ -30,6 +31,7 @@ import {
 import { classroomSize } from '../shared/MyClassrooms.jsx';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const DAYS_AHEAD = 30;
 
 export default function TeacherDashboard() {
   const { user } = useAuth();
@@ -46,7 +48,8 @@ export default function TeacherDashboard() {
     setError('');
     try {
       const [sessions, classrooms, announcements] = await Promise.all([
-        sessionService.list(),
+        // Today, the week ahead, and far enough on to find the next session after a quiet spell.
+        sessionService.list(periodParams(startOfDay(), addDays(startOfDay(), DAYS_AHEAD))),
         classroomService.list(),
         announcementService.list({ page: 1, limit: 3 }),
       ]);

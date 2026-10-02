@@ -9,7 +9,7 @@ import Button from '../../components/common/Button.jsx';
 import Card, { SectionLabel } from '../../components/common/Card.jsx';
 import EmptyState from '../../components/common/EmptyState.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
-import { FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
+import { controlClass, FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
 import Modal, { ModalActions } from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
@@ -20,6 +20,7 @@ import { useAuth } from '../../hooks/useAuth.js';
 import { useNow } from '../../hooks/useNow.js';
 import { ROLES } from '../../utils/roles.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { addDays, dateInputToDate, dateInputValue, periodParams, startOfDay } from '../../utils/period.js';
 import {
   formatTime,
   isJoinable,
@@ -29,15 +30,31 @@ import {
   sessionPhase,
 } from '../../utils/sessionTiming.js';
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const PAGE_SIZE = 40;
+const PAST_DAYS = 90;
 const WHEN_OPTIONS = [
   { value: 'upcoming', label: 'Upcoming' },
   { value: 'today', label: 'Today' },
   { value: 'week', label: 'Next 7 days' },
-  { value: 'past', label: 'Past' },
-  { value: 'all', label: 'All dates' },
+  { value: 'past', label: `Past ${PAST_DAYS} days` },
+  { value: 'custom', label: 'Choose dates' },
 ];
+
+/**
+ * The period each "Dates" choice covers, as `[from, to]`; an open end is left out.
+ * Only that period is loaded, so the list never carries the whole history.
+ */
+function periodFor(when, custom) {
+  const now = new Date();
+  const today = startOfDay(now);
+  switch (when) {
+    case 'today': return [today, addDays(today, 1)];
+    case 'week': return [now, addDays(now, 7)];
+    case 'past': return [addDays(today, -PAST_DAYS), now];
+    case 'custom': return [dateInputToDate(custom.from), addDays(dateInputToDate(custom.to), 1)];
+    default: return [now];
+  }
+}
 const STATUS_OPTIONS = [
   { value: '', label: 'Any status' },
   { value: 'scheduled', label: 'Scheduled' },
@@ -94,6 +111,12 @@ export default function TeacherSchedule() {
   const [attendanceSettingsId, setAttendanceSettingsId] = useState(null);
   const [query, setQuery] = useState('');
   const [when, setWhen] = useState('upcoming');
+  // The dates for "Choose dates": the last and the next 30 days to begin with.
+  const [custom, setCustom] = useState(() => ({
+    from: dateInputValue(addDays(new Date(), -30)),
+    to: dateInputValue(addDays(new Date(), 30)),
+  }));
+  const customValid = Boolean(custom.from && custom.to && custom.from <= custom.to);
   const [classroomFilter, setClassroomFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -104,10 +127,14 @@ export default function TeacherSchedule() {
   }, [query, when, classroomFilter, statusFilter]);
 
   const load = useCallback(async () => {
+    if (when === 'custom' && !customValid) return;
     setLoading(true);
     setError('');
     try {
-      const [items, classes] = await Promise.all([sessionService.list(), classroomService.list()]);
+      const [items, classes] = await Promise.all([
+        sessionService.list(periodParams(...periodFor(when, custom))),
+        classroomService.list(),
+      ]);
       setSessions(items);
       setClassrooms(classes);
     } catch (loadError) {
@@ -115,7 +142,7 @@ export default function TeacherSchedule() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [when, custom, customValid]);
 
   useEffect(() => {
     load();
@@ -155,9 +182,13 @@ export default function TeacherSchedule() {
     }
   };
 
+  // Every classroom you can schedule, plus any others that have sessions in the period shown.
   const classroomOptions = [
     { value: '', label: 'All classrooms' },
-    ...[...new Map(sessions.map((session) => [session.classroom?.id, session.classroom?.name])).entries()]
+    ...[...new Map([
+      ...classrooms.map((classroom) => [classroom.id, classroom.name]),
+      ...sessions.map((session) => [session.classroom?.id, session.classroom?.name]),
+    ]).entries()]
       .filter(([classroomId]) => classroomId)
       .sort((a, b) => (a[1] ?? '').localeCompare(b[1] ?? ''))
       .map(([value, label]) => ({ value, label })),
@@ -165,14 +196,14 @@ export default function TeacherSchedule() {
   const filtered = sessions
     .map((session) => ({ ...session, phase: sessionPhase(session, now) }))
     .filter((session) => {
-      const startsAt = new Date(session.startsAt).getTime();
+      // The period was applied when loading; this keeps the list right as time passes on an open page.
       const endsAt = new Date(session.endsAt).getTime();
       const inRange = {
         upcoming: endsAt > now,
-        today: isSameLocalDay(startsAt, now),
-        week: endsAt > now && startsAt - now <= WEEK_MS,
+        today: isSameLocalDay(session.startsAt, now),
+        week: endsAt > now,
         past: endsAt <= now,
-        all: true,
+        custom: true,
       }[when];
       const statusMatches = !statusFilter
         || (statusFilter === 'cancelled') === (session.status === 'cancelled');
@@ -235,18 +266,41 @@ export default function TeacherSchedule() {
         />
         <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
           <FilterSelect id="schedule-when" label="Dates" value={when} onChange={setWhen} options={WHEN_OPTIONS} className="sm:w-36" />
+          {when === 'custom' && (
+            <div className="col-span-2 flex items-center gap-2 text-xs text-ink-500">
+              <input
+                type="date"
+                value={custom.from}
+                max={custom.to || undefined}
+                onChange={(event) => setCustom((current) => ({ ...current, from: event.target.value }))}
+                className={`${controlClass} min-w-0 flex-1 px-2.5 sm:w-36 sm:flex-none`}
+                aria-label="From date"
+              />
+              to
+              <input
+                type="date"
+                value={custom.to}
+                min={custom.from || undefined}
+                onChange={(event) => setCustom((current) => ({ ...current, to: event.target.value }))}
+                className={`${controlClass} min-w-0 flex-1 px-2.5 sm:w-36 sm:flex-none`}
+                aria-label="To date"
+              />
+            </div>
+          )}
           <FilterSelect id="schedule-status" label="Status" value={statusFilter} onChange={setStatusFilter} options={STATUS_OPTIONS} className="sm:w-36" />
           <FilterSelect id="schedule-classroom" label="Classroom" value={classroomFilter} onChange={setClassroomFilter} options={classroomOptions} className="col-span-2 sm:w-48" />
         </div>
       </ListToolbar>
 
       {error && <div className="mb-4"><Alert tone="error">{error}</Alert></div>}
-      {loading ? <PageLoader label="Loading schedule…" /> : filtered.length === 0 ? (
+      {when === 'custom' && !customValid ? (
+        <EmptyState icon={CalendarDays} title="Choose a start and an end date" message="The end date must be on or after the start date." />
+      ) : loading ? <PageLoader label="Loading schedule…" /> : filtered.length === 0 ? (
         <EmptyState
           icon={CalendarDays}
-          title={sessions.length === 0 ? 'No sessions scheduled yet' : 'No sessions match your filters'}
-          message={sessions.length === 0 ? 'Create a schedule to see it here.' : 'Try another search, date range or classroom.'}
-          action={hasFilters && sessions.length > 0 && (
+          title={hasFilters ? 'No sessions match your filters' : 'No upcoming sessions'}
+          message={hasFilters ? 'Try another search, date range or classroom.' : 'Create a schedule to see it here. Earlier sessions are under Dates.'}
+          action={hasFilters && (
             <Button variant="secondary" onClick={clearFilters}>Clear filters</Button>
           )}
         />
