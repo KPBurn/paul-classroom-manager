@@ -5,8 +5,9 @@ import { AnnouncementDialog } from '../../components/announcements/AnnouncementF
 import { ErrorState } from '../../components/common/Alert.jsx';
 import Badge from '../../components/common/Badge.jsx';
 import Button, { ButtonLink } from '../../components/common/Button.jsx';
-import Card, { CardHeader, SectionLabel, textLinkClass } from '../../components/common/Card.jsx';
+import Card, { CardHeader, textLinkClass } from '../../components/common/Card.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
+import NextUp from '../../components/sessions/NextUp.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import StatStrip from '../../components/common/StatStrip.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
@@ -118,7 +119,12 @@ export default function TeacherDashboard() {
         <PageLoader label="Loading dashboard…" />
       ) : (
         <div className="space-y-6">
-          <NextUp session={nextUp} now={now} onJoin={join} />
+          <NextUp
+            session={nextUp}
+            now={now}
+            onJoin={join}
+            emptyMessage="You have no upcoming sessions. Schedule one from the Schedule page."
+          />
 
           <StatStrip stats={stats} label="Summary" />
 
@@ -238,46 +244,5 @@ export default function TeacherDashboard() {
       )}
       <AnnouncementDialog announcement={openAnnouncement} onClose={() => setOpenAnnouncement(null)} />
     </>
-  );
-}
-
-function NextUp({ session, now, onJoin }) {
-  if (!session) {
-    return (
-      <section className="rounded-xl border border-dashed border-ink-300 px-6 py-8 text-center">
-        <p className="text-sm font-medium text-ink-900">Nothing coming up</p>
-        <p className="mt-1 text-sm text-ink-500">You have no upcoming sessions. Schedule one from the Schedule page.</p>
-      </section>
-    );
-  }
-
-  const live = session.phase === 'live';
-  const today = isSameLocalDay(session.startsAt, now);
-  const when = live
-    ? `Live now · ends at ${formatTime(session.endsAt)}`
-    : `${today ? 'Today' : new Date(session.startsAt).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })} · ${formatTime(session.startsAt)}–${formatTime(session.endsAt)}`;
-  const startsIn = !live && timeUntil(session.startsAt, now);
-
-  return (
-    <Card
-      as="section"
-      className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6"
-      aria-labelledby="next-up-heading"
-    >
-      <div className="min-w-0">
-        <SectionLabel as="p" className={`flex items-center gap-2 ${live ? 'text-emerald-700' : ''}`}>
-          {live && <span className="size-1.5 animate-pulse rounded-full bg-emerald-600" aria-hidden="true" />}
-          {live ? 'Happening now' : 'Next up'}
-        </SectionLabel>
-        <h2 id="next-up-heading" className="mt-1.5 truncate font-display text-2xl font-medium tracking-[-0.02em] text-ink-900">{session.title}</h2>
-        <p className="mt-1 text-sm text-ink-600">
-          {session.classroom?.name} · {when}
-          {startsIn && <span className="font-medium text-ink-900"> · Starts {startsIn}</span>}
-        </p>
-      </div>
-      <Button size="lg" className="shrink-0" onClick={() => onJoin(session)}>
-        <Video className="size-5" aria-hidden="true" /> {live ? 'Join now' : 'Join session'}
-      </Button>
-    </Card>
   );
 }

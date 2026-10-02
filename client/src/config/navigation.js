@@ -15,7 +15,6 @@ import {
   UserRound,
   Users,
   Wallet,
-  CalendarCheck,
 } from 'lucide-react';
 
 /**
@@ -74,7 +73,7 @@ export const teacherNavigation = [
 export const studentNavigation = [
   {
     items: [
-      { label: 'Attendance', to: '/student', icon: CalendarCheck, end: true },
+      { label: 'Dashboard', to: '/student', icon: LayoutDashboard, end: true },
       { label: 'My Classrooms', to: '/student/classrooms', icon: School },
       { label: 'Materials', to: '/student/materials', icon: BookOpen },
     ],
