@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarCheck, Clock3 } from 'lucide-react';
+import { CalendarCheck, Video } from 'lucide-react';
 import Alert from '../../components/common/Alert.jsx';
+import Badge from '../../components/common/Badge.jsx';
 import Button from '../../components/common/Button.jsx';
+import Card from '../../components/common/Card.jsx';
 import EmptyState from '../../components/common/EmptyState.jsx';
+import { controlClass } from '../../components/common/ListFilters.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
-import Spinner from '../../components/common/Spinner.jsx';
+import { PageLoader } from '../../components/common/Spinner.jsx';
+import { labelClass } from '../../components/common/TextField.jsx';
 import { sessionService } from '../../services/session.service.js';
 import { useAuth } from '../../hooks/useAuth.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -24,11 +28,7 @@ const STATUS_LABELS = {
   absent: 'Absent',
 };
 
-const STATUS_STYLES = {
-  present: 'bg-emerald-50 text-emerald-700',
-  late: 'bg-amber-50 text-amber-800',
-  absent: 'bg-red-50 text-red-700',
-};
+const STATUS_TONES = { present: 'success', late: 'warning', absent: 'danger' };
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
@@ -69,8 +69,8 @@ export default function StudentDashboard() {
   return (
     <>
       <PageHeader title={`Welcome, ${user.firstName}`} description="Join a scheduled class room; attendance is recorded automatically." />
-      <div className="mb-5 max-w-xs">
-        <label htmlFor="attendance-date" className="mb-1.5 block text-sm font-medium text-slate-700">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <label htmlFor="attendance-date" className={labelClass}>
           Session date
         </label>
         <input
@@ -78,56 +78,51 @@ export default function StudentDashboard() {
           type="date"
           value={selectedDate}
           onChange={(event) => setSelectedDate(event.target.value)}
-          className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+          className={`${controlClass} w-44 px-2.5`}
         />
       </div>
-      {error && <Alert tone="error">{error}</Alert>}
-      {loading ? <div className="flex justify-center py-16"><Spinner /></div> : selectedSessions.length === 0 ? (
+      {error && <div className="mb-4"><Alert tone="error">{error}</Alert></div>}
+      {loading ? <PageLoader label="Loading sessions…" /> : selectedSessions.length === 0 ? (
         <EmptyState
           icon={CalendarCheck}
           title="No sessions on this date"
           message="Choose another date or check back when your teacher schedules a session."
         />
       ) : (
-        <div className="space-y-3">
+        <Card as="ul" className="divide-y divide-ink-200">
           {selectedSessions.map((session) => {
             const attendanceStatus = session.attendance?.status;
+            const cancelled = session.status === 'cancelled';
             return (
-              <article key={session.id} className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex gap-3">
-                  <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                    <Clock3 className="size-5" aria-hidden="true" />
-                  </span>
-                  <div>
-                    <h2 className="font-semibold text-slate-900">{session.title}</h2>
-                    <p className="text-sm text-slate-600">{session.classroom?.name}</p>
-                    <p className="mt-1 text-sm text-slate-500">{formatDate(session.startsAt)} · {formatTime(session.startsAt)}–{formatTime(session.endsAt)}</p>
-                    {session.status === 'cancelled' && <p className="mt-1 text-sm font-medium text-slate-500">Cancelled</p>}
-                    {session.status !== 'cancelled' && session.endedAt && (
-                      <p className="mt-1 text-sm font-medium text-slate-500">The teacher ended this class</p>
-                    )}
-                  </div>
+              <li key={session.id} className="grid gap-3 px-5 py-4 sm:grid-cols-[7.5rem_minmax(0,1fr)_auto] sm:items-center sm:gap-4">
+                <p className={`text-sm tabular-nums ${cancelled ? 'text-ink-400 line-through' : 'font-medium text-ink-900'}`}>
+                  {formatTime(session.startsAt)}
+                  <span className="font-normal text-ink-500"> – {formatTime(session.endsAt)}</span>
+                </p>
+                <div className="min-w-0">
+                  <h2 className={`truncate text-sm font-medium ${cancelled ? 'text-ink-500' : 'text-ink-900'}`}>{session.title}</h2>
+                  <p className="truncate text-xs text-ink-500">
+                    {session.classroom?.name} · {formatDate(session.startsAt)}
+                    {cancelled && ' · Cancelled'}
+                    {!cancelled && session.endedAt && ' · The teacher ended this class'}
+                  </p>
                 </div>
-                <div className="flex items-center gap-3 sm:justify-end">
-                  {session.status !== 'cancelled' && !session.endedAt && (
-                    <Button variant="secondary" onClick={() => navigate(`/sessions/${session.id}/room`)}>
-                      Open class room
+                <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                  {attendanceStatus ? (
+                    <Badge tone={STATUS_TONES[attendanceStatus]}>{STATUS_LABELS[attendanceStatus] ?? attendanceStatus}</Badge>
+                  ) : (
+                    <span className="text-xs text-ink-500">{cancelled ? 'Not attending' : 'Attendance records when you join'}</span>
+                  )}
+                  {!cancelled && !session.endedAt && (
+                    <Button variant="secondary" size="sm" onClick={() => navigate(`/sessions/${session.id}/room`)}>
+                      <Video className="size-4" aria-hidden="true" /> Open class room
                     </Button>
                   )}
-                  {attendanceStatus ? (
-                    <span className={`rounded-full px-3 py-1.5 text-sm font-medium ${STATUS_STYLES[attendanceStatus] ?? 'bg-slate-100 text-slate-600'}`}>
-                      {STATUS_LABELS[attendanceStatus] ?? attendanceStatus}
-                    </span>
-                  ) : session.status === 'cancelled' ? (
-                    <span className="text-sm text-slate-500">Not attending</span>
-                  ) : (
-                    <span className="text-sm text-slate-500">Attendance records when you join</span>
-                  )}
                 </div>
-              </article>
+              </li>
             );
           })}
-        </div>
+        </Card>
       )}
 
     </>

@@ -28,13 +28,14 @@ export const PHASE_LABELS = {
   upcoming: 'Upcoming',
 };
 
-export const PHASE_STYLES = {
-  cancelled: 'bg-slate-100 text-slate-600',
-  closed: 'bg-slate-100 text-slate-600',
-  ended: 'bg-slate-100 text-slate-600',
-  live: 'bg-emerald-50 text-emerald-700',
-  soon: 'bg-amber-50 text-amber-800',
-  upcoming: 'bg-indigo-50 text-indigo-700',
+/** The `Badge` tone for each phase. */
+export const PHASE_TONES = {
+  cancelled: 'neutral',
+  closed: 'neutral',
+  ended: 'neutral',
+  live: 'success',
+  soon: 'warning',
+  upcoming: 'info',
 };
 
 export const formatTime = (value) => new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });

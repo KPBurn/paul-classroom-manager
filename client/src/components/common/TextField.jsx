@@ -1,21 +1,25 @@
-const inputClass = (error, extra = '') =>
-  `block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-slate-900 shadow-xs outline-none transition placeholder:text-slate-400 focus:ring-2 ${
+/** The shared look of every text input, select and textarea. */
+export const inputClass = (error, extra = '') =>
+  `block w-full rounded-lg border bg-white px-3 py-2 text-sm leading-6 text-ink-900 outline-none transition placeholder:text-ink-400 focus:ring-2 disabled:bg-ink-50 disabled:text-ink-500 ${
     error
       ? 'border-red-400 focus:border-red-500 focus:ring-red-100'
-      : 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-100'
+      : 'border-ink-300 hover:border-ink-400 focus:border-accent-500 focus:ring-accent-100'
   } ${extra}`;
+
+/** The shared look of a field label, for controls that are not one of the fields below. */
+export const labelClass = 'block text-sm font-medium text-ink-700';
 
 /** Label row with an optional required marker and "12/120" character counter. */
 function FieldLabel({ id, label, count, maxLength, required }) {
   const showCount = count !== undefined && maxLength;
   return (
     <div className="mb-1.5 flex items-baseline justify-between gap-2">
-      <label htmlFor={id} className="block text-sm font-medium text-slate-700">
+      <label htmlFor={id} className={labelClass}>
         {label}
         {required && <span className="ml-0.5 text-red-600" aria-hidden="true">*</span>}
       </label>
       {showCount && (
-        <span className={`text-xs tabular-nums ${count >= maxLength ? 'text-amber-600' : 'text-slate-400'}`}>
+        <span className={`text-xs tabular-nums ${count >= maxLength ? 'text-amber-700' : 'text-ink-400'}`}>
           {count}/{maxLength}
         </span>
       )}
@@ -26,7 +30,7 @@ function FieldLabel({ id, label, count, maxLength, required }) {
 function FieldError({ id, error }) {
   if (!error) return null;
   return (
-    <p id={id} className="mt-1.5 text-sm text-red-600">
+    <p id={id} className="mt-1.5 text-sm text-red-700">
       {error}
     </p>
   );
@@ -51,7 +55,7 @@ export default function TextField({ id, label, error, trailing, count, className
           className={inputClass(error, trailing ? 'pr-11' : '')}
           {...inputProps}
         />
-        {trailing && <div className="absolute inset-y-0 right-0 flex items-center pr-1.5">{trailing}</div>}
+        {trailing && <div className="absolute inset-y-0 right-0 flex items-center pr-1">{trailing}</div>}
       </div>
       <FieldError id={errorId} error={error} />
     </div>
@@ -69,7 +73,7 @@ export function SelectField({ id, label, error, options, className = '', ...sele
         id={id}
         aria-invalid={Boolean(error)}
         aria-describedby={error ? errorId : undefined}
-        className={inputClass(error, 'pr-8 disabled:bg-slate-50 disabled:text-slate-500')}
+        className={inputClass(error, 'h-10.5 pr-8')}
         {...selectProps}
       >
         {options.map((option) => (

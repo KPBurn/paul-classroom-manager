@@ -1,6 +1,7 @@
 import { Megaphone } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import Alert from '../../components/common/Alert.jsx';
+import { ButtonLink } from '../../components/common/Button.jsx';
+import { SectionLabel } from '../../components/common/Card.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import ModuleGrid from '../../components/dashboard/ModuleGrid.jsx';
 import { adminNavigation, navigationItems } from '../../config/navigation.js';
@@ -17,25 +18,21 @@ export default function AdminDashboard() {
         title="Admin Dashboard"
         description={`Welcome back, ${user.firstName}.`}
         actions={
-          <Link
-            to="/admin/announcements"
-            state={{ openCreate: true }}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-          >
+          <ButtonLink to="/admin/announcements" state={{ openCreate: true }}>
             <Megaphone className="size-4" aria-hidden="true" />
             Create Announcement
-          </Link>
+          </ButtonLink>
         }
       />
 
-      <div className="mb-6">
+      <div className="mb-8">
         <Alert>
           Reporting and recent activity summaries will appear here in a later phase. Manage classroom
           assignments from Classrooms and session attendance from the teacher Schedule module.
         </Alert>
       </div>
 
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-500">Modules</h2>
+      <SectionLabel className="mb-3">Modules</SectionLabel>
       <ModuleGrid items={modules} />
     </>
   );

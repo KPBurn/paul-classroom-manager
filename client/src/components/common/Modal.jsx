@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef } from 'react';
+import { IconButton } from './Button.jsx';
 
 /**
  * Accessible modal built on the native <dialog> element, which provides focus
@@ -27,29 +28,31 @@ export default function Modal({ open, onClose, title, description, children, siz
       onClick={(event) => {
         if (event.target === dialogRef.current) onClose(); // click on the backdrop
       }}
-      className={`m-auto w-[calc(100%-2rem)] ${size} rounded-2xl bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-900/50`}
+      className={`m-auto w-[calc(100%-2rem)] ${size} rounded-2xl border border-ink-200 bg-white p-0 text-ink-900 shadow-xl`}
     >
       {open && (
         <div className="p-5 sm:p-6">
           <div className="mb-5 flex items-start justify-between gap-4">
-            <div>
-              <h2 id={titleId} className="text-lg font-semibold">
+            <div className="min-w-0">
+              <h2 id={titleId} className="text-base font-semibold">
                 {title}
               </h2>
-              {description && <p className="mt-1 text-sm text-slate-600">{description}</p>}
+              {description && <p className="mt-1 text-sm text-ink-500">{description}</p>}
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="-mr-1.5 -mt-1 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              aria-label="Close"
-            >
-              <X className="size-5" />
-            </button>
+            <IconButton label="Close" icon={X} onClick={onClose} className="-mr-1.5 -mt-1" />
           </div>
           {children}
         </div>
       )}
     </dialog>
+  );
+}
+
+/** The button row at the bottom of a form in a dialog. */
+export function ModalActions({ children, className = '' }) {
+  return (
+    <div className={`flex flex-col-reverse gap-2 border-t border-ink-200 pt-4 sm:flex-row sm:justify-end ${className}`}>
+      {children}
+    </div>
   );
 }

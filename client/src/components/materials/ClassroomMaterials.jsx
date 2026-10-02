@@ -1,10 +1,13 @@
 import { Paperclip, Plus } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
+import Alert from '../common/Alert.jsx';
 import Button from '../common/Button.jsx';
+import Card, { SectionLabel } from '../common/Card.jsx';
 import ConfirmDialog from '../common/ConfirmDialog.jsx';
+import EmptyState from '../common/EmptyState.jsx';
 import { FilterSelect } from '../common/ListFilters.jsx';
-import Spinner from '../common/Spinner.jsx';
+import { PageLoader } from '../common/Spinner.jsx';
 import { useNow } from '../../hooks/useNow.js';
 import { subjectService } from '../../services/subject.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -60,10 +63,10 @@ export default function ClassroomMaterials({ classroomId, canManage, archived })
 
   return (
     <section aria-labelledby="class-materials">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h2 id="class-materials" className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-          Materials {!loading && total > 0 && <span className="font-normal normal-case tracking-normal">({total})</span>}
-        </h2>
+      <div className="mb-3 flex min-h-9 flex-wrap items-center justify-between gap-3">
+        <SectionLabel id="class-materials">
+          Materials {!loading && total > 0 && <span className="tabular-nums">({total})</span>}
+        </SectionLabel>
         <div className="flex items-center gap-2">
           {subjects.length > 1 && (
             <FilterSelect
@@ -76,7 +79,7 @@ export default function ClassroomMaterials({ classroomId, canManage, archived })
             />
           )}
           {canManage && !archived && (
-            <Button className="!px-3 !py-2" onClick={() => setIsAddOpen(true)}>
+            <Button size="sm" variant="secondary" onClick={() => setIsAddOpen(true)}>
               <Plus className="size-4" aria-hidden="true" /> Add material
             </Button>
           )}
@@ -84,41 +87,39 @@ export default function ClassroomMaterials({ classroomId, canManage, archived })
       </div>
 
       {loading ? (
-        <div className="flex justify-center rounded-xl border border-slate-200 bg-white py-10 text-indigo-600"><Spinner className="size-5" /></div>
+        <PageLoader label="Loading materials…" className="py-10" />
       ) : error ? (
-        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
+        <Alert tone="error">{error}</Alert>
       ) : total === 0 && !canManage ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
-          <Paperclip className="mx-auto size-6 text-slate-400" aria-hidden="true" />
-          <p className="mt-2 text-sm text-slate-600">Your teacher has not shared any materials for this class yet.</p>
-        </div>
+        <EmptyState icon={Paperclip} title="No materials yet" message="Your teacher has not shared any materials for this class yet." className="py-10" />
       ) : subjects.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
-          <Paperclip className="mx-auto size-6 text-slate-400" aria-hidden="true" />
-          <p className="mt-2 text-sm font-medium text-slate-900">No materials yet</p>
-          <p className="mt-1 text-sm text-slate-500">Attach files and images, such as handouts, slides or worksheets, for this class.</p>
-          {!archived && (
-            <Button className="mt-4" onClick={() => setIsAddOpen(true)}>
+        <EmptyState
+          icon={Paperclip}
+          title="No materials yet"
+          message="Attach files and images, such as handouts, slides or worksheets, for this class."
+          className="py-10"
+          action={!archived && (
+            <Button onClick={() => setIsAddOpen(true)}>
               <Plus className="size-4" aria-hidden="true" /> Add material
             </Button>
           )}
-        </div>
+        />
       ) : (
         <div className="space-y-3">
           {shownSubjects
             .filter((subject) => canManage || subject.materials.length > 0)
             .map((subject) => (
-              <div key={subject.id} className="rounded-xl border border-slate-200 bg-white shadow-xs">
-                <h3 className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-900">
+              <Card key={subject.id}>
+                <h3 className="flex items-center justify-between gap-2 border-b border-ink-200 px-5 py-2.5 text-sm font-semibold text-ink-900">
                   {subject.name}
-                  <span className="text-xs font-normal text-slate-500">
+                  <span className="text-xs font-normal tabular-nums text-ink-500">
                     {subject.materials.length} {subject.materials.length === 1 ? 'material' : 'materials'}
                   </span>
                 </h3>
                 {subject.materials.length === 0 ? (
-                  <p className="px-4 py-3 text-sm text-slate-500">No materials in this subject yet.</p>
+                  <p className="px-5 py-3 text-sm text-ink-500">No materials in this subject yet.</p>
                 ) : (
-                  <ul className="divide-y divide-slate-100">
+                  <ul className="divide-y divide-ink-200">
                     {subject.materials.map((material) => (
                       <MaterialItem
                         key={material.id}
@@ -130,7 +131,7 @@ export default function ClassroomMaterials({ classroomId, canManage, archived })
                     ))}
                   </ul>
                 )}
-              </div>
+              </Card>
             ))}
         </div>
       )}
@@ -149,7 +150,7 @@ export default function ClassroomMaterials({ classroomId, canManage, archived })
         title="Delete this material?"
         message={deleting && (
           <p>
-            <span className="font-medium text-slate-900">{deleting.material.title || deleting.material.name}</span> will be
+            <span className="font-medium text-ink-900">{deleting.material.title || deleting.material.name}</span> will be
             removed for everyone in this class.
           </p>
         )}

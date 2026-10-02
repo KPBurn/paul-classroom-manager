@@ -1,9 +1,10 @@
 import { ChevronRight, MessageSquareText } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import Alert from '../common/Alert.jsx';
+import { ErrorState } from '../common/Alert.jsx';
 import Button from '../common/Button.jsx';
-import { FilterSelect, ListToolbar } from '../common/ListFilters.jsx';
+import Card from '../common/Card.jsx';
+import { controlClass, FilterSelect, ListToolbar } from '../common/ListFilters.jsx';
 import Pagination from '../common/Pagination.jsx';
 import EmptyState, { Skeleton } from '../common/EmptyState.jsx';
 import StatusPill from './StatusPill.jsx';
@@ -17,7 +18,7 @@ const STATUS_OPTIONS = [
   { value: 'completed', label: 'Completed' },
   { value: 'draft', label: 'Drafts' },
 ];
-const dateInputClass = 'h-9 rounded-lg border border-slate-300 bg-white px-2.5 text-sm text-slate-900 shadow-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100';
+const dateInputClass = `${controlClass} px-2.5`;
 
 /**
  * Past feedback with filters. `classrooms` feed the class and student
@@ -96,11 +97,11 @@ export default function FeedbackHistory({ classrooms, teachers, basePath, initia
             />
           )}
           <FilterSelect id="feedback-status" label="Status" value={filters.status} onChange={(status) => update({ status })} options={STATUS_OPTIONS} className="sm:w-36" />
-          <label className="flex items-center gap-1.5 text-xs text-slate-500">
+          <label className="flex items-center gap-1.5 text-xs text-ink-500">
             <span className="sr-only sm:not-sr-only">From</span>
             <input type="date" value={filters.from} max={filters.to || undefined} onChange={(event) => update({ from: event.target.value })} className={`${dateInputClass} w-full sm:w-36`} aria-label="From date" />
           </label>
-          <label className="flex items-center gap-1.5 text-xs text-slate-500">
+          <label className="flex items-center gap-1.5 text-xs text-ink-500">
             <span className="sr-only sm:not-sr-only">To</span>
             <input type="date" value={filters.to} min={filters.from || undefined} onChange={(event) => update({ to: event.target.value })} className={`${dateInputClass} w-full sm:w-36`} aria-label="To date" />
           </label>
@@ -108,10 +109,7 @@ export default function FeedbackHistory({ classrooms, teachers, basePath, initia
       </ListToolbar>
 
       {state.status === 'error' ? (
-        <div className="space-y-3">
-          <Alert tone="error">{state.error}</Alert>
-          <Button variant="secondary" onClick={() => setReloadKey((key) => key + 1)}>Try again</Button>
-        </div>
+        <ErrorState message={state.error} onRetry={() => setReloadKey((key) => key + 1)} />
       ) : state.status === 'loading' && state.items.length === 0 ? (
         <div className="space-y-2" role="status" aria-label="Loading feedback">
           {[0, 1, 2, 3].map((item) => <Skeleton key={item} className="h-14 rounded-xl" />)}
@@ -129,31 +127,31 @@ export default function FeedbackHistory({ classrooms, teachers, basePath, initia
         />
       ) : (
         <>
-          <ul className={`divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs transition-opacity ${state.status === 'loading' ? 'opacity-60' : ''}`}>
+          <Card as="ul" className={`divide-y divide-ink-200 overflow-hidden transition-opacity ${state.status === 'loading' ? 'opacity-60' : ''}`}>
             {state.items.map((item) => (
               <li key={item.id}>
                 <Link
                   to={`${basePath}/${item.id}`}
-                  className="group flex items-center gap-3 border-l-4 border-transparent px-4 py-3 transition hover:border-indigo-500 hover:bg-indigo-50/60 focus-visible:-outline-offset-2"
+                  className="flex items-center gap-3 px-5 py-3 transition hover:bg-ink-50 focus-visible:-outline-offset-2"
                 >
-                  <div className="w-24 shrink-0 text-sm">
-                    <p className="font-medium text-slate-900">{formatShortDate(item.session.startsAt)}</p>
-                    <p className="text-slate-500">{formatTime(item.session.startsAt)}</p>
+                  <div className="w-24 shrink-0 text-sm tabular-nums">
+                    <p className="text-ink-900">{formatShortDate(item.session.startsAt)}</p>
+                    <p className="text-xs text-ink-500">{formatTime(item.session.startsAt)}</p>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-slate-900 group-hover:text-indigo-800">{item.student.name}</p>
-                    <p className="truncate text-sm text-slate-500">
+                    <p className="truncate text-sm font-medium text-ink-900">{item.student.name}</p>
+                    <p className="truncate text-sm text-ink-500">
                       {item.classroom.name}
                       {item.book && ` · ${item.book}`}
                       {teachers && ` · by ${item.teacher.name}`}
                     </p>
                   </div>
                   <StatusPill status={item.status} />
-                  <ChevronRight className="size-4 shrink-0 text-slate-400" aria-hidden="true" />
+                  <ChevronRight className="size-4 shrink-0 text-ink-400" aria-hidden="true" />
                 </Link>
               </li>
             ))}
-          </ul>
+          </Card>
           <Pagination
             className="mt-4"
             pagination={state.pagination}

@@ -3,8 +3,9 @@ import { BookOpen, School, SearchX } from 'lucide-react';
 import EmptyState from '../../components/common/EmptyState.jsx';
 import Alert from '../../components/common/Alert.jsx';
 import { FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
+import Card from '../../components/common/Card.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
-import Spinner from '../../components/common/Spinner.jsx';
+import { PageLoader } from '../../components/common/Spinner.jsx';
 import MaterialItem from '../../components/materials/MaterialItem.jsx';
 import { useNow } from '../../hooks/useNow.js';
 import { subjectService } from '../../services/subject.service.js';
@@ -75,9 +76,9 @@ export default function StudentMaterials() {
           )}
         </ListToolbar>
       )}
-      {error && <div className="mb-3"><Alert tone="error">{error}</Alert></div>}
+      {error && <div className="mb-4"><Alert tone="error">{error}</Alert></div>}
       {loading ? (
-        <div className="flex justify-center py-16"><Spinner /></div>
+        <PageLoader label="Loading materials…" />
       ) : subjects.length === 0 ? (
         <EmptyState
           icon={BookOpen}
@@ -89,23 +90,23 @@ export default function StudentMaterials() {
       ) : (
         <div className="space-y-3">
           {shown.map((subject) => (
-            <section key={subject.id} className="rounded-xl border border-slate-200 bg-white shadow-xs">
-              <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5">
-                <h2 className="font-semibold text-slate-900">{subject.name}</h2>
-                <p className="flex items-center gap-1.5 text-xs text-slate-500">
+            <Card as="section" key={subject.id}>
+              <header className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-200 px-5 py-2.5">
+                <h2 className="text-sm font-semibold text-ink-900">{subject.name}</h2>
+                <p className="flex items-center gap-1.5 text-xs text-ink-500">
                   <School className="size-3.5" aria-hidden="true" /> {subject.classroom.name}
                 </p>
               </header>
               {subject.materials.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-slate-500">No materials have been shared yet.</p>
+                <p className="px-5 py-3 text-sm text-ink-500">No materials have been shared yet.</p>
               ) : (
-                <ul className="divide-y divide-slate-100">
+                <ul className="divide-y divide-ink-200">
                   {subject.materials.map((material) => (
                     <MaterialItem key={material.id} subjectId={subject.id} material={material} now={now} />
                   ))}
                 </ul>
               )}
-            </section>
+            </Card>
           ))}
         </div>
       )}

@@ -38,7 +38,7 @@ export default function ActionMenu({ label, items }) {
         aria-controls={open ? menuId : undefined}
         aria-label={label}
         title="More actions"
-        className="flex size-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+        className={`flex size-8 items-center justify-center rounded-md text-ink-500 transition hover:bg-ink-100 hover:text-ink-900 ${open ? 'bg-ink-100 text-ink-900' : ''}`}
       >
         <MoreHorizontal className="size-4" aria-hidden="true" />
       </button>
@@ -46,7 +46,7 @@ export default function ActionMenu({ label, items }) {
         <div
           id={menuId}
           role="menu"
-          className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+          className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-xl border border-ink-200 bg-white p-1 shadow-lg"
         >
           {visibleItems.map(({ label: itemLabel, icon: Icon, onClick, danger, disabled }) => (
             <button
@@ -58,7 +58,7 @@ export default function ActionMenu({ label, items }) {
                 setOpen(false);
                 onClick();
               }}
-              className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition disabled:opacity-50 ${danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-50'}`}
+              className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition disabled:opacity-50 ${danger ? 'text-red-700 hover:bg-red-50' : 'text-ink-700 hover:bg-ink-50'}`}
             >
               {Icon && <Icon className="size-4 shrink-0" aria-hidden="true" />}
               {itemLabel}

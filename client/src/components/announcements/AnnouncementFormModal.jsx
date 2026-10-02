@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import Button from '../common/Button.jsx';
-import Modal from '../common/Modal.jsx';
+import Modal, { ModalActions } from '../common/Modal.jsx';
 import TextField, { TextAreaField } from '../common/TextField.jsx';
 
 // Keep in sync with ANNOUNCEMENT_LIMITS in server/src/models/Announcement.js.
@@ -93,12 +93,12 @@ export default function AnnouncementFormModal({
           {...register('body')}
         />
 
-        <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
+        <ModalActions>
           <Button variant="secondary" onClick={close} disabled={isSaving}>
             Cancel
           </Button>
           <Button type="submit" isLoading={isSaving}>{submitLabel}</Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

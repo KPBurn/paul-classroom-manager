@@ -16,6 +16,9 @@ import {
   Video,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import Badge from '../../components/common/Badge.jsx';
+import Brand from '../../components/common/Brand.jsx';
+import { buttonClass, ButtonLink } from '../../components/common/Button.jsx';
 import Login from '../auth/Login.jsx';
 
 const NAV_LINKS = [
@@ -115,73 +118,58 @@ const ASSURANCES = [
   { icon: MonitorSmartphone, title: 'Works in the browser', description: 'Use it on a computer, tablet or phone without installing anything.' },
 ];
 
-const primaryButton = 'inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 font-semibold text-white shadow-sm transition hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600';
-const sectionLabel = 'text-xs font-semibold uppercase tracking-wider text-indigo-700';
-const sectionTitle = 'mt-2 text-balance text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl';
-
-function Brand() {
-  return (
-    <Link
-      to="/"
-      className="inline-flex items-center gap-2.5 rounded-lg text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600"
-    >
-      <span className="flex size-9 items-center justify-center rounded-lg bg-indigo-600 text-white">
-        <GraduationCap className="size-5" aria-hidden="true" />
-      </span>
-      <span className="text-base font-semibold tracking-tight">Classroom Manager</span>
-    </Link>
-  );
-}
+const section = 'scroll-mt-20 px-4 py-20 sm:px-6 sm:py-24 lg:px-8';
+const sectionLabel = 'text-xs font-medium uppercase tracking-wider text-ink-500';
+const sectionTitle = 'mt-3 text-balance font-display text-3xl font-medium leading-[1.15] tracking-[-0.02em] text-ink-900 sm:text-4xl';
+const sectionLead = 'mt-4 text-base leading-7 text-ink-600';
 
 /** An illustration of the teacher portal built from the app's own features; the content is sample data. */
 function PortalPreview() {
   return (
     <div className="landing-preview relative mx-auto w-full max-w-lg" aria-hidden="true">
-      <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-xl shadow-slate-900/5">
-        <div className="rounded-xl bg-slate-50 p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-slate-900">Today’s schedule</p>
-            <span className="rounded-md bg-white px-2 py-1 text-[11px] font-medium text-slate-500 ring-1 ring-slate-200">Sample</span>
-          </div>
+      <div className="overflow-hidden rounded-2xl border border-ink-200 bg-white shadow-lg">
+        <div className="flex items-center gap-1.5 border-b border-ink-200 px-4 py-3">
+          <span className="size-2.5 rounded-full bg-ink-200" />
+          <span className="size-2.5 rounded-full bg-ink-200" />
+          <span className="size-2.5 rounded-full bg-ink-200" />
+          <span className="ml-auto font-mono text-[11px] text-ink-400">Sample</span>
+        </div>
 
-          <div className="mt-3 rounded-xl bg-indigo-600 p-4 text-white">
-            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-indigo-100">
-              <span className="size-1.5 rounded-full bg-emerald-300" /> Live now
-            </p>
-            <div className="mt-1.5 flex items-end justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate font-semibold">English · Speaking practice</p>
-                <p className="mt-0.5 text-xs text-indigo-100">Intermediate class · 7:00–8:30 PM</p>
-              </div>
-              <span className="flex shrink-0 items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700">
-                <Video className="size-3.5" /> Join
-              </span>
+        <div className="bg-canvas p-4">
+          <p className={sectionLabel}>Today’s schedule</p>
+
+          <div className="mt-2.5 flex items-center justify-between gap-3 rounded-xl border border-ink-200 bg-white p-4">
+            <div className="min-w-0">
+              <Badge tone="success">
+                <span className="size-1.5 rounded-full bg-emerald-600" /> Live now
+              </Badge>
+              <p className="mt-2 truncate text-sm font-semibold text-ink-900">English · Speaking practice</p>
+              <p className="mt-0.5 text-xs text-ink-500">Intermediate class · 7:00–8:30 PM</p>
             </div>
+            <span className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink-900 px-3 py-2 text-xs font-medium text-white">
+              <Video className="size-3.5" /> Join
+            </span>
           </div>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-white p-3.5">
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-900">
-                <ClipboardCheck className="size-3.5 text-indigo-600" /> Attendance
-              </p>
-              <ul className="mt-2.5 space-y-2 text-xs text-slate-600">
+            <div className="rounded-xl border border-ink-200 bg-white p-4">
+              <p className="text-xs font-semibold text-ink-900">Attendance</p>
+              <ul className="mt-3 space-y-2 text-xs text-ink-600">
                 {[
-                  ['Student A', 'Present', 'bg-emerald-50 text-emerald-700'],
-                  ['Student B', 'Late', 'bg-amber-50 text-amber-800'],
-                  ['Student C', 'Present', 'bg-emerald-50 text-emerald-700'],
-                ].map(([name, status, style]) => (
+                  ['Student A', 'Present', 'success'],
+                  ['Student B', 'Late', 'warning'],
+                  ['Student C', 'Present', 'success'],
+                ].map(([name, status, tone]) => (
                   <li key={name} className="flex items-center justify-between">
                     {name}
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${style}`}>{status}</span>
+                    <Badge tone={tone}>{status}</Badge>
                   </li>
                 ))}
               </ul>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-3.5">
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-900">
-                <MessageSquareText className="size-3.5 text-indigo-600" /> Teacher feedback
-              </p>
-              <div className="mt-2.5 space-y-2 text-xs text-slate-600">
+            <div className="rounded-xl border border-ink-200 bg-white p-4">
+              <p className="text-xs font-semibold text-ink-900">Teacher feedback</p>
+              <div className="mt-3 space-y-3 text-xs text-ink-600">
                 {[
                   ['Fluency', 4],
                   ['Pronunciation', 3],
@@ -191,7 +179,7 @@ function PortalPreview() {
                     {label}
                     <span className="flex">
                       {[1, 2, 3, 4, 5].map((star) => (
-                        <Star key={star} className={`size-3 ${rating >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`} />
+                        <Star key={star} className={`size-3 ${rating >= star ? 'fill-amber-400 text-amber-400' : 'text-ink-300'}`} />
                       ))}
                     </span>
                   </div>
@@ -200,13 +188,11 @@ function PortalPreview() {
             </div>
           </div>
 
-          <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3.5">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-              <Megaphone className="size-4" />
-            </span>
+          <div className="mt-3 flex items-center gap-3 rounded-xl border border-ink-200 bg-white p-4">
+            <Megaphone className="size-4 shrink-0 text-ink-400" />
             <div className="min-w-0 text-xs">
-              <p className="font-semibold text-slate-900">Quiz on Friday</p>
-              <p className="truncate text-slate-500">Class announcement · Review units 3 and 4.</p>
+              <p className="font-semibold text-ink-900">Quiz on Friday</p>
+              <p className="truncate text-ink-500">Class announcement · Review units 3 and 4.</p>
             </div>
           </div>
         </div>
@@ -221,60 +207,55 @@ export default function LandingPage() {
   const loginOpen = location.pathname === '/login';
 
   return (
-    <div className="min-h-dvh bg-white text-slate-900">
+    <div className="min-h-dvh bg-white text-ink-900">
       <a
         href="#main"
-        className="sr-only rounded-lg bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-md focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50"
+        className="sr-only rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-900 shadow-lg focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50"
       >
         Skip to main content
       </a>
 
-      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-          <Brand />
-          <nav className="flex items-center gap-1 sm:gap-2" aria-label="Main navigation">
+      <header className="sticky top-0 z-30 border-b border-ink-200 bg-white/90 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+          <Link to="/" className="rounded-lg">
+            <Brand />
+          </Link>
+          <nav className="flex items-center gap-1" aria-label="Main navigation">
             {NAV_LINKS.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                className="hidden rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-indigo-600 md:inline-block"
-              >
+              <a key={link.href} href={link.href} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'max-md:hidden' })}>
                 {link.label}
               </a>
             ))}
-            <Link to="/login" className={`${primaryButton} ml-1 px-4 py-2.5 text-sm`}>
+            <ButtonLink to="/login" size="sm" className="ml-2">
               Sign in
-            </Link>
+            </ButtonLink>
           </nav>
         </div>
       </header>
 
       <main id="main">
-        <section className="border-b border-slate-200 bg-linear-to-b from-indigo-50/60 to-white">
-          <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 py-14 sm:px-6 sm:py-20 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10 lg:px-8 lg:py-24">
+        <section className="border-b border-ink-200 bg-ink-50">
+          <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 py-16 sm:px-6 sm:py-24 lg:grid-cols-[1.05fr_0.95fr] lg:gap-12 lg:px-8 lg:py-28">
             <div className="landing-copy max-w-xl">
               <p className={sectionLabel}>Classroom and teacher management</p>
-              <h1 className="mt-3 text-balance text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
+              <h1 className="mt-4 text-balance font-display text-[2.5rem] font-medium leading-[1.08] tracking-[-0.03em] text-ink-900 sm:text-[3.25rem]">
                 Run your classes, lessons and student feedback in one place.
               </h1>
-              <p className="mt-5 text-lg leading-8 text-slate-600">
+              <p className="mt-6 text-lg leading-8 text-ink-600">
                 Classroom Manager gives schools and learning centers one portal for scheduling, live online lessons,
                 attendance, class materials and teacher feedback, with a separate space for administrators, teachers
                 and students.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Link to="/login" className={`${primaryButton} group px-5 py-3 text-base`}>
+                <ButtonLink to="/login" size="lg" className="group">
                   Sign in to your portal
                   <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-                </Link>
-                <a
-                  href="#features"
-                  className="inline-flex items-center justify-center rounded-lg px-5 py-3 text-base font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                >
+                </ButtonLink>
+                <a href="#features" className={buttonClass({ variant: 'secondary', size: 'lg' })}>
                   See what it does
                 </a>
               </div>
-              <p className="mt-4 text-sm text-slate-500">
+              <p className="mt-4 text-sm text-ink-500">
                 Accounts are created by your school’s administrator.
               </p>
             </div>
@@ -282,52 +263,47 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section id="features" className="scroll-mt-20 px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
+        <section id="features" className={section}>
           <div className="mx-auto max-w-6xl">
             <div className="max-w-2xl">
               <p className={sectionLabel}>Features</p>
               <h2 className={sectionTitle}>What you can do with it</h2>
-              <p className="mt-3 text-base leading-7 text-slate-600">
+              <p className={sectionLead}>
                 The daily work of running classes, kept together so nothing lives in a separate spreadsheet or chat group.
               </p>
             </div>
-            <ul className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {/* The 1px gaps over a grey background draw the dividers between cells. */}
+            <ul className="mt-12 grid gap-px overflow-hidden rounded-xl border border-ink-200 bg-ink-200 sm:grid-cols-2 lg:grid-cols-3">
               {FEATURES.map(({ icon: Icon, title, description }) => (
-                <li key={title} className="rounded-xl border border-slate-200 bg-white p-6 transition hover:border-indigo-200 hover:shadow-md">
-                  <span className="flex size-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                    <Icon className="size-5" aria-hidden="true" />
-                  </span>
-                  <h3 className="mt-4 text-base font-semibold text-slate-900">{title}</h3>
-                  <p className="mt-1.5 text-sm leading-6 text-slate-600">{description}</p>
+                <li key={title} className="bg-white p-6 sm:p-8">
+                  <Icon className="size-5 text-ink-900" aria-hidden="true" />
+                  <h3 className="mt-5 text-base font-semibold text-ink-900">{title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-ink-600">{description}</p>
                 </li>
               ))}
             </ul>
           </div>
         </section>
 
-        <section id="roles" className="scroll-mt-20 border-y border-slate-200 bg-slate-50 px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
+        <section id="roles" className={`${section} border-y border-ink-200 bg-ink-50`}>
           <div className="mx-auto max-w-6xl">
             <div className="max-w-2xl">
               <p className={sectionLabel}>Who it’s for</p>
               <h2 className={sectionTitle}>A portal for each role</h2>
-              <p className="mt-3 text-base leading-7 text-slate-600">
+              <p className={sectionLead}>
                 Everyone signs in at the same place and lands in the space made for their work.
               </p>
             </div>
-            <ul className="mt-10 grid gap-4 lg:grid-cols-3">
+            <ul className="mt-12 grid gap-4 lg:grid-cols-3">
               {ROLES.map(({ icon: Icon, title, summary, points }) => (
-                <li key={title} className="flex flex-col rounded-xl border border-slate-200 bg-white p-6">
-                  <div className="flex items-center gap-3">
-                    <span className="flex size-10 items-center justify-center rounded-lg bg-indigo-600 text-white">
-                      <Icon className="size-5" aria-hidden="true" />
-                    </span>
-                    <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-                  </div>
-                  <p className="mt-3 text-sm text-slate-600">{summary}</p>
-                  <ul className="mt-4 space-y-2.5 border-t border-slate-100 pt-4 text-sm text-slate-700">
+                <li key={title} className="flex flex-col rounded-xl border border-ink-200 bg-white p-6 sm:p-8">
+                  <Icon className="size-5 text-ink-900" aria-hidden="true" />
+                  <h3 className="mt-5 font-display text-2xl font-medium tracking-[-0.02em] text-ink-900">{title}</h3>
+                  <p className="mt-1 text-sm text-ink-600">{summary}</p>
+                  <ul className="mt-6 space-y-3 border-t border-ink-200 pt-6 text-sm text-ink-700">
                     {points.map((point) => (
                       <li key={point} className="flex gap-2.5">
-                        <Check className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                        <Check className="mt-0.5 size-4 shrink-0 text-ink-400" aria-hidden="true" />
                         {point}
                       </li>
                     ))}
@@ -338,29 +314,29 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section id="how-it-works" className="scroll-mt-20 px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
+        <section id="how-it-works" className={section}>
           <div className="mx-auto max-w-6xl">
             <div className="max-w-2xl">
               <p className={sectionLabel}>How it works</p>
               <h2 className={sectionTitle}>From setup to the next lesson</h2>
             </div>
-            <ol className="mt-10 grid gap-6 md:grid-cols-3">
+            <ol className="mt-12 grid gap-8 md:grid-cols-3">
               {STEPS.map((step, index) => (
-                <li key={step.title} className="relative border-t-2 border-indigo-600 pt-5">
-                  <span className="text-sm font-semibold text-indigo-700">Step {index + 1}</span>
-                  <h3 className="mt-1 text-base font-semibold text-slate-900">{step.title}</h3>
-                  <p className="mt-1.5 text-sm leading-6 text-slate-600">{step.description}</p>
+                <li key={step.title} className="border-t border-ink-900 pt-5">
+                  <span className="font-mono text-xs text-ink-500">Step {String(index + 1).padStart(2, '0')}</span>
+                  <h3 className="mt-3 text-base font-semibold text-ink-900">{step.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-ink-600">{step.description}</p>
                 </li>
               ))}
             </ol>
 
-            <ul className="mt-14 grid gap-6 rounded-xl border border-slate-200 bg-slate-50 p-6 sm:grid-cols-3">
+            <ul className="mt-16 grid gap-8 border-t border-ink-200 pt-10 sm:grid-cols-3">
               {ASSURANCES.map(({ icon: Icon, title, description }) => (
                 <li key={title} className="flex gap-3">
-                  <Icon className="mt-0.5 size-5 shrink-0 text-indigo-600" aria-hidden="true" />
+                  <Icon className="mt-0.5 size-5 shrink-0 text-ink-400" aria-hidden="true" />
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+                    <h3 className="text-sm font-semibold text-ink-900">{title}</h3>
+                    <p className="mt-1 text-sm leading-6 text-ink-600">{description}</p>
                   </div>
                 </li>
               ))}
@@ -368,45 +344,44 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="px-4 pb-16 sm:px-6 sm:pb-20 lg:px-8">
-          <div className="mx-auto flex max-w-6xl flex-col gap-6 rounded-2xl bg-indigo-600 px-6 py-10 text-white sm:px-10 md:flex-row md:items-center md:justify-between">
+        <section className="px-4 pb-20 sm:px-6 sm:pb-24 lg:px-8">
+          <div className="mx-auto flex max-w-6xl flex-col gap-6 rounded-2xl border border-ink-200 bg-ink-50 px-6 py-10 sm:px-10 sm:py-12 md:flex-row md:items-center md:justify-between">
             <div className="max-w-xl">
-              <h2 className="text-balance text-2xl font-semibold tracking-tight">Ready for your next class?</h2>
-              <p className="mt-2 text-base text-indigo-100">
+              <h2 className="text-balance font-display text-3xl font-medium tracking-[-0.02em] text-ink-900">Ready for your next class?</h2>
+              <p className="mt-2 text-base text-ink-600">
                 Sign in with the account your school gave you to open your portal.
               </p>
             </div>
-            <Link
-              to="/login"
-              className="group inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-white px-5 py-3 text-base font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-            >
+            <ButtonLink to="/login" size="lg" className="group shrink-0">
               Sign in
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-            </Link>
+            </ButtonLink>
           </div>
         </section>
       </main>
 
-      <footer className="border-t border-slate-200 bg-white px-4 py-10 sm:px-6 lg:px-8">
+      <footer className="border-t border-ink-200 px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-6xl flex-col gap-8 md:flex-row md:items-start md:justify-between">
           <div className="max-w-sm">
-            <Brand />
-            <p className="mt-3 text-sm leading-6 text-slate-600">
+            <Link to="/" className="inline-block rounded-lg">
+              <Brand />
+            </Link>
+            <p className="mt-3 text-sm leading-6 text-ink-600">
               One portal for scheduling, live lessons, attendance, materials and teacher feedback.
             </p>
           </div>
-          <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2 text-sm font-medium text-slate-600">
+          <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-ink-600">
             {NAV_LINKS.map((link) => (
-              <a key={link.href} href={link.href} className="rounded py-1 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-indigo-600">
+              <a key={link.href} href={link.href} className="rounded-sm py-1 transition hover:text-ink-900">
                 {link.label}
               </a>
             ))}
-            <Link to="/login" className="rounded py-1 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-indigo-600">
+            <Link to="/login" className="rounded-sm py-1 transition hover:text-ink-900">
               Sign in
             </Link>
           </nav>
         </div>
-        <p className="mx-auto mt-8 max-w-6xl border-t border-slate-100 pt-6 text-sm text-slate-500">
+        <p className="mx-auto mt-8 max-w-6xl border-t border-ink-200 pt-6 text-sm text-ink-500">
           © {new Date().getFullYear()} Classroom Manager
         </p>
       </footer>

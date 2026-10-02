@@ -3,8 +3,6 @@ import {
   Check,
   ChevronRight,
   CircleCheck,
-  FilePen,
-  Hourglass,
   MessageSquareText,
   School,
   TriangleAlert,
@@ -15,17 +13,20 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import FeedbackHistory from '../../components/feedback/FeedbackHistory.jsx';
 import StatusPill from '../../components/feedback/StatusPill.jsx';
 import {
-  FEEDBACK_STATUS,
   formatLessonDate,
   formatShortDate,
   formatTime,
   schedulePattern,
 } from '../../components/feedback/feedbackMeta.js';
-import Alert from '../../components/common/Alert.jsx';
+import { ErrorState } from '../../components/common/Alert.jsx';
+import Badge from '../../components/common/Badge.jsx';
 import Button from '../../components/common/Button.jsx';
+import Card, { SectionLabel } from '../../components/common/Card.jsx';
 import EmptyState, { Skeleton } from '../../components/common/EmptyState.jsx';
 import { matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
+import StatStrip, { ProgressBar } from '../../components/common/StatStrip.jsx';
+import Tabs from '../../components/common/Tabs.jsx';
 import { useFeedbackReminder } from '../../context/FeedbackReminderContext.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { classroomService } from '../../services/classroom.service.js';
@@ -36,8 +37,11 @@ import { isSameLocalDay } from '../../utils/sessionTiming.js';
 
 const LESSONS_SHOWN = 12;
 const QUICK_START_SHOWN = 6;
-const sectionHeading = 'text-sm font-semibold uppercase tracking-wider text-slate-500';
-const rowButton = 'group flex w-full items-center gap-3 border-l-4 border-transparent px-4 py-3 text-left transition hover:border-indigo-500 hover:bg-indigo-50/60 focus-visible:-outline-offset-2';
+const rowButton = 'group flex w-full items-center gap-3 px-5 py-3 text-left transition hover:bg-ink-50 focus-visible:-outline-offset-2';
+const TABS = [
+  { value: 'give', label: 'Give feedback' },
+  { value: 'history', label: 'History' },
+];
 
 export default function TeacherFeedback() {
   const { user } = useAuth();
@@ -92,35 +96,18 @@ export default function TeacherFeedback() {
         description="Write individual feedback for each student after a lesson, and review what you have written."
       />
 
-      <div className="mb-5 inline-flex rounded-lg border border-slate-200 bg-white p-1" role="tablist" aria-label="Feedback view">
-        {[
-          { value: 'give', label: 'Give feedback' },
-          { value: 'history', label: 'History' },
-        ].map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            role="tab"
-            aria-selected={tab === option.value}
-            onClick={() => go(option.value === 'history' ? { tab: 'history' } : { class: classroomId, lesson: lessonId })}
-            className={`rounded-md px-4 py-2 text-sm font-medium transition ${tab === option.value ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Feedback view"
+        options={TABS}
+        value={tab}
+        onChange={(value) => go(value === 'history' ? { tab: 'history' } : { class: classroomId, lesson: lessonId })}
+        className="mb-6"
+      />
 
-      {error && (
-        <div className="mb-4 space-y-3">
-          <Alert tone="error">{error}</Alert>
-          <Button variant="secondary" onClick={load}>Try again</Button>
-        </div>
-      )}
+      {error && <ErrorState message={error} onRetry={load} className="mb-4" />}
       {loading ? (
         <div className="space-y-4" role="status" aria-label="Loading feedback">
-          <div className="grid gap-3 sm:grid-cols-3">
-            {[0, 1, 2].map((item) => <Skeleton key={item} className="h-20 rounded-xl" />)}
-          </div>
+          <Skeleton className="h-20 rounded-xl" />
           <Skeleton className="h-44 rounded-xl" />
         </div>
       ) : error ? null : tab === 'history' ? (
@@ -135,7 +122,7 @@ export default function TeacherFeedback() {
             <>
               <Overview summary={pending.summary} draftCount={data.draftCount} onDrafts={() => go({ tab: 'history', status: 'draft' })} />
               <QuickStart pending={pending.items} />
-              <h2 className={`mb-3 mt-8 ${sectionHeading}`}>Browse by class</h2>
+              <SectionLabel className="mb-3 mt-10">Browse by class</SectionLabel>
             </>
           )}
           <Steps
@@ -166,55 +153,21 @@ function Overview({ summary, draftCount, onDrafts }) {
       hint: summary.students
         ? `${summary.lessons === 1 ? '1 lesson' : `${summary.lessons} lessons`} from the last two weeks`
         : 'Nothing outstanding',
-      icon: summary.students ? Hourglass : CircleCheck,
-      tone: summary.students ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600',
     },
     {
       label: 'Overdue',
       value: summary.overdueStudents,
       hint: summary.overdueStudents ? 'From lessons more than a week ago' : 'Nothing older than a week',
-      icon: summary.overdueStudents ? TriangleAlert : CircleCheck,
-      tone: summary.overdueStudents ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-600',
       emphasis: summary.overdueStudents > 0,
     },
     {
       label: 'Drafts',
       value: draftCount,
       hint: draftCount ? 'Saved but not submitted' : 'No unfinished drafts',
-      icon: FilePen,
-      tone: 'bg-slate-100 text-slate-600',
       onClick: draftCount ? onDrafts : undefined,
     },
   ];
-  return (
-    <dl className="mb-8 grid gap-3 sm:grid-cols-3">
-      {tiles.map(({ label, value, hint, icon: Icon, tone, emphasis, onClick }) => {
-        const content = (
-          <>
-            <span className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${tone}`}>
-              <Icon className="size-5" aria-hidden="true" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <dt className="text-sm font-medium text-slate-600">{label}</dt>
-              <dd className="flex items-baseline gap-2">
-                <span className="text-2xl font-semibold tabular-nums text-slate-900">{value}</span>
-                <span className="truncate text-xs text-slate-500">{hint}</span>
-              </dd>
-            </span>
-            {onClick && <ChevronRight className="size-4 shrink-0 text-slate-400" aria-hidden="true" />}
-          </>
-        );
-        const tileClass = `flex items-center gap-3 rounded-xl border bg-white p-4 text-left shadow-xs ${emphasis ? 'border-amber-300' : 'border-slate-200'}`;
-        return onClick ? (
-          <button key={label} type="button" onClick={onClick} className={`${tileClass} transition hover:border-indigo-300 hover:shadow-md`}>
-            {content}
-          </button>
-        ) : (
-          <div key={label} className={tileClass}>{content}</div>
-        );
-      })}
-    </dl>
-  );
+  return <StatStrip className="mb-10" columns="sm:grid-cols-3" stats={tiles} />;
 }
 
 /** Lessons that still need feedback, each with a button straight to the next student. */
@@ -224,7 +177,7 @@ function QuickStart({ pending }) {
 
   return (
     <section aria-labelledby="pending-heading">
-      <h2 id="pending-heading" className={`mb-3 ${sectionHeading}`}>Continue where you left off</h2>
+      <SectionLabel id="pending-heading" className="mb-3">Continue where you left off</SectionLabel>
       {pending.length === 0 ? (
         <EmptyState
           icon={CircleCheck}
@@ -239,32 +192,24 @@ function QuickStart({ pending }) {
               const left = item.left ?? item.total - item.completed;
               const percent = item.total ? Math.round((item.completed / item.total) * 100) : 0;
               return (
-                <li
-                  key={item.lesson.id}
-                  className={`flex flex-col rounded-xl border bg-white p-4 shadow-xs ${item.overdue ? 'border-amber-300' : 'border-slate-200'}`}
-                >
+                <Card as="li" key={item.lesson.id} className="flex flex-col p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-slate-900">{item.lesson.classroom.name}</p>
-                      <p className="mt-0.5 text-sm text-slate-500">
+                      <p className="truncate text-sm font-semibold text-ink-900">{item.lesson.classroom.name}</p>
+                      <p className="mt-0.5 text-sm text-ink-500">
                         {isSameLocalDay(item.lesson.startsAt, Date.now()) ? 'Today' : formatShortDate(item.lesson.startsAt)} · {formatTime(item.lesson.startsAt)}
                       </p>
                     </div>
-                    {item.overdue && (
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
-                        <TriangleAlert className="size-3.5" aria-hidden="true" /> Overdue
-                      </span>
-                    )}
+                    {item.overdue && <Badge tone="warning" icon={TriangleAlert}>Overdue</Badge>}
                   </div>
-                  <div className="mt-3 flex items-center gap-3">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
-                      <div className="h-full rounded-full bg-emerald-500" style={{ width: `${percent}%` }} />
-                    </div>
-                    <span className="shrink-0 text-xs font-medium tabular-nums text-slate-600">
-                      {item.completed} of {item.total} done
+                  <div className="mt-4 flex items-center gap-3">
+                    <ProgressBar percent={percent} className="flex-1" />
+                    <span className="shrink-0 text-xs tabular-nums text-ink-500">
+                      {item.completed} of {item.total} done · {left} left
                     </span>
                   </div>
                   <Button
+                    variant="secondary"
                     className="mt-4 w-full"
                     onClick={() => navigate(`/teacher/feedback/lesson/${item.lesson.id}/student/${item.nextStudent.id}`)}
                   >
@@ -273,10 +218,7 @@ function QuickStart({ pending }) {
                     </span>
                     <ChevronRight className="size-4 shrink-0" aria-hidden="true" />
                   </Button>
-                  <p className="mt-2 text-center text-xs text-slate-500">
-                    {left} {left === 1 ? 'student' : 'students'} left
-                  </p>
-                </li>
+                </Card>
               );
             })}
           </ul>
@@ -299,28 +241,28 @@ function Steps({ classroom, lesson, onClass, onLesson }) {
   ];
   const current = !classroom ? 0 : !lesson ? 1 : 2;
   return (
-    <ol className="mb-4 flex flex-wrap items-center gap-1.5 text-sm" aria-label="Feedback steps">
+    <ol className="mb-4 flex flex-wrap items-center gap-1 text-sm" aria-label="Feedback steps">
       {steps.map((step, index) => (
-        <li key={step.label} className="flex items-center gap-1.5">
-          {index > 0 && <ChevronRight className="size-4 text-slate-300" aria-hidden="true" />}
+        <li key={step.label} className="flex items-center gap-1">
+          {index > 0 && <ChevronRight className="size-4 text-ink-300" aria-hidden="true" />}
           <button
             type="button"
             onClick={step.onClick}
             disabled={!step.onClick}
             aria-current={index === current ? 'step' : undefined}
             title={step.onClick ? `Change ${index === 0 ? 'class' : 'lesson'}` : undefined}
-            className={`flex min-h-8 items-center gap-1.5 rounded-full px-3 py-1 font-medium transition disabled:cursor-default ${
+            className={`flex min-h-8 items-center gap-1.5 rounded-md px-2 py-1 transition disabled:cursor-default ${
               index === current
-                ? 'bg-indigo-600 text-white'
+                ? 'font-medium text-ink-900'
                 : step.done
-                  ? 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
-                  : 'bg-slate-100 text-slate-500'
+                  ? 'text-ink-600 hover:bg-ink-100 hover:text-ink-900'
+                  : 'text-ink-400'
             }`}
           >
             {step.done && index !== current ? (
-              <Check className="size-3.5" aria-hidden="true" />
+              <Check className="size-3.5 text-emerald-600" aria-hidden="true" />
             ) : (
-              <span className="text-xs tabular-nums opacity-80">{index + 1}</span>
+              <span className="font-mono text-xs tabular-nums text-ink-400">{index + 1}</span>
             )}
             <span className="max-w-48 truncate">{step.label}</span>
           </button>
@@ -351,43 +293,40 @@ function ClassStep({ classrooms, sessions, recent, onSelect }) {
       {shown.length === 0 ? (
         <EmptyState title={`No classes match “${query}”`} action={<Button variant="secondary" onClick={() => setQuery('')}>Clear search</Button>} />
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <Card as="ul" className="divide-y divide-ink-200 overflow-hidden">
           {shown.map((classroom) => {
             const classSessions = sessions.filter((session) => session.classroom?.id === classroom.id);
             const latestSeries = [...classSessions].reverse().find((session) => session.seriesId);
             const lastFeedback = recent.find((item) => item.classroom.id === classroom.id);
+            const studentCount = classroom.students?.length ?? 0;
             return (
               <li key={classroom.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(classroom.id)}
-                  className="group flex h-full w-full flex-col rounded-xl border border-slate-200 bg-white p-4 text-left shadow-xs transition hover:border-indigo-300 hover:shadow-md"
-                >
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate font-semibold text-slate-900 group-hover:text-indigo-700">{classroom.name}</span>
-                    <ChevronRight className="size-4 shrink-0 text-slate-400 transition group-hover:translate-x-0.5" aria-hidden="true" />
-                  </span>
-                  <span className="mt-2.5 space-y-1.5 text-sm text-slate-600">
-                    <span className="flex items-center gap-2">
-                      <CalendarDays className="size-4 text-slate-400" aria-hidden="true" />
-                      {latestSeries
-                        ? `${schedulePattern(latestSeries, classSessions)} · ${formatTime(latestSeries.startsAt)}`
-                        : `${classSessions.length} ${classSessions.length === 1 ? 'lesson' : 'lessons'}`}
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <UsersRound className="size-4 text-slate-400" aria-hidden="true" />
-                      {classroom.students?.length ?? 0} students
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <MessageSquareText className="size-4 text-slate-400" aria-hidden="true" />
-                      {lastFeedback ? `Last feedback ${formatShortDate(lastFeedback.session.startsAt)}` : 'No feedback yet'}
+                <button type="button" onClick={() => onSelect(classroom.id)} className={rowButton}>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-ink-900">{classroom.name}</span>
+                    <span className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-ink-500">
+                      <span className="flex items-center gap-1.5">
+                        <CalendarDays className="size-3.5 text-ink-400" aria-hidden="true" />
+                        {latestSeries
+                          ? `${schedulePattern(latestSeries, classSessions)} · ${formatTime(latestSeries.startsAt)}`
+                          : `${classSessions.length} ${classSessions.length === 1 ? 'lesson' : 'lessons'}`}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <UsersRound className="size-3.5 text-ink-400" aria-hidden="true" />
+                        {studentCount} {studentCount === 1 ? 'student' : 'students'}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <MessageSquareText className="size-3.5 text-ink-400" aria-hidden="true" />
+                        {lastFeedback ? `Last feedback ${formatShortDate(lastFeedback.session.startsAt)}` : 'No feedback yet'}
+                      </span>
                     </span>
                   </span>
+                  <ChevronRight className="size-4 shrink-0 text-ink-400 transition group-hover:translate-x-0.5 group-hover:text-ink-900" aria-hidden="true" />
                 </button>
               </li>
             );
           })}
-        </ul>
+        </Card>
       )}
     </>
   );
@@ -413,7 +352,7 @@ function LessonStep({ classroom, sessions, recent, onSelect }) {
   }
   return (
     <>
-      <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+      <Card as="ul" className="divide-y divide-ink-200 overflow-hidden">
         {lessons.slice(0, shownCount).map((lesson) => {
           const done = recent.filter((item) => item.session.id === lesson.id && item.status === 'completed').length;
           const total = lesson.assignments?.students?.length ?? 0;
@@ -423,25 +362,22 @@ function LessonStep({ classroom, sessions, recent, onSelect }) {
               <button type="button" onClick={() => onSelect(lesson.id)} className={rowButton}>
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-slate-900">{formatLessonDate(lesson.startsAt)}</span>
-                    {isSameLocalDay(lesson.startsAt, now) && (
-                      <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">Today</span>
-                    )}
+                    <span className="text-sm font-medium text-ink-900">{formatLessonDate(lesson.startsAt)}</span>
+                    {isSameLocalDay(lesson.startsAt, now) && <Badge tone="info">Today</Badge>}
                   </span>
-                  <span className="mt-0.5 block truncate text-sm text-slate-500">
+                  <span className="mt-0.5 block truncate text-sm text-ink-500">
                     {formatTime(lesson.startsAt)} · {lesson.title} · {total} {total === 1 ? 'student' : 'students'}
                   </span>
                 </span>
-                <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums ${allDone ? FEEDBACK_STATUS.completed.style : 'bg-slate-100 text-slate-600'}`}>
-                  {allDone && <CircleCheck className="size-3.5" aria-hidden="true" />}
+                <Badge tone={allDone ? 'success' : 'neutral'} icon={allDone ? CircleCheck : undefined} className="tabular-nums">
                   {done}/{total} done
-                </span>
-                <ChevronRight className="size-4 shrink-0 text-slate-400" aria-hidden="true" />
+                </Badge>
+                <ChevronRight className="size-4 shrink-0 text-ink-400 transition group-hover:translate-x-0.5 group-hover:text-ink-900" aria-hidden="true" />
               </button>
             </li>
           );
         })}
-      </ul>
+      </Card>
       {lessons.length > shownCount && (
         <div className="mt-3 flex justify-center">
           <Button variant="secondary" onClick={() => setShownCount((count) => count + LESSONS_SHOWN)}>Show older lessons</Button>
@@ -483,14 +419,7 @@ function StudentStep({ lessonId, sessions }) {
     };
   }, [lessonId, reloadKey]);
 
-  if (error) {
-    return (
-      <div className="space-y-3">
-        <Alert tone="error">{error}</Alert>
-        <Button variant="secondary" onClick={() => setReloadKey((key) => key + 1)}>Try again</Button>
-      </div>
-    );
-  }
+  if (error) return <ErrorState message={error} onRetry={() => setReloadKey((key) => key + 1)} />;
   if (!roster) {
     return (
       <div className="space-y-3" role="status" aria-label="Loading students">
@@ -512,24 +441,20 @@ function StudentStep({ lessonId, sessions }) {
     && (!student.feedback || student.feedback.teacher.id === user.id));
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white shadow-xs" aria-labelledby="lesson-heading">
-      <div className="flex flex-col gap-4 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+    <Card as="section" aria-labelledby="lesson-heading">
+      <div className="flex flex-col gap-4 border-b border-ink-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h2 id="lesson-heading" className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-            <School className="size-5 text-indigo-600" aria-hidden="true" /> {lesson.classroom.name}
-          </h2>
-          <p className="mt-0.5 text-sm text-slate-600">
+          <h2 id="lesson-heading" className="text-base font-semibold text-ink-900">{lesson.classroom.name}</h2>
+          <p className="mt-0.5 text-sm text-ink-500">
             {formatLessonDate(lesson.startsAt)} · {formatTime(lesson.startsAt)} · {schedulePattern(lesson, sessions)} · {lesson.title}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-4">
           <div className="w-44">
-            <p className="text-sm font-medium text-slate-700">
-              <span className="tabular-nums">{completed} of {students.length}</span> completed
+            <p className="text-xs text-ink-500">
+              <span className="font-medium tabular-nums text-ink-900">{completed} of {students.length}</span> completed
             </p>
-            <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} aria-label="Feedback progress">
-              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${percent}%` }} />
-            </div>
+            <ProgressBar percent={percent} label="Feedback progress" className="mt-1.5" />
           </div>
           {nextStudent && (
             <Button onClick={() => open(nextStudent)}>
@@ -541,12 +466,12 @@ function StudentStep({ lessonId, sessions }) {
       </div>
 
       {students.length === 0 ? (
-        <p className="px-4 py-10 text-center text-sm text-slate-500">No students are assigned to this lesson.</p>
+        <p className="px-5 py-10 text-center text-sm text-ink-500">No students are assigned to this lesson.</p>
       ) : (
         <>
-          <div className="flex flex-col gap-2 border-b border-slate-100 p-3 sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-2 border-b border-ink-200 px-5 py-3 sm:flex-row sm:items-center">
             <SearchInput id="feedback-student-search" label="Search students" value={query} onChange={setQuery} placeholder="Search students" className="sm:w-64" />
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by feedback status">
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by feedback status">
               {STATUS_FILTERS.map((option) => {
                 const count = option.value ? counts[option.value] ?? 0 : students.length;
                 const selected = statusFilter === option.value;
@@ -556,9 +481,9 @@ function StudentStep({ lessonId, sessions }) {
                     type="button"
                     aria-pressed={selected}
                     onClick={() => setStatusFilter(option.value)}
-                    className={`min-h-8 rounded-full px-3 py-1 text-sm font-medium transition ${selected ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                    className={`min-h-8 rounded-md px-2.5 py-1 text-sm transition ${selected ? 'bg-ink-100 font-medium text-ink-900' : 'text-ink-600 hover:bg-ink-50 hover:text-ink-900'}`}
                   >
-                    {option.label} <span className={`tabular-nums ${selected ? 'text-slate-300' : 'text-slate-500'}`}>{count}</span>
+                    {option.label} <span className="tabular-nums text-ink-400">{count}</span>
                   </button>
                 );
               })}
@@ -567,7 +492,7 @@ function StudentStep({ lessonId, sessions }) {
 
           {shown.length === 0 ? (
             <div className="px-4 py-10 text-center">
-              <p className="text-sm font-medium text-slate-900">No students match</p>
+              <p className="text-sm font-medium text-ink-900">No students match</p>
               <Button
                 variant="secondary"
                 size="sm"
@@ -581,33 +506,27 @@ function StudentStep({ lessonId, sessions }) {
               </Button>
             </div>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-ink-200">
               {shown.map((student) => {
                 const byOtherTeacher = student.feedback && student.feedback.teacher.id !== user.id;
                 const action = !student.feedback ? 'Fill feedback' : byOtherTeacher || student.feedback.status === 'completed' ? 'View' : 'Continue';
                 return (
                   <li key={student.id}>
                     <button type="button" onClick={() => open(student)} className={rowButton}>
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-sm font-semibold text-indigo-700" aria-hidden="true">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink-100 text-xs font-medium text-ink-600" aria-hidden="true">
                         {student.name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium text-slate-900 group-hover:text-indigo-800">{student.name}</span>
-                        <span className="block truncate text-sm text-slate-500">
+                        <span className="block truncate text-sm font-medium text-ink-900">{student.name}</span>
+                        <span className="block truncate text-xs text-ink-500">
                           {byOtherTeacher ? `Feedback by ${student.feedback.teacher.name}` : student.email}
                         </span>
                       </span>
                       <StatusPill status={student.feedback?.status} />
-                      <span
-                        className={`hidden min-h-9 w-32 shrink-0 items-center justify-center gap-1 rounded-lg px-3 text-sm font-semibold sm:inline-flex ${
-                          action === 'View'
-                            ? 'text-slate-700 ring-1 ring-inset ring-slate-300 group-hover:bg-white'
-                            : 'bg-indigo-600 text-white group-hover:bg-indigo-500'
-                        }`}
-                      >
+                      <span className="hidden w-28 shrink-0 text-right text-sm font-medium text-ink-600 group-hover:text-ink-900 sm:block">
                         {action}
                       </span>
-                      <ChevronRight className="size-4 shrink-0 text-slate-400 sm:hidden" aria-hidden="true" />
+                      <ChevronRight className="size-4 shrink-0 text-ink-400 transition group-hover:translate-x-0.5 group-hover:text-ink-900" aria-hidden="true" />
                     </button>
                   </li>
                 );
@@ -616,6 +535,6 @@ function StudentStep({ lessonId, sessions }) {
           )}
         </>
       )}
-    </section>
+    </Card>
   );
 }

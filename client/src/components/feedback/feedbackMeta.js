@@ -1,7 +1,7 @@
 export const FEEDBACK_STATUS = {
-  none: { label: 'Not started', style: 'bg-slate-100 text-slate-600' },
-  draft: { label: 'Draft', style: 'bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200' },
-  completed: { label: 'Completed', style: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200' },
+  none: { label: 'Not started', tone: 'neutral' },
+  draft: { label: 'Draft', tone: 'warning' },
+  completed: { label: 'Completed', tone: 'success' },
 };
 
 export const RATING_LABELS = {

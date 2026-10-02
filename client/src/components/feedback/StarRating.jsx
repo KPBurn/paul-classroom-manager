@@ -12,17 +12,17 @@ export default function StarRating({ id, label, value, onChange, error, required
   if (readOnly) {
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="w-28 text-sm font-medium text-slate-700">{label}</span>
+        <span className="w-28 text-sm font-medium text-ink-700">{label}</span>
         <span className="flex" aria-label={value ? `${value} out of 5` : 'Not rated'}>
           {stars.map((star) => (
             <Star
               key={star}
-              className={`size-4 ${value >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`}
+              className={`size-4 ${value >= star ? 'fill-amber-400 text-amber-400' : 'text-ink-300'}`}
               aria-hidden="true"
             />
           ))}
         </span>
-        <span className="text-xs text-slate-500">{value ? `${value}/5 · ${RATING_LABELS[value]}` : 'Not rated'}</span>
+        <span className="text-xs text-ink-500">{value ? `${value}/5 · ${RATING_LABELS[value]}` : 'Not rated'}</span>
       </div>
     );
   }
@@ -37,7 +37,7 @@ export default function StarRating({ id, label, value, onChange, error, required
         aria-invalid={Boolean(error) || undefined}
         className="flex flex-wrap items-center gap-x-3 gap-y-1"
       >
-        <span id={`${id}-label`} className="w-32 text-sm font-medium text-slate-700">
+        <span id={`${id}-label`} className="w-32 text-sm font-medium text-ink-700">
           {label}
           {required && <span className="ml-0.5 text-red-600" aria-hidden="true">*</span>}
         </span>
@@ -60,20 +60,20 @@ export default function StarRating({ id, label, value, onChange, error, required
                 onChange(rating);
                 event.currentTarget.parentElement.children[rating - 1]?.focus();
               }}
-              className="rounded-lg p-1.5 transition hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-indigo-600"
+              className="rounded-md p-1.5 transition hover:bg-amber-50"
             >
               <Star
-                className={`size-7 ${value >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-300 hover:text-amber-300'}`}
+                className={`size-7 ${value >= star ? 'fill-amber-400 text-amber-400' : 'text-ink-300 hover:text-amber-300'}`}
                 aria-hidden="true"
               />
             </button>
           ))}
         </span>
-        <span className={`text-sm ${value ? 'font-medium text-slate-700' : 'text-slate-500'}`}>
+        <span className={`text-sm ${value ? 'font-medium text-ink-700' : 'text-ink-500'}`}>
           {value ? `${value}/5 · ${RATING_LABELS[value]}` : 'Not rated'}
         </span>
       </div>
-      {error && <p id={`${id}-error`} className="mt-1 text-sm text-red-600">{error}</p>}
+      {error && <p id={`${id}-error`} className="mt-1 text-sm text-red-700">{error}</p>}
     </div>
   );
 }

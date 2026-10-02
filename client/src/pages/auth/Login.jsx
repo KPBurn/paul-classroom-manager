@@ -1,14 +1,14 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Eye, EyeOff, GraduationCap } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import Alert from '../../components/common/Alert.jsx';
-import Button from '../../components/common/Button.jsx';
+import Button, { IconButton } from '../../components/common/Button.jsx';
 import Modal from '../../components/common/Modal.jsx';
-import TextField from '../../components/common/TextField.jsx';
+import TextField, { SelectField } from '../../components/common/TextField.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { homePathFor } from '../../utils/roles.js';
@@ -18,6 +18,12 @@ const loginSchema = z.object({
   email: z.string().trim().min(1, 'Email is required').pipe(z.email('Enter a valid email address')),
   password: z.string().min(1, 'Password is required'),
 });
+
+const TEST_ROLES = [
+  { value: 'student', label: 'Student' },
+  { value: 'teacher', label: 'Teacher' },
+  { value: 'admin', label: 'Administrator' },
+];
 
 const devCredentialsAvailable =
   import.meta.env.DEV && import.meta.env.VITE_DEV_LOGIN_EMAIL && import.meta.env.VITE_DEV_LOGIN_PASSWORD;
@@ -101,34 +107,24 @@ export default function Login({ onClose }) {
       description="Sign in to continue to your classroom."
       size="max-w-md"
     >
-      <div className="mb-5 flex items-center gap-3">
-        <span className="flex size-11 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
-          <GraduationCap className="size-6" aria-hidden="true" />
-        </span>
-        <span className="text-sm font-semibold text-slate-800">Classroom Manager</span>
-      </div>
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
         {serverError && <Alert tone="error">{serverError}</Alert>}
 
         {!roleTestingLoading && roleTestingEnabled && (
-          <section className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
+          <section className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
             <div>
-              <h2 className="text-sm font-semibold text-amber-950">Temporary role testing is on</h2>
+              <h2 className="text-sm font-semibold text-amber-900">Temporary role testing is on</h2>
               <p className="mt-1 text-xs leading-5 text-amber-900">
                 This test session uses an active account for the selected role and can access its data.
               </p>
             </div>
-            <label htmlFor="test-role" className="block text-sm font-medium text-slate-700">Test as</label>
-            <select
+            <SelectField
               id="test-role"
+              label="Test as"
               value={selectedRole}
               onChange={(event) => setSelectedRole(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-            >
-              <option value="student">Student</option>
-              <option value="teacher">Teacher</option>
-              <option value="admin">Administrator</option>
-            </select>
+              options={TEST_ROLES}
+            />
             <Button
               type="button"
               variant="secondary"
@@ -160,14 +156,11 @@ export default function Login({ onClose }) {
           autoComplete="current-password"
           error={errors.password?.message}
           trailing={
-            <button
-              type="button"
+            <IconButton
+              label={showPassword ? 'Hide password' : 'Show password'}
+              icon={showPassword ? EyeOff : Eye}
               onClick={() => setShowPassword((shown) => !shown)}
-              className="rounded-md p-1.5 text-slate-400 hover:text-slate-600"
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </button>
+            />
           }
           {...register('password')}
         />
@@ -176,7 +169,7 @@ export default function Login({ onClose }) {
           {isSubmitting ? 'Signing in…' : 'Sign in'}
         </Button>
       </form>
-      <p className="mt-5 text-center text-xs text-slate-500">
+      <p className="mt-5 text-center text-xs text-ink-500">
         Accounts are created by your administrator.
       </p>
     </Modal>

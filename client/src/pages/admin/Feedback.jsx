@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import FeedbackHistory from '../../components/feedback/FeedbackHistory.jsx';
 import Alert from '../../components/common/Alert.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
-import Spinner from '../../components/common/Spinner.jsx';
+import { PageLoader } from '../../components/common/Spinner.jsx';
 import { classroomService } from '../../services/classroom.service.js';
 import { userService } from '../../services/user.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -27,7 +27,7 @@ export default function AdminFeedback() {
       {error ? (
         <Alert tone="error">{error}</Alert>
       ) : !options ? (
-        <div className="flex justify-center py-16"><Spinner /></div>
+        <PageLoader />
       ) : (
         <FeedbackHistory classrooms={options.classrooms} teachers={options.teachers} basePath="/admin/feedback" />
       )}

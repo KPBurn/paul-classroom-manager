@@ -1,16 +1,20 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Eye, EyeOff, KeyRound, Lock, Pencil, Plus, Search, Trash2, Users as UsersIcon } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, Lock, Pencil, Plus, Trash2, Users as UsersIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { z } from 'zod';
-import Alert from '../../components/common/Alert.jsx';
-import Button from '../../components/common/Button.jsx';
+import Alert, { ErrorState } from '../../components/common/Alert.jsx';
+import Badge from '../../components/common/Badge.jsx';
+import Button, { IconButton } from '../../components/common/Button.jsx';
+import Card from '../../components/common/Card.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
-import Modal from '../../components/common/Modal.jsx';
+import EmptyState from '../../components/common/EmptyState.jsx';
+import { FilterSelect, ListToolbar, SearchInput } from '../../components/common/ListFilters.jsx';
+import Modal, { ModalActions } from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import Pagination from '../../components/common/Pagination.jsx';
-import Spinner from '../../components/common/Spinner.jsx';
+import { PageLoader } from '../../components/common/Spinner.jsx';
 import TextField, { SelectField } from '../../components/common/TextField.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { useUsers } from '../../hooks/useUsers.js';
@@ -32,16 +36,7 @@ const toOptions = (labels) => Object.entries(labels).map(([value, label]) => ({ 
 const ROLE_OPTIONS = toOptions(ROLE_LABELS);
 const STATUS_OPTIONS = toOptions(STATUS_LABELS);
 
-const ROLE_BADGES = {
-  admin: 'bg-violet-50 text-violet-700',
-  teacher: 'bg-indigo-50 text-indigo-700',
-  student: 'bg-sky-50 text-sky-700',
-};
-const STATUS_BADGES = {
-  active: 'bg-emerald-50 text-emerald-700',
-  inactive: 'bg-slate-100 text-slate-600',
-  suspended: 'bg-amber-50 text-amber-800',
-};
+const STATUS_TONES = { active: 'success', inactive: 'neutral', suspended: 'warning' };
 
 // Keep in sync with server/src/validators/auth.validators.js.
 const name = (label) =>
@@ -139,41 +134,37 @@ export default function Users({ role: fixedRole }) {
         }
       />
 
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-        <div className="relative flex-1">
-          <label htmlFor="user-search" className="sr-only">
-            Search users
-          </label>
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-          <input
-            id="user-search"
-            type="search"
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            placeholder="Search by name or email"
-            maxLength={100}
-            className="block w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-sm text-slate-900 shadow-xs outline-none placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+      <ListToolbar count={list.pagination?.total} noun="user">
+        <SearchInput
+          id="user-search"
+          label="Search users"
+          value={searchText}
+          onChange={setSearchText}
+          placeholder="Search by name or email"
+          maxLength={100}
+          className="sm:w-80"
+        />
+        <div className={`grid gap-2 sm:flex sm:items-center ${fixedRole ? '' : 'grid-cols-2'}`}>
+          {!fixedRole && (
+            <FilterSelect
+              id="filter-role"
+              label="Role"
+              className="sm:w-40"
+              value={filters.role}
+              onChange={(value) => updateFilters({ role: value })}
+              options={[{ value: '', label: 'All roles' }, ...ROLE_OPTIONS]}
+            />
+          )}
+          <FilterSelect
+            id="filter-status"
+            label="Status"
+            className="sm:w-40"
+            value={filters.status}
+            onChange={(value) => updateFilters({ status: value })}
+            options={[{ value: '', label: 'All statuses' }, ...STATUS_OPTIONS]}
           />
         </div>
-        {!fixedRole && (
-          <SelectField
-            id="filter-role"
-            label="Role"
-            className="sm:w-44"
-            value={filters.role}
-            onChange={(event) => updateFilters({ role: event.target.value })}
-            options={[{ value: '', label: 'All roles' }, ...ROLE_OPTIONS]}
-          />
-        )}
-        <SelectField
-          id="filter-status"
-          label="Status"
-          className="sm:w-44"
-          value={filters.status}
-          onChange={(event) => updateFilters({ status: event.target.value })}
-          options={[{ value: '', label: 'All statuses' }, ...STATUS_OPTIONS]}
-        />
-      </div>
+      </ListToolbar>
 
       <UserTable
         list={list}
@@ -230,7 +221,7 @@ export default function Users({ role: fixedRole }) {
         message={
           deletingUser && (
             <p>
-              <span className="font-medium text-slate-900">
+              <span className="font-medium text-ink-900">
                 {deletingUser.firstName} {deletingUser.lastName}
               </span>{' '}
               ({deletingUser.email}) will be permanently deleted. To keep their history, set their status to
@@ -248,115 +239,68 @@ export default function Users({ role: fixedRole }) {
   );
 }
 
-function Badge({ className, children }) {
-  return (
-    <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}>
-      {children}
-    </span>
-  );
-}
-
-function IconButton({ label, icon: Icon, tone = 'default', ...props }) {
-  const colors = tone === 'danger' ? 'hover:bg-red-50 hover:text-red-600' : 'hover:bg-slate-100 hover:text-slate-900';
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      className={`rounded-md p-1.5 text-slate-500 transition ${colors}`}
-      {...props}
-    >
-      <Icon className="size-4" aria-hidden="true" />
-    </button>
-  );
-}
-
 function UserTable({ list, currentUserId, hasFilters, can, onEdit, onResetPassword, onDelete }) {
   const { status, items, pagination, error } = list;
   const showActions = can.update || can.remove;
 
-  if (status === 'error') {
-    return (
-      <div className="space-y-3">
-        <Alert tone="error">{error}</Alert>
-        <Button variant="secondary" onClick={list.reload}>
-          Try again
-        </Button>
-      </div>
-    );
-  }
+  if (status === 'error') return <ErrorState message={error} onRetry={list.reload} />;
 
-  if (status === 'loading' && items.length === 0) {
-    return (
-      <div className="flex justify-center rounded-xl border border-slate-200 bg-white py-16 text-indigo-600">
-        <Spinner className="size-6" />
-        <span className="sr-only">Loading users…</span>
-      </div>
-    );
-  }
+  if (status === 'loading' && items.length === 0) return <PageLoader label="Loading users…" />;
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
-        <span className="flex size-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
-          <UsersIcon className="size-6" aria-hidden="true" />
-        </span>
-        <h2 className="mt-4 font-semibold text-slate-900">{hasFilters ? 'No matching users' : 'No users yet'}</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          {hasFilters ? 'Try a different search or clear the filters.' : 'Users you add will be listed here.'}
-        </p>
-      </div>
+      <EmptyState
+        icon={UsersIcon}
+        title={hasFilters ? 'No matching users' : 'No users yet'}
+        message={hasFilters ? 'Try a different search or clear the filters.' : 'Users you add will be listed here.'}
+      />
     );
   }
 
   return (
-    <div
-      className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs transition-opacity ${status === 'loading' ? 'opacity-60' : ''}`}
-    >
+    <Card className={`overflow-hidden transition-opacity ${status === 'loading' ? 'opacity-60' : ''}`}>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+        <table className="min-w-full text-sm">
+          <thead className="border-b border-ink-200 text-left text-xs font-medium uppercase tracking-wider text-ink-500">
             <tr>
-              <th scope="col" className="px-5 py-3">Name</th>
-              <th scope="col" className="px-5 py-3">Role</th>
-              <th scope="col" className="px-5 py-3">Status</th>
-              <th scope="col" className="whitespace-nowrap px-5 py-3">Last Sign-in</th>
+              <th scope="col" className="px-5 py-2.5 font-medium">Name</th>
+              <th scope="col" className="px-5 py-2.5 font-medium">Role</th>
+              <th scope="col" className="px-5 py-2.5 font-medium">Status</th>
+              <th scope="col" className="whitespace-nowrap px-5 py-2.5 font-medium">Last sign-in</th>
               {showActions && (
-                <th scope="col" className="px-5 py-3 text-right">
+                <th scope="col" className="relative px-5 py-2.5 text-right">
                   <span className="sr-only">Actions</span>
                 </th>
               )}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-ink-200">
             {items.map((user) => {
               const isSelf = user.id === currentUserId;
               const fullName = `${user.firstName} ${user.lastName}`;
               return (
-                <tr key={user.id} className="hover:bg-slate-50">
-                  <td className="max-w-xs px-5 py-3.5">
-                    <p className="truncate font-medium text-slate-900">
+                <tr key={user.id} className="hover:bg-ink-50">
+                  <td className="max-w-xs px-5 py-3">
+                    <p className="truncate font-medium text-ink-900">
                       {fullName}
-                      {isSelf && <span className="ml-1.5 font-normal text-slate-500">(you)</span>}
+                      {isSelf && <span className="ml-1.5 font-normal text-ink-500">(you)</span>}
                     </p>
-                    <p className="truncate text-slate-500">{user.email}</p>
+                    <p className="truncate text-ink-500">{user.email}</p>
                   </td>
-                  <td className="px-5 py-3.5">
-                    <Badge className={ROLE_BADGES[user.role]}>{ROLE_LABELS[user.role]}</Badge>
+                  <td className="px-5 py-3 text-ink-700">{ROLE_LABELS[user.role]}</td>
+                  <td className="px-5 py-3">
+                    <Badge tone={STATUS_TONES[user.status]}>{STATUS_LABELS[user.status]}</Badge>
                   </td>
-                  <td className="px-5 py-3.5">
-                    <Badge className={STATUS_BADGES[user.status]}>{STATUS_LABELS[user.status]}</Badge>
-                  </td>
-                  <td className="whitespace-nowrap px-5 py-3.5 text-slate-600">
+                  <td className="whitespace-nowrap px-5 py-3 tabular-nums text-ink-600">
                     {user.lastLoginAt ? (
                       <time dateTime={user.lastLoginAt}>{formatDateTime(user.lastLoginAt)}</time>
                     ) : (
-                      <span className="text-slate-400">Never</span>
+                      <span className="text-ink-400">Never</span>
                     )}
                   </td>
                   {showActions && (
-                    <td className="whitespace-nowrap px-5 py-3.5 text-right">
-                      <div className="inline-flex gap-1">
+                    <td className="whitespace-nowrap px-5 py-2 text-right">
+                      <div className="inline-flex gap-0.5">
                         {can.update && (
                           <>
                             <IconButton label={`Edit ${fullName}`} icon={Pencil} onClick={() => onEdit(user)} />
@@ -386,13 +330,13 @@ function UserTable({ list, currentUserId, hasFilters, can, onEdit, onResetPasswo
       </div>
 
       <Pagination
-        className="border-t border-slate-200 px-5 py-3"
+        className="border-t border-ink-200 px-5 py-3"
         pagination={pagination}
         itemCount={items.length}
         disabled={status === 'loading'}
         onPageChange={list.setPage}
       />
-    </div>
+    </Card>
   );
 }
 
@@ -406,14 +350,11 @@ function PasswordField({ id, label, error, registration }) {
       autoComplete="new-password"
       error={error}
       trailing={
-        <button
-          type="button"
+        <IconButton
+          label={shown ? 'Hide password' : 'Show password'}
+          icon={shown ? EyeOff : Eye}
           onClick={() => setShown((value) => !value)}
-          className="rounded-md p-1.5 text-slate-400 hover:text-slate-600"
-          aria-label={shown ? 'Hide password' : 'Show password'}
-        >
-          {shown ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-        </button>
+        />
       }
       {...registration}
     />
@@ -422,14 +363,14 @@ function PasswordField({ id, label, error, registration }) {
 
 function FormActions({ onCancel, isSubmitting, submitLabel }) {
   return (
-    <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
+    <ModalActions>
       <Button variant="secondary" onClick={onCancel} disabled={isSubmitting}>
         Cancel
       </Button>
       <Button type="submit" isLoading={isSubmitting}>
         {submitLabel}
       </Button>
-    </div>
+    </ModalActions>
   );
 }
 
@@ -510,14 +451,14 @@ function UserForm({ user, fixedRole, isSelf, onCancel, onSaved }) {
         {fixedRole ? (
           // The Teachers and Students tabs only manage their own role; change roles from All Users.
           <div>
-            <p id="user-role-label" className="mb-1.5 text-sm font-medium text-slate-700">Role</p>
+            <p id="user-role-label" className="mb-1.5 text-sm font-medium text-ink-700">Role</p>
             <p
               aria-labelledby="user-role-label"
-              className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600"
+              className="flex h-10.5 items-center justify-between gap-2 rounded-lg border border-ink-300 bg-ink-50 px-3 text-sm text-ink-500"
               title="Change roles from All Users"
             >
               {ROLE_LABELS[fixedRole]}
-              <Lock className="size-4 text-slate-400" aria-hidden="true" />
+              <Lock className="size-4 text-ink-400" aria-hidden="true" />
             </p>
             <input type="hidden" {...register('role')} />
           </div>
@@ -538,7 +479,7 @@ function UserForm({ user, fixedRole, isSelf, onCancel, onSaved }) {
           {...register('status', { disabled: isSelf })}
         />
       </div>
-      {isSelf && <p className="-mt-2 text-sm text-slate-500">You cannot change your own role or status.</p>}
+      {isSelf && <p className="-mt-2 text-sm text-ink-500">You cannot change your own role or status.</p>}
 
       <FormActions onCancel={onCancel} isSubmitting={isSubmitting} submitLabel={isEdit ? 'Save changes' : 'Add user'} />
     </form>

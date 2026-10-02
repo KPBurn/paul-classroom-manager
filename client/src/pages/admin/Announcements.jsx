@@ -8,14 +8,15 @@ import { useAnnouncementActions } from '../../components/announcements/useAnnoun
 import Button from '../../components/common/Button.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
+import Tabs from '../../components/common/Tabs.jsx';
 import { useAnnouncements } from '../../hooks/useAnnouncements.js';
 import { announcementService } from '../../services/announcement.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
 const PAGE_SIZE = 10;
 const TABS = [
-  { status: 'active', label: 'Active' },
-  { status: 'archived', label: 'Archived' },
+  { value: 'active', label: 'Active' },
+  { value: 'archived', label: 'Archived' },
 ];
 
 export default function Announcements() {
@@ -71,20 +72,7 @@ export default function Announcements() {
         }
       />
 
-      <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-1" role="tablist" aria-label="Announcement status">
-        {TABS.map((tab) => (
-          <button
-            key={tab.status}
-            type="button"
-            role="tab"
-            aria-selected={status === tab.status}
-            onClick={() => setStatus(tab.status)}
-            className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${status === tab.status ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs label="Announcement status" options={TABS} value={status} onChange={setStatus} className="mb-4" />
 
       <AnnouncementFeed
         list={list}
@@ -94,7 +82,7 @@ export default function Announcements() {
           ? 'Announcements you archive are kept here and can be restored.'
           : 'Announcements you create will be listed here.'}
         emptyAction={status === 'active' && (
-          <Button className="mt-5" onClick={openForm}>
+          <Button onClick={openForm}>
             <Plus className="size-4" aria-hidden="true" />
             Create Announcement
           </Button>
@@ -117,8 +105,8 @@ export default function Announcements() {
         message={
           pendingAnnouncement && (
             <p>
-              <span className="font-medium text-slate-900">“{pendingAnnouncement.title}”</span> will be
-              created as a <span className="font-medium text-slate-900">{pendingAnnouncement.type}</span>{' '}
+              <span className="font-medium text-ink-900">“{pendingAnnouncement.title}”</span> will be
+              created as a <span className="font-medium text-ink-900">{pendingAnnouncement.type}</span>{' '}
               announcement.
             </p>
           )

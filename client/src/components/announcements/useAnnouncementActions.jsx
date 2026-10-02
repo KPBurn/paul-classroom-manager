@@ -1,6 +1,7 @@
 import { Archive, ArchiveRestore, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
+import { IconButton } from '../common/Button.jsx';
 import ConfirmDialog from '../common/ConfirmDialog.jsx';
 import { announcementService } from '../../services/announcement.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -62,39 +63,16 @@ export function useAnnouncementActions(onChanged) {
   const renderActions = (announcement) => {
     const archived = announcement.status === 'archived';
     const busy = busyId === announcement.id;
-    const buttonClass = 'inline-flex size-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white hover:text-slate-900 hover:shadow-sm focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-50';
     return (
-      <div className="flex shrink-0 items-center justify-center gap-1">
-        <button
-          type="button"
-          className={buttonClass}
-          onClick={() => setEditing(announcement)}
-          aria-label={`Edit ${announcement.title}`}
-          title="Edit"
-        >
-          <Pencil className="size-4" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className={buttonClass}
-          onClick={() => toggleArchive(announcement)}
+      <div className="flex shrink-0 items-center justify-center gap-0.5">
+        <IconButton label={`Edit ${announcement.title}`} icon={Pencil} onClick={() => setEditing(announcement)} />
+        <IconButton
+          label={`${archived ? 'Restore' : 'Archive'} ${announcement.title}`}
+          icon={archived ? ArchiveRestore : Archive}
           disabled={busy}
-          aria-label={`${archived ? 'Restore' : 'Archive'} ${announcement.title}`}
-          title={archived ? 'Restore' : 'Archive'}
-        >
-          {archived
-            ? <ArchiveRestore className="size-4" aria-hidden="true" />
-            : <Archive className="size-4" aria-hidden="true" />}
-        </button>
-        <button
-          type="button"
-          className={`${buttonClass} hover:!bg-red-50 hover:!text-red-600`}
-          onClick={() => setDeleting(announcement)}
-          aria-label={`Delete ${announcement.title}`}
-          title="Delete"
-        >
-          <Trash2 className="size-4" aria-hidden="true" />
-        </button>
+          onClick={() => toggleArchive(announcement)}
+        />
+        <IconButton label={`Delete ${announcement.title}`} icon={Trash2} tone="danger" onClick={() => setDeleting(announcement)} />
       </div>
     );
   };
@@ -116,7 +94,7 @@ export function useAnnouncementActions(onChanged) {
         message={
           deleting && (
             <p>
-              <span className="font-medium text-slate-900">“{deleting.title}”</span> will be permanently deleted.
+              <span className="font-medium text-ink-900">“{deleting.title}”</span> will be permanently deleted.
               To hide it but keep a record, archive it instead.
             </p>
           )

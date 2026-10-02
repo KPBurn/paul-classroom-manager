@@ -4,15 +4,17 @@ import { CalendarDays, CalendarX, Clock3, MessageSquareText, Pencil, Plus, Repea
 import toast from 'react-hot-toast';
 import ActionMenu from '../../components/common/ActionMenu.jsx';
 import Alert from '../../components/common/Alert.jsx';
+import Badge from '../../components/common/Badge.jsx';
 import Button from '../../components/common/Button.jsx';
+import Card, { SectionLabel } from '../../components/common/Card.jsx';
 import EmptyState from '../../components/common/EmptyState.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
-import Modal from '../../components/common/Modal.jsx';
+import Modal, { ModalActions } from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import PeoplePicker from '../../components/common/PeoplePicker.jsx';
-import Spinner from '../../components/common/Spinner.jsx';
-import { SelectField } from '../../components/common/TextField.jsx';
+import { PageLoader } from '../../components/common/Spinner.jsx';
+import { inputClass, labelClass, SelectField } from '../../components/common/TextField.jsx';
 import { classroomService } from '../../services/classroom.service.js';
 import { sessionService } from '../../services/session.service.js';
 import { useAuth } from '../../hooks/useAuth.js';
@@ -24,7 +26,7 @@ import {
   isJoinable,
   isSameLocalDay,
   PHASE_LABELS,
-  PHASE_STYLES,
+  PHASE_TONES,
   sessionPhase,
 } from '../../utils/sessionTiming.js';
 
@@ -225,7 +227,7 @@ export default function TeacherSchedule() {
         }
       />
       {!classrooms.length && !loading && (
-        <div className="mb-3">
+        <div className="mb-4">
           <Alert>{isAdmin
             ? 'Create an active classroom before scheduling classes.'
             : 'Your administrator needs to assign you to a classroom before you can schedule a session.'}</Alert>
@@ -248,8 +250,8 @@ export default function TeacherSchedule() {
         </div>
       </ListToolbar>
 
-      {error && <div className="mb-3"><Alert tone="error">{error}</Alert></div>}
-      {loading ? <div className="flex justify-center py-16"><Spinner /></div> : filtered.length === 0 ? (
+      {error && <div className="mb-4"><Alert tone="error">{error}</Alert></div>}
+      {loading ? <PageLoader label="Loading schedule…" /> : filtered.length === 0 ? (
         <EmptyState
           icon={CalendarDays}
           title={sessions.length === 0 ? 'No sessions scheduled yet' : 'No sessions match your filters'}
@@ -259,11 +261,11 @@ export default function TeacherSchedule() {
           )}
         />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-6">
           {days.map((day) => (
             <section key={day.key} aria-label={dayLabel(day.date, now)}>
-              <h2 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wider text-slate-500">{dayLabel(day.date, now)}</h2>
-              <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-xs">
+              <SectionLabel className="mb-2">{dayLabel(day.date, now)}</SectionLabel>
+              <Card as="ul" className="divide-y divide-ink-200">
                 {day.sessions.map((session) => {
                   const cancelled = session.status === 'cancelled';
                   const joinable = isJoinable(session.phase) || session.phase === 'closed';
@@ -275,59 +277,56 @@ export default function TeacherSchedule() {
                   return (
                     <li
                       key={session.id}
-                      className={`grid gap-2 px-4 py-3 sm:grid-cols-[6.5rem_minmax(0,1fr)_auto] sm:items-center sm:gap-4 ${cancelled ? 'bg-slate-50/70' : ''}`}
+                      className="grid gap-2 px-5 py-3 lg:grid-cols-[7.5rem_minmax(0,1fr)_auto] lg:items-center lg:gap-4"
                     >
-                      <p className={`text-sm font-semibold tabular-nums ${cancelled ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
+                      <p className={`text-sm tabular-nums ${cancelled ? 'text-ink-400 line-through' : 'font-medium text-ink-900'}`}>
                         {formatTime(session.startsAt)}
-                        <span className="font-normal text-slate-500"> – {formatTime(session.endsAt)}</span>
+                        <span className="font-normal text-ink-500"> – {formatTime(session.endsAt)}</span>
                       </p>
                       <div className="min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                          <p className={`truncate font-medium ${cancelled ? 'text-slate-500' : 'text-slate-900'}`}>{session.title}</p>
+                          <p className={`truncate text-sm font-medium ${cancelled ? 'text-ink-500' : 'text-ink-900'}`}>{session.title}</p>
                           {session.phase !== 'upcoming' && (
-                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${PHASE_STYLES[session.phase]}`}>
-                              {PHASE_LABELS[session.phase]}
-                            </span>
+                            <Badge tone={PHASE_TONES[session.phase]}>{PHASE_LABELS[session.phase]}</Badge>
                           )}
                           {session.seriesId && (
-                            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500" title="Part of a weekly series">
+                            <span className="inline-flex items-center gap-1 text-xs text-ink-500" title="Part of a weekly series">
                               <Repeat className="size-3" aria-hidden="true" /> Weekly
                             </span>
                           )}
                           {session.attendanceConditionEnabled === false && !cancelled && (
-                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600" title="Everyone who joins during class is marked Present">
-                              No late rule
-                            </span>
+                            <Badge title="Everyone who joins during class is marked Present">No late rule</Badge>
                           )}
                         </div>
-                        <p className="mt-0.5 truncate text-xs text-slate-500">
+                        <p className="mt-0.5 truncate text-xs text-ink-500">
                           {session.classroom?.name ?? 'Classroom'}
                           {teacherNames && <> · {teacherNames}</>}
                           {session.assignments && <> · {session.assignments.students.length} students</>}
                         </p>
                       </div>
                       {!cancelled && (
-                        <div className="flex items-center gap-2 sm:justify-end">
+                        <div className="-ml-3 flex flex-wrap items-center gap-1 lg:ml-0 lg:justify-end">
                           {joinable && (
                             <Button
                               size="sm"
                               variant={session.phase === 'live' ? 'primary' : 'secondary'}
+                              className="ml-3 mr-1 lg:ml-0"
                               onClick={() => navigate(`/sessions/${session.id}/room`)}
                             >
-                              <Video className="size-3.5" aria-hidden="true" /> Join
+                              <Video className="size-4" aria-hidden="true" /> Join
                             </Button>
                           )}
                           {canGiveFeedback && (
                             <Button
-                              variant="secondary"
+                              variant="ghost"
                               size="sm"
                               onClick={() => navigate(`/teacher/feedback?class=${session.classroom?.id}&lesson=${session.id}`)}
                             >
-                              <MessageSquareText className="size-3.5" aria-hidden="true" /> Feedback
+                              <MessageSquareText className="size-4" aria-hidden="true" /> Feedback
                             </Button>
                           )}
-                          <Button variant="secondary" size="sm" onClick={() => setAttendanceSession(session)}>
-                            <UsersRound className="size-3.5" aria-hidden="true" /> Attendance
+                          <Button variant="ghost" size="sm" onClick={() => setAttendanceSession(session)}>
+                            <UsersRound className="size-4" aria-hidden="true" /> Attendance
                           </Button>
                           <ActionMenu
                             label={`More actions for ${session.title}`}
@@ -355,7 +354,7 @@ export default function TeacherSchedule() {
                     </li>
                   );
                 })}
-              </ul>
+              </Card>
             </section>
           ))}
           {filtered.length > visible.length && (
@@ -427,9 +426,9 @@ export default function TeacherSchedule() {
         onCancel={() => setCancelSession(null)}
       />
       <Modal open={Boolean(cancelSession?.seriesId)} onClose={() => setCancelSession(null)} title="Cancel recurring sessions">
-        <p className="text-sm text-slate-600">Choose whether to cancel only this date or the entire series.</p>
-        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="secondary" onClick={() => setCancelSession(null)} disabled={busy}>Keep session</Button>
+        <p className="text-sm text-ink-600">Choose whether to cancel only this date or the entire series.</p>
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="ghost" onClick={() => setCancelSession(null)} disabled={busy}>Keep session</Button>
           <Button variant="secondary" onClick={() => {
             cancel('occurrence');
           }} isLoading={busy}>This occurrence</Button>
@@ -495,27 +494,27 @@ function EditSessionForm({ session, seriesSessions, onCancel, onSave }) {
           options={[{ value: 'occurrence', label: 'This occurrence only' }, { value: 'series', label: 'Entire series' }]}
         />
       )}
-      <label className="block text-sm font-medium text-slate-700">Title
-        <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
+      <label className={labelClass}>Title
+        <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} className={inputClass(false, 'mt-1.5 font-normal')} required />
       </label>
-      <label className="block text-sm font-medium text-slate-700">Date
-        <input type="date" value={date} disabled={scope === 'series'} onChange={(event) => setDate(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50" required />
+      <label className={labelClass}>Date
+        <input type="date" value={date} disabled={scope === 'series'} onChange={(event) => setDate(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
       </label>
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block text-sm font-medium text-slate-700">Starts
-          <input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
+        <label className={labelClass}>Starts
+          <input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
         </label>
-        <label className="block text-sm font-medium text-slate-700">Ends
-          <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
+        <label className={labelClass}>Ends
+          <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
         </label>
       </div>
       {scope === 'series' && seriesSessions.length > 0 && (
-        <p className="text-xs text-slate-500">Applies to {seriesSessions.length} occurrences in this series.</p>
+        <p className="text-xs text-ink-500">Applies to {seriesSessions.length} occurrences in this series.</p>
       )}
-      <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+      <ModalActions>
         <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
         <Button type="submit" isLoading={saving}>Save changes</Button>
-      </div>
+      </ModalActions>
     </form>
   );
 }
@@ -622,8 +621,8 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
       {error && <Alert tone="error">{error}</Alert>}
       <div className="grid gap-4 sm:grid-cols-2">
         <SelectField id="session-classroom" label="Classroom" value={classroomId} onChange={(event) => setClassroomId(event.target.value)} options={classrooms.map((room) => ({ value: room.id, label: room.name }))} />
-        <label className="block text-sm font-medium text-slate-700">Session title
-          <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder="e.g. Math – Fractions" className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" required />
+        <label className={labelClass}>Session title
+          <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder="e.g. Math – Fractions" className={inputClass(false, 'mt-1.5 font-normal')} required />
         </label>
       </div>
       <fieldset disabled={loadingOptions} className="disabled:opacity-60">
@@ -645,42 +644,42 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
             emptyMessage={loadingOptions ? 'Loading…' : 'No active students are available.'}
           />
         </div>
-        <p className="mt-1.5 text-xs text-slate-500">Saving this schedule updates the classroom’s assigned teachers and student roster.</p>
+        <p className="mt-1.5 text-xs text-ink-500">Saving this schedule updates the classroom’s assigned teachers and student roster.</p>
       </fieldset>
       <div className="grid gap-4 sm:grid-cols-3">
         <SelectField id="session-type" label="Schedule type" value={mode} onChange={(event) => setMode(event.target.value)} options={[{ value: 'single', label: 'One-time session' }, { value: 'recurring', label: 'Weekly sessions' }]} />
-        <label className="block text-sm font-medium text-slate-700">Starts
-          <input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
+        <label className={labelClass}>Starts
+          <input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
         </label>
-        <label className="block text-sm font-medium text-slate-700">Ends
-          <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
+        <label className={labelClass}>Ends
+          <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
         </label>
       </div>
       {mode === 'single' ? (
-        <label className="block text-sm font-medium text-slate-700 sm:w-1/3 sm:pr-3">Date
-          <input type="date" min={localDate} value={date} onChange={(event) => setDate(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
+        <label className={`${labelClass} sm:w-1/3 sm:pr-3`}>Date
+          <input type="date" min={localDate} value={date} onChange={(event) => setDate(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
         </label>
       ) : (
         <div className="grid gap-4 sm:grid-cols-3">
-          <label className="block text-sm font-medium text-slate-700">First date
-            <input type="date" min={localDate} value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
+          <label className={labelClass}>First date
+            <input type="date" min={localDate} value={startDate} onChange={(event) => setStartDate(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
           </label>
-          <label className="block text-sm font-medium text-slate-700">Last date
-            <input type="date" min={startDate} value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required />
+          <label className={labelClass}>Last date
+            <input type="date" min={startDate} value={endDate} onChange={(event) => setEndDate(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
           </label>
           <fieldset className="sm:col-span-3">
-            <legend className="mb-1.5 text-sm font-medium text-slate-700">Repeat on</legend>
+            <legend className="mb-1.5 text-sm font-medium text-ink-700">Repeat on</legend>
             <div className="flex flex-wrap gap-1.5">
               {WEEKDAYS.map((day) => (
                 <label
                   key={day.value}
-                  className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition ${weekdays.includes(day.value) ? 'border-indigo-300 bg-indigo-50 text-indigo-800' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                  className={`flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition ${weekdays.includes(day.value) ? 'border-ink-900 bg-ink-50 font-medium text-ink-900' : 'border-ink-300 text-ink-700 hover:border-ink-400'}`}
                 >
                   <input
                     type="checkbox"
                     checked={weekdays.includes(day.value)}
                     onChange={() => toggleDay(day.value)}
-                    className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    className="size-4"
                   />
                   {day.label.slice(0, 3)}
                 </label>
@@ -689,12 +688,12 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
           </fieldset>
         </div>
       )}
-      <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+      <ModalActions>
         <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
         <Button type="submit" isLoading={saving || loadingOptions} disabled={Boolean(error) || loadingOptions}>
           Create schedule
         </Button>
-      </div>
+      </ModalActions>
     </form>
   );
 }
@@ -729,18 +728,18 @@ function AttendancePanel({ session }) {
     }
   };
 
-  if (loading) return <div className="flex justify-center py-8"><Spinner /></div>;
+  if (loading) return <PageLoader label="Loading attendance…" className="py-8" />;
   if (error) return <Alert tone="error">{error}</Alert>;
   return (
-    <div className="space-y-3">
+    <div className="divide-y divide-ink-200 border-t border-ink-200">
       {items.map((item) => (
-        <div key={item.participant?.id ?? item.student.id} className="flex flex-col gap-2 rounded-lg border border-slate-100 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div key={item.participant?.id ?? item.student.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="font-medium text-slate-900">
+            <p className="text-sm font-medium text-ink-900">
               {item.participant?.name ?? item.student.name ?? `${item.student.firstName} ${item.student.lastName}`}
-              <span className="ml-2 text-xs font-normal capitalize text-slate-500">{item.role ?? item.participant?.role}</span>
+              <span className="ml-2 text-xs font-normal capitalize text-ink-500">{item.role ?? item.participant?.role}</span>
             </p>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-ink-500">
               {item.checkInAt
                 ? `Joined ${dateTime(item.checkInAt)} · ${Math.floor((item.durationMs ?? 0) / 60_000)} min attended`
                 : 'Did not join the class room'}
@@ -761,7 +760,7 @@ function AttendancePanel({ session }) {
           />
         </div>
       ))}
-      {!items.length && <p className="py-8 text-center text-sm text-slate-500">No students are assigned to this classroom.</p>}
+      {!items.length && <p className="py-8 text-center text-sm text-ink-500">No students are assigned to this classroom.</p>}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { Bell, ChevronRight, TriangleAlert } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { textLinkClass } from '../common/Card.jsx';
 import { formatShortDate } from './feedbackMeta.js';
 
 const formPath = (item) => `/teacher/feedback/lesson/${item.lesson.id}/student/${item.nextStudent.id}`;
@@ -20,13 +21,13 @@ export default function FeedbackReminder({ pending, showLink = true }) {
   const overdue = items.filter((item) => item.overdue);
 
   return (
-    <div className="mb-6 space-y-3">
+    <div className="mb-6 space-y-2">
       {summary.overdueStudents > 0 && (
-        <section className="rounded-xl border border-amber-300 bg-amber-50 p-4" role="alert">
-          <div className="flex gap-3">
-            <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-600" aria-hidden="true" />
+        <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3" role="alert">
+          <div className="flex gap-2.5">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-700" aria-hidden="true" />
             <div className="min-w-0 flex-1">
-              <h2 className="font-semibold text-amber-950">
+              <h2 className="text-sm font-semibold text-amber-900">
                 Feedback is overdue for {students(summary.overdueStudents)}
               </h2>
               <p className="mt-0.5 text-sm text-amber-900">
@@ -38,13 +39,13 @@ export default function FeedbackReminder({ pending, showLink = true }) {
                   <li key={item.lesson.id}>
                     <Link
                       to={formPath(item)}
-                      className="group flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm shadow-xs transition hover:border-amber-500"
+                      className="group flex min-h-9 items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm transition hover:border-amber-700"
                     >
                       <span>
-                        <span className="font-medium text-slate-900">{item.lesson.classroom.name}</span>
-                        <span className="text-slate-500"> · {formatShortDate(item.lesson.startsAt)} · {item.left} left</span>
+                        <span className="font-medium text-ink-900">{item.lesson.classroom.name}</span>
+                        <span className="text-ink-500"> · {formatShortDate(item.lesson.startsAt)} · {item.left} left</span>
                       </span>
-                      <ChevronRight className="size-4 text-amber-700 transition group-hover:translate-x-0.5" aria-hidden="true" />
+                      <ChevronRight className="size-4 text-ink-400 transition group-hover:translate-x-0.5 group-hover:text-ink-900" aria-hidden="true" />
                     </Link>
                   </li>
                 ))}
@@ -56,17 +57,17 @@ export default function FeedbackReminder({ pending, showLink = true }) {
       )}
 
       {recentStudents > 0 && (
-        <section className="flex flex-col gap-2 rounded-xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" role="status">
-          <p className="flex items-start gap-2.5 text-sm text-indigo-950">
-            <Bell className="mt-0.5 size-4 shrink-0 text-indigo-600" aria-hidden="true" />
+        <section className="flex flex-col gap-2 rounded-xl border border-ink-200 bg-ink-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" role="status">
+          <p className="flex items-start gap-2.5 text-sm text-ink-700">
+            <Bell className="mt-0.5 size-4 shrink-0 text-ink-500" aria-hidden="true" />
             <span>
-              <span className="font-medium">Reminder:</span> {students(recentStudents)} from {lessons(recentLessons)} this
+              <span className="font-medium text-ink-900">Reminder:</span> {students(recentStudents)} from {lessons(recentLessons)} this
               week {recentStudents === 1 ? 'is' : 'are'} waiting for feedback.
             </span>
           </p>
           {showLink && (
-            <Link to="/teacher/feedback" className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-indigo-700 hover:text-indigo-900">
-              Write feedback <ChevronRight className="size-4" aria-hidden="true" />
+            <Link to="/teacher/feedback" className={`${textLinkClass} shrink-0 pl-6.5 sm:pl-0`}>
+              Write feedback
             </Link>
           )}
         </section>

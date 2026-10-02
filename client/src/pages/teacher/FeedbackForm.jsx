@@ -1,5 +1,4 @@
 import {
-  ArrowLeft,
   BookOpen,
   CalendarDays,
   ChevronLeft,
@@ -16,7 +15,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import FeedbackView from '../../components/feedback/FeedbackView.jsx';
 import StarRating from '../../components/feedback/StarRating.jsx';
 import StatusPill, { StatusIcon } from '../../components/feedback/StatusPill.jsx';
@@ -34,10 +33,14 @@ import {
   SPEAKING_SKILLS,
   valuesFrom,
 } from '../../components/feedback/feedbackMeta.js';
-import Alert from '../../components/common/Alert.jsx';
-import Button from '../../components/common/Button.jsx';
+import { ErrorState } from '../../components/common/Alert.jsx';
+import Badge from '../../components/common/Badge.jsx';
+import Button, { IconButton } from '../../components/common/Button.jsx';
+import Card, { SectionLabel } from '../../components/common/Card.jsx';
 import { Skeleton } from '../../components/common/EmptyState.jsx';
-import { matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
+import { controlClass, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
+import { BackLink, pageTitleClass } from '../../components/common/PageHeader.jsx';
+import { ProgressBar } from '../../components/common/StatStrip.jsx';
 import TextField, { TextAreaField } from '../../components/common/TextField.jsx';
 import { useFeedbackReminder } from '../../context/FeedbackReminderContext.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
@@ -60,23 +63,21 @@ function lessonDetailsFrom(defaults) {
   };
 }
 
-function Card({ number, title, hint, action, children }) {
+function FormSection({ number, title, hint, action, children }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+    <Card as="section" className="p-5">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="flex items-center gap-2 font-semibold text-slate-900">
-            {number && (
-              <span className="flex size-6 items-center justify-center rounded-full bg-indigo-50 text-xs font-semibold text-indigo-700">{number}</span>
-            )}
+          <h2 className="flex items-baseline gap-2 text-sm font-semibold text-ink-900">
+            {number && <span className="font-mono text-xs font-normal text-ink-400">{number.padStart(2, '0')}</span>}
             {title}
           </h2>
-          {hint && <p className="mt-0.5 text-sm text-slate-500">{hint}</p>}
+          {hint && <p className="mt-0.5 text-sm text-ink-500">{hint}</p>}
         </div>
         {action}
       </div>
       <div className="space-y-4">{children}</div>
-    </section>
+    </Card>
   );
 }
 
@@ -374,7 +375,7 @@ export default function FeedbackForm() {
 
   if (loading && !roster) {
     return (
-      <div className="mx-auto max-w-7xl" role="status" aria-label="Loading feedback form">
+      <div role="status" aria-label="Loading feedback form">
         <Skeleton className="h-5 w-56" />
         <Skeleton className="mt-3 h-8 w-80 max-w-full" />
         <div className="mt-6 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-6">
@@ -390,13 +391,10 @@ export default function FeedbackForm() {
   }
   if (loadError || !roster || !student) {
     return (
-      <div className="space-y-3">
-        <Link to="/teacher/feedback" className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">
-          <ArrowLeft className="size-4" aria-hidden="true" /> Teacher&apos;s Feedback
-        </Link>
-        <Alert tone="error">{loadError || 'This feedback could not be found.'}</Alert>
-        <Button variant="secondary" onClick={load}>Try again</Button>
-      </div>
+      <>
+        <BackLink to="/teacher/feedback">Teacher&apos;s Feedback</BackLink>
+        <ErrorState message={loadError || 'This feedback could not be found.'} onRetry={load} />
+      </>
     );
   }
 
@@ -409,16 +407,14 @@ export default function FeedbackForm() {
   const skipTarget = nextStudent ?? nextInList;
 
   const studentPanel = (
-    <nav aria-label="Students in this lesson" className="sticky top-4 hidden self-start rounded-xl border border-slate-200 bg-white shadow-xs lg:block">
-      <div className="border-b border-slate-100 px-3 py-2.5">
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Students</p>
-        <p className="mt-0.5 text-sm text-slate-700">{completedCount} / {students.length} completed</p>
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
-          <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${students.length ? (completedCount / students.length) * 100 : 0}%` }} />
-        </div>
+    <Card as="nav" aria-label="Students in this lesson" className="sticky top-18 hidden self-start lg:block">
+      <div className="border-b border-ink-200 px-3 py-3">
+        <SectionLabel as="p">Students</SectionLabel>
+        <p className="mt-1 text-sm tabular-nums text-ink-700">{completedCount} of {students.length} completed</p>
+        <ProgressBar percent={students.length ? Math.round((completedCount / students.length) * 100) : 0} className="mt-2" />
       </div>
       {students.length > 8 && (
-        <div className="border-b border-slate-100 p-1.5">
+        <div className="border-b border-ink-200 p-1.5">
           <SearchInput id="feedback-panel-search" label="Search students" value={panelQuery} onChange={setPanelQuery} placeholder="Search students" />
         </div>
       )}
@@ -432,7 +428,7 @@ export default function FeedbackForm() {
                 onClick={() => !current && openStudent(item)}
                 aria-current={current ? 'page' : undefined}
                 title={`${item.name}: ${FEEDBACK_STATUS[item.feedback?.status ?? 'none'].label}`}
-                className={`flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${current ? 'bg-indigo-50 font-semibold text-indigo-800' : 'text-slate-700 hover:bg-slate-50'}`}
+                className={`flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition focus-visible:-outline-offset-2 ${current ? 'bg-ink-100 font-medium text-ink-900' : 'text-ink-600 hover:bg-ink-50 hover:text-ink-900'}`}
               >
                 <StatusIcon status={item.feedback?.status} />
                 <span className="min-w-0 flex-1 truncate">{item.name}</span>
@@ -442,31 +438,29 @@ export default function FeedbackForm() {
           );
         })}
       </ul>
-      <p className="flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-100 px-3 py-2 text-xs text-slate-500">
+      <p className="flex flex-wrap gap-x-3 gap-y-1 border-t border-ink-200 px-3 py-2 text-xs text-ink-500">
         <span className="inline-flex items-center gap-1"><StatusIcon status="completed" className="size-3.5" /> Done</span>
         <span className="inline-flex items-center gap-1"><StatusIcon status="draft" className="size-3.5" /> Draft</span>
         <span className="inline-flex items-center gap-1"><StatusIcon status="none" className="size-3.5" /> Not started</span>
       </p>
-    </nav>
+    </Card>
   );
 
   const compactSwitcher = (
-    <div className="flex items-center gap-1.5 lg:hidden">
-      <button
-        type="button"
+    <div className="flex items-center gap-1 lg:hidden">
+      <IconButton
+        label="Previous student"
+        icon={ChevronLeft}
+        className="size-9"
         onClick={() => openStudent(students[index - 1])}
         disabled={index <= 0}
-        className="flex size-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-        aria-label="Previous student"
-      >
-        <ChevronLeft className="size-4" aria-hidden="true" />
-      </button>
+      />
       <label htmlFor="feedback-student" className="sr-only">Student</label>
       <select
         id="feedback-student"
         value={studentId}
         onChange={(event) => openStudent(students.find((item) => item.id === event.target.value))}
-        className="h-9 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white pl-3 pr-8 text-sm font-medium text-slate-900 shadow-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 sm:w-64 sm:flex-none"
+        className={`${controlClass} min-w-0 flex-1 pl-3 pr-8 sm:w-64 sm:flex-none`}
       >
         {students.map((item) => (
           <option key={item.id} value={item.id}>
@@ -474,29 +468,25 @@ export default function FeedbackForm() {
           </option>
         ))}
       </select>
-      <button
-        type="button"
+      <IconButton
+        label="Next student"
+        icon={ChevronRight}
+        className="size-9"
         onClick={() => openStudent(students[index + 1])}
         disabled={index >= students.length - 1}
-        className="flex size-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-        aria-label="Next student"
-      >
-        <ChevronRight className="size-4" aria-hidden="true" />
-      </button>
+      />
     </div>
   );
 
   const header = (
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mb-6 flex flex-col gap-3 border-b border-ink-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
-        <Link to={lessonPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">
-          <ArrowLeft className="size-4" aria-hidden="true" /> {lesson.classroom.name} · {formatLessonDate(lesson.startsAt)}
-        </Link>
-        <h1 className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xl font-semibold tracking-tight text-slate-900">
-          <span className="min-w-0 wrap-break-word">Feedback for {student.name}</span>
+        <BackLink to={lessonPath}>{lesson.classroom.name} · {formatLessonDate(lesson.startsAt)}</BackLink>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h1 className={`min-w-0 wrap-break-word ${pageTitleClass}`}>Feedback for {student.name}</h1>
           <StatusPill status={feedback?.status} />
-        </h1>
-        <p className="mt-1 text-sm text-slate-600">
+        </div>
+        <p className="mt-1 text-sm text-ink-500">
           {lesson.classroom.name} · {formatTime(lesson.startsAt)} · Student {index + 1} of {students.length}
         </p>
       </div>
@@ -505,7 +495,7 @@ export default function FeedbackForm() {
   );
 
   const layout = (content) => (
-    <div className="mx-auto max-w-7xl">
+    <div>
       {header}
       <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-6">
         {studentPanel}
@@ -559,13 +549,13 @@ export default function FeedbackForm() {
         />
         {unused?.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label={`Quick phrases for ${label}`}>
-            <span className="text-xs text-slate-500">Quick add:</span>
+            <span className="text-xs text-ink-500">Quick add:</span>
             {unused.map((phrase) => (
               <button
                 key={phrase}
                 type="button"
                 onClick={() => setField(path, appendPhrase(value, phrase).slice(0, LONG))}
-                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-800"
+                className="rounded-md border border-ink-200 bg-white px-2 py-1 text-xs text-ink-600 transition hover:border-ink-400 hover:text-ink-900"
               >
                 + {phrase}
               </button>
@@ -581,14 +571,14 @@ export default function FeedbackForm() {
 
   // One clear save state at a time: saving, failed, unsaved, saved, or the autosave hint.
   const saveIndicator = saveState === 'saving'
-    ? { icon: LoaderCircle, text: 'Saving…', style: 'text-slate-600', spin: true }
+    ? { icon: LoaderCircle, text: 'Saving…', style: 'text-ink-600', spin: true }
     : saveState === 'error'
-      ? { icon: CircleAlert, text: 'Could not save your changes.', style: 'text-red-600', retry: true }
+      ? { icon: CircleAlert, text: 'Could not save your changes.', style: 'text-red-700', retry: true }
       : dirty
-        ? { icon: Circle, text: 'Unsaved changes', style: 'text-slate-600' }
+        ? { icon: Circle, text: 'Unsaved changes', style: 'text-ink-600' }
         : feedback
           ? { icon: CircleCheck, text: `Saved ${savedTime(feedback.updatedAt)}`, style: 'text-emerald-700' }
-          : { icon: null, text: isCompleted ? '' : 'Drafts save automatically as you type', style: 'text-slate-500' };
+          : { icon: null, text: isCompleted ? '' : 'Drafts save automatically as you type', style: 'text-ink-500' };
   const errorKeys = Object.keys(REQUIRED_LABELS).filter((key) => errors[key]);
 
   return layout(
@@ -601,11 +591,11 @@ export default function FeedbackForm() {
             role="alert"
             className="rounded-xl border border-red-200 bg-red-50 p-4 outline-none focus-visible:ring-2 focus-visible:ring-red-400"
           >
-            <h2 className="flex items-center gap-2 font-semibold text-red-900">
-              <CircleAlert className="size-5 shrink-0" aria-hidden="true" />
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-red-900">
+              <CircleAlert className="size-4 shrink-0" aria-hidden="true" />
               {errorKeys.length === 1 ? '1 section still needs' : `${errorKeys.length} sections still need`} to be filled in before you can submit
             </h2>
-            <ul className="mt-2 space-y-1 pl-7 text-sm">
+            <ul className="mt-2 space-y-1 pl-6 text-sm">
               {errorKeys.map((key) => (
                 <li key={key}>
                   <button type="button" onClick={() => jumpToField(key)} className="rounded text-left font-medium text-red-800 underline underline-offset-2 hover:text-red-950">
@@ -617,10 +607,10 @@ export default function FeedbackForm() {
           </div>
         )}
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+        <Card as="section" className="p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-semibold text-slate-900">Lesson details</h2>
-            <p className="text-sm text-slate-500">
+            <h2 className="text-sm font-semibold text-ink-900">Lesson details</h2>
+            <p className="text-sm text-ink-500">
               {isCompleted ? 'You are editing submitted feedback.' : <><span className="text-red-600" aria-hidden="true">*</span> Required to submit</>}
             </p>
           </div>
@@ -631,16 +621,16 @@ export default function FeedbackForm() {
               { icon: Clock3, label: 'Time · schedule', value: `${formatTime(lesson.startsAt)} · ${schedule}` },
             ].map(({ icon: Icon, label, value }) => (
               <div key={label} className="flex gap-2">
-                <Icon className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden="true" />
+                <Icon className="mt-0.5 size-4 shrink-0 text-ink-400" aria-hidden="true" />
                 <div className="min-w-0">
-                  <dt className="text-xs text-slate-500">{label}</dt>
-                  <dd className="font-medium text-slate-800">{value}</dd>
+                  <dt className="text-xs text-ink-500">{label}</dt>
+                  <dd className="font-medium text-ink-900">{value}</dd>
                 </div>
               </div>
             ))}
           </dl>
-          <div className="mt-4 flex gap-2 border-t border-slate-100 pt-4">
-            <BookOpen className="mt-2 size-4 shrink-0 text-slate-400" aria-hidden="true" />
+          <div className="mt-4 flex gap-2 border-t border-ink-200 pt-4">
+            <BookOpen className="mt-0.5 size-4 shrink-0 text-ink-400" aria-hidden="true" />
             <TextField
               id="feedback-book"
               label="Book / material"
@@ -649,34 +639,34 @@ export default function FeedbackForm() {
               value={values.book}
               onChange={(event) => setField('book', event.target.value)}
               placeholder="e.g. Get Ready for IELTS"
-              className="min-w-0 flex-1 sm:max-w-xl [&_input]:py-1.5 [&_label]:text-xs [&_label]:font-normal [&_label]:text-slate-500"
+              className="min-w-0 flex-1 sm:max-w-xl [&_label]:text-xs [&_label]:font-normal [&_label]:text-ink-500"
             />
             <datalist id="feedback-books">
               {bookSuggestions.map((book) => <option key={book} value={book} />)}
             </datalist>
           </div>
           {previous && (
-            <details className="group mt-4 rounded-lg border border-slate-200 bg-slate-50/70">
-              <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 [&::-webkit-details-marker]:hidden">
-                <History className="size-4 text-slate-400" aria-hidden="true" />
+            <details className="group mt-4 rounded-lg border border-ink-200 bg-ink-50">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-ink-700 hover:text-ink-900 [&::-webkit-details-marker]:hidden">
+                <History className="size-4 text-ink-400" aria-hidden="true" />
                 Last lesson’s feedback · {formatShortDate(previous.session.startsAt)}
-                <ChevronRight className="ml-auto size-4 text-slate-400 transition group-open:rotate-90" aria-hidden="true" />
+                <ChevronRight className="ml-auto size-4 text-ink-400 transition group-open:rotate-90" aria-hidden="true" />
               </summary>
-              <dl className="grid gap-3 border-t border-slate-200 px-3 py-3 text-sm sm:grid-cols-2">
+              <dl className="grid gap-3 border-t border-ink-200 px-3 py-3 text-sm sm:grid-cols-2">
                 {[
                   ['Needed improvement', previous.needsImprovement],
                   ['Recommended for this lesson', previous.recommendation],
                 ].map(([term, text]) => (
                   <div key={term}>
-                    <dt className="text-xs font-semibold uppercase tracking-wider text-slate-500">{term}</dt>
-                    <dd className="mt-0.5 whitespace-pre-line text-slate-700">{text || 'Not provided'}</dd>
+                    <dt className="text-xs font-medium uppercase tracking-wider text-ink-500">{term}</dt>
+                    <dd className="mt-0.5 whitespace-pre-line text-ink-700">{text || 'Not provided'}</dd>
                   </div>
                 ))}
               </dl>
             </details>
           )}
           {copiedFrom && (
-            <div className="mt-4 flex flex-col gap-2 rounded-lg bg-indigo-50 px-3 py-2.5 text-sm text-indigo-900 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mt-4 flex flex-col gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-sm text-sky-900 sm:flex-row sm:items-center sm:justify-between">
               <p>
                 <Copy className="mr-1.5 inline size-4 align-[-3px]" aria-hidden="true" />
                 Lesson summary, new words and grammar topic were copied from {copiedFrom}&apos;s feedback. Edit anything that differs.
@@ -687,41 +677,42 @@ export default function FeedbackForm() {
                   applyLessonDetails({ whatWeLearned: '', newWords: '', grammarTopic: '' }, { onlyEmpty: false });
                   setCopiedFrom(null);
                 }}
-                className="shrink-0 rounded-md px-2 py-1 text-sm font-medium text-indigo-700 hover:bg-indigo-100"
+                className="shrink-0 rounded-md px-2 py-1 text-sm font-medium text-sky-800 underline underline-offset-4 hover:bg-sky-100"
               >
                 Undo
               </button>
             </div>
           )}
-        </section>
+        </Card>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <Card
+          <FormSection
             number="1"
             title="What we learned"
             hint="What was covered in this lesson."
             action={canCopy && (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
+                className="-my-1.5 -mr-2"
                 onClick={() => {
                   applyLessonDetails(lessonDetailsFrom(defaults), { onlyEmpty: true });
                   toast.success(`Filled empty lesson details from ${defaults.fromStudent.name}.`);
                 }}
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
               >
-                <Copy className="size-3.5" aria-hidden="true" /> Copy from {firstName(defaults.fromStudent.name)}
-              </button>
+                <Copy className="size-4" aria-hidden="true" /> Copy from {firstName(defaults.fromStudent.name)}
+              </Button>
             )}
           >
             {area('whatWeLearned', 'Lesson summary', { required: true, rows: 6, placeholder: 'e.g. Practised introducing ourselves and answering basic speaking questions.' })}
-          </Card>
-          <Card number="2" title="Vocabulary">
+          </FormSection>
+          <FormSection number="2" title="Vocabulary">
             {area('vocabulary.newWords', 'New words learned', { rows: 3, placeholder: 'confident, pronunciation, introduction…' })}
             {area('vocabulary.independentWords', 'Words the student can use independently', { rows: 3 })}
-          </Card>
+          </FormSection>
         </div>
 
-        <Card number="3" title="Grammar">
+        <FormSection number="3" title="Grammar">
           <TextField
             id="feedback-grammar.topic"
             label="Topic"
@@ -734,10 +725,10 @@ export default function FeedbackForm() {
             {area('grammar.understanding', 'Understanding', { rows: 3, placeholder: 'How well the student understood the topic.' })}
             {area('grammar.accuracy', 'Accuracy', { rows: 3, placeholder: 'How accurately the student used it.' })}
           </div>
-        </Card>
+        </FormSection>
 
         <div id="speaking-section">
-          <Card number="4" title="Speaking" hint="Click a star to rate from 1 to 5. Click it again to clear.">
+          <FormSection number="4" title="Speaking" hint="Click a star to rate from 1 to 5. Click it again to clear.">
             {SPEAKING_SKILLS.map(({ key, label }) => (
               <StarRating
                 key={key}
@@ -749,39 +740,37 @@ export default function FeedbackForm() {
                 required
               />
             ))}
-          </Card>
+          </FormSection>
         </div>
 
-        <Card title="Teacher evaluation" hint="Be specific, so the student and the next teacher know exactly what to keep doing and what to work on.">
+        <FormSection title="Teacher evaluation" hint="Be specific, so the student and the next teacher know exactly what to keep doing and what to work on.">
           {area('didWell', '5. What the student did well', { required: true, placeholder: 'e.g. Shared ideas confidently and asked good follow-up questions.', phrases: QUICK_PHRASES.didWell })}
           {area('needsImprovement', '6. What needs improvement', { required: true, placeholder: 'e.g. Pronunciation of final consonants such as -ed endings.', phrases: QUICK_PHRASES.needsImprovement })}
           {area('recommendation', '7. Recommendation for the next lesson', { required: true, placeholder: 'e.g. Continue pronunciation drills and practise longer answers.', phrases: QUICK_PHRASES.recommendation })}
-        </Card>
+        </FormSection>
 
-        <Card title="Additional notes" hint="Optional. Anything that does not fit above.">
+        <FormSection title="Additional notes" hint="Optional. Anything that does not fit above.">
           {area('notes', 'Notes', { rows: 3 })}
-        </Card>
+        </FormSection>
       </form>
 
-      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur lg:left-64">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-ink-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6 lg:left-64 lg:px-8">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {requiredDone === REQUIRED_COUNT ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                <CircleCheck className="size-3.5" aria-hidden="true" /> Ready to submit
-              </span>
+              <Badge tone="success" icon={CircleCheck}>Ready to submit</Badge>
             ) : (
               <button
                 type="button"
                 onClick={() => jumpToFirstMissing(missingNow)}
-                className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
+                className="inline-flex min-h-7 items-center gap-1 rounded-md bg-ink-100 px-2 py-0.5 text-xs font-medium tabular-nums text-ink-700 transition hover:bg-ink-200"
                 title="Go to the next section that still needs filling in"
               >
                 Required: {requiredDone} of {REQUIRED_COUNT} done
                 <ChevronRight className="size-3.5" aria-hidden="true" />
               </button>
             )}
-            <p className={`flex items-center gap-1.5 text-sm font-medium ${saveIndicator.style}`} aria-live="polite">
+            <p className={`flex items-center gap-1.5 text-sm ${saveIndicator.style}`} aria-live="polite">
               {saveIndicator.icon && (
                 <saveIndicator.icon className={`size-4 shrink-0 ${saveIndicator.spin ? 'animate-spin' : ''}`} aria-hidden="true" />
               )}
@@ -795,7 +784,7 @@ export default function FeedbackForm() {
           </div>
           <div className="flex flex-wrap gap-2">
             {skipTarget && (
-              <Button variant="ghost" className="!px-3" onClick={() => openStudent(skipTarget)} disabled={submitting} title={`Go to ${skipTarget.name} without submitting`}>
+              <Button variant="ghost" onClick={() => openStudent(skipTarget)} disabled={submitting} title={`Go to ${skipTarget.name} without submitting`}>
                 Skip <ChevronRight className="size-4" aria-hidden="true" />
               </Button>
             )}

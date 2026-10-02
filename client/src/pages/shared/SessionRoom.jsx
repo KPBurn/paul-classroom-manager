@@ -1028,22 +1028,21 @@ export default function SessionRoom() {
   }
   if (exitNotice) {
     return (
-      <main className="flex min-h-dvh items-center justify-center bg-slate-950 px-6 text-slate-100">
+      <main className="flex min-h-dvh items-center justify-center bg-ink-950 px-6 text-ink-100">
         <div className="max-w-md text-center">
-          <span className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-slate-800 text-indigo-300">
+          <span className="mx-auto flex size-14 items-center justify-center rounded-xl bg-ink-800 text-ink-300">
             <LogOut className="size-7" aria-hidden="true" />
           </span>
           <h1 className="mt-5 text-xl font-semibold">{exitNotice.title}</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-400">{exitNotice.message}</p>
+          <p className="mt-2 text-sm leading-6 text-ink-400">{exitNotice.message}</p>
           <div className="mt-6 flex flex-col items-center justify-center gap-2 sm:flex-row">
             {feedbackPath && (
-              <Button onClick={() => leaveToFeedback()}>
+              <Button variant="inverse" onClick={() => leaveToFeedback()}>
                 <MessageSquare className="size-4" aria-hidden="true" /> Write feedback
               </Button>
             )}
             <Button
-              variant={feedbackPath ? 'secondary' : 'primary'}
-              className={feedbackPath ? '!bg-slate-800 !text-white !ring-slate-700 hover:!bg-slate-700' : ''}
+              variant={feedbackPath ? 'dark' : 'inverse'}
               onClick={exitRoom}
             >
               <ArrowLeft className="size-4" /> Back to dashboard
@@ -1055,15 +1054,15 @@ export default function SessionRoom() {
   }
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-slate-950 text-slate-100">
-      <header className="flex min-h-16 items-center justify-between border-b border-slate-800 px-4 md:px-6">
+    <div className="flex h-dvh flex-col overflow-hidden bg-ink-950 text-ink-100">
+      <header className="flex min-h-16 items-center justify-between border-b border-ink-800 px-4 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/15 text-indigo-300">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-ink-800 text-ink-300">
             <UsersRound className="size-5" aria-hidden="true" />
           </span>
           <div className="min-w-0">
             <h1 className="truncate font-semibold">{session?.title}</h1>
-            <p className="truncate text-xs text-slate-400">{session?.classroom?.name} · {formatTime(session?.startsAt)}–{formatTime(session?.endsAt)}</p>
+            <p className="truncate text-xs text-ink-400">{session?.classroom?.name} · {formatTime(session?.startsAt)}–{formatTime(session?.endsAt)}</p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
@@ -1089,7 +1088,7 @@ export default function SessionRoom() {
               </span>
             </span>
           )}
-          <Button variant="ghost" className="!px-3 !py-2 text-slate-300" onClick={requestLeave} aria-label="Leave class room">
+          <Button variant="dark" size="sm" onClick={requestLeave} aria-label="Leave class room">
             <ArrowLeft className="size-4" />
             <span className="hidden sm:inline">Leave</span>
           </Button>
@@ -1106,13 +1105,13 @@ export default function SessionRoom() {
         <div className="px-3 pt-3">
           <div className="flex flex-col gap-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100 sm:flex-row sm:items-center sm:justify-between">
             <p>You ended this class earlier. Students cannot join until you reopen it.</p>
-            <Button className="shrink-0 !px-3 !py-2" onClick={reopenClass} disabled={moderating}>Reopen class</Button>
+            <Button variant="inverse" size="sm" className="shrink-0" onClick={reopenClass} disabled={moderating}>Reopen class</Button>
           </div>
         </div>
       )}
 
       <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 md:flex-row">
-        <section className="relative flex min-h-56 min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+        <section className="relative flex min-h-56 min-w-0 flex-1 overflow-hidden rounded-xl border border-ink-800 bg-ink-950">
           {screenSharerId ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2 sm:flex-row">
               <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-lg bg-black">
@@ -1120,11 +1119,11 @@ export default function SessionRoom() {
                   <VideoStage stream={sharedStream} label={sharer?.name ?? 'A participant'} />
                 ) : (
                   <div className="px-6 text-center">
-                    <MonitorUp className="mx-auto size-10 text-indigo-300" aria-hidden="true" />
+                    <MonitorUp className="mx-auto size-10 text-ink-300" aria-hidden="true" />
                     <p className="mt-3 text-sm font-medium text-white">
                       {sharer?.name ?? 'The presenter'} is sharing their screen
                     </p>
-                    <p className="mt-1 text-xs text-slate-400">Connecting to the presentation…</p>
+                    <p className="mt-1 text-xs text-ink-400">Connecting to the presentation…</p>
                   </div>
                 )}
               </div>
@@ -1136,7 +1135,7 @@ export default function SessionRoom() {
                   {cameraParticipants.map((participant) => (
                     <div
                       key={participant.id}
-                      className={`relative aspect-video h-full shrink-0 overflow-hidden rounded-lg border bg-slate-900 sm:h-auto sm:min-h-20 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-slate-700'}`}
+                      className={`relative aspect-video h-full shrink-0 overflow-hidden rounded-lg border bg-ink-900 sm:h-auto sm:min-h-20 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-ink-700'}`}
                     >
                       {participant.stream ? (
                         <VideoStage
@@ -1145,11 +1144,11 @@ export default function SessionRoom() {
                           kind="camera"
                         />
                       ) : (
-                        <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-400 sm:gap-2">
-                          <span className="flex size-8 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-slate-100 sm:size-10 sm:text-sm">
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-ink-400 sm:gap-2">
+                          <span className="flex size-8 items-center justify-center rounded-full bg-ink-700 text-xs font-semibold text-ink-100 sm:size-10 sm:text-sm">
                             {initials(participant.name)}
                           </span>
-                          <span className="max-w-full truncate px-2 text-center text-xs font-medium text-slate-100">
+                          <span className="max-w-full truncate px-2 text-center text-xs font-medium text-ink-100">
                             {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
                           </span>
                           <span className="hidden text-[10px] text-amber-300 sm:inline">Camera on · waiting for video</span>
@@ -1177,7 +1176,7 @@ export default function SessionRoom() {
               {galleryParticipants.map((participant) => (
                 <div
                   key={participant.id}
-                  className={`relative min-h-0 min-w-0 overflow-hidden rounded-lg border bg-slate-900 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-slate-800'}`}
+                  className={`relative min-h-0 min-w-0 overflow-hidden rounded-lg border bg-ink-900 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-ink-800'}`}
                 >
                   {participant.stream ? (
                     <VideoStage
@@ -1186,11 +1185,11 @@ export default function SessionRoom() {
                       kind="camera"
                     />
                   ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-400">
-                      <span className="flex size-12 items-center justify-center rounded-full bg-slate-700 text-sm font-semibold text-slate-100">
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-ink-400">
+                      <span className="flex size-12 items-center justify-center rounded-full bg-ink-700 text-sm font-semibold text-ink-100">
                         {initials(participant.name)}
                       </span>
-                      <span className="max-w-full truncate px-2 text-xs font-medium text-slate-100">
+                      <span className="max-w-full truncate px-2 text-xs font-medium text-ink-100">
                         {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
                       </span>
                       <span className={`text-xs ${participant.cameraEnabled ? 'text-amber-300' : ''}`}>
@@ -1208,22 +1207,22 @@ export default function SessionRoom() {
             </div>
           ) : (
             <div className="mx-auto max-w-md px-6 text-center">
-              <span className="mx-auto flex size-16 items-center justify-center rounded-2xl bg-slate-800 text-indigo-300">
+              <span className="mx-auto flex size-16 items-center justify-center rounded-xl bg-ink-800 text-ink-300">
                 <MonitorUp className="size-8" aria-hidden="true" />
               </span>
               <h2 className="mt-5 text-lg font-semibold">Your class room is ready</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-400">
+              <p className="mt-2 text-sm leading-6 text-ink-400">
                 {roomSettings.screenSharingEnabled
                   ? 'Turn on your camera or microphone, or share your screen to present to the class.'
                   : 'Turn on your camera or microphone to speak with the class. Screen sharing is disabled by the teacher.'}
               </p>
-              <p className="mt-3 text-xs leading-5 text-slate-500">
+              <p className="mt-3 text-xs leading-5 text-ink-500">
                 Live audio and video require browser permissions. Some school networks need a configured TURN relay; chat will still work if media cannot connect.
               </p>
               {session?.classroom?.openAccess && (
                 <p className="mt-2 text-xs font-medium text-amber-300">Open classroom · up to 20 participants</p>
               )}
-              <p className="mt-5 text-xs text-slate-500">
+              <p className="mt-5 text-xs text-ink-500">
                 {session?.classroom?.name} · {participants.length} {participants.length === 1 ? 'participant' : 'participants'}
               </p>
             </div>
@@ -1233,9 +1232,9 @@ export default function SessionRoom() {
         {panelOpen && (
           <aside
             id="room-side-panel"
-            className="flex h-[45dvh] min-h-64 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 md:h-auto md:min-h-0 md:w-80"
+            className="flex h-[45dvh] min-h-64 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-ink-800 bg-ink-900 md:h-auto md:min-h-0 md:w-80"
           >
-            <div className="flex border-b border-slate-800">
+            <div className="flex border-b border-ink-800">
               {[
                 { tab: 'chat', icon: MessageSquare, label: 'Chat' },
                 { tab: 'files', icon: File, label: 'Files' },
@@ -1245,7 +1244,7 @@ export default function SessionRoom() {
                   key={tab}
                   type="button"
                   onClick={() => setActiveTab(tab)}
-                  className={`flex flex-auto items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-sm font-medium ${activeTab === tab ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}
+                  className={`flex flex-auto items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-sm font-medium ${activeTab === tab ? 'border-white text-white' : 'border-transparent text-ink-400 hover:text-white'}`}
                 >
                   <Icon className="size-4 shrink-0" aria-hidden="true" /> {label}
                 </button>
@@ -1253,7 +1252,7 @@ export default function SessionRoom() {
               <button
                 type="button"
                 onClick={() => setPanelOpen(false)}
-                className="flex w-11 shrink-0 items-center justify-center border-b-2 border-transparent text-slate-400 hover:text-white"
+                className="flex w-11 shrink-0 items-center justify-center border-b-2 border-transparent text-ink-400 hover:text-white"
                 aria-label="Hide chat panel"
                 title="Hide chat panel"
               >
@@ -1265,29 +1264,29 @@ export default function SessionRoom() {
               <>
                 <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
                   {messages.length === 0 ? (
-                    <div className="py-8 text-center text-sm text-slate-500">Messages in this room will appear here.</div>
+                    <div className="py-8 text-center text-sm text-ink-500">Messages in this room will appear here.</div>
                   ) : messages.map((item) => item.type === 'system' ? (
-                    <p key={item.id} className="text-center text-xs text-slate-500">
+                    <p key={item.id} className="text-center text-xs text-ink-500">
                       <span>{item.body}</span>
                       <time className="ml-2">{formatTime(item.createdAt)}</time>
                     </p>
                   ) : (
                     <article key={item.id} className="flex gap-2.5">
-                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[10px] font-semibold text-slate-200">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink-700 text-[10px] font-semibold text-ink-200">
                         {initials(item.sender.name)}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-baseline gap-x-2">
-                          <span className="text-xs font-semibold text-slate-200">{item.sender.name}</span>
-                          <time className="text-[10px] text-slate-500">{formatTime(item.createdAt)}</time>
+                          <span className="text-xs font-semibold text-ink-200">{item.sender.name}</span>
+                          <time className="text-[10px] text-ink-500">{formatTime(item.createdAt)}</time>
                         </div>
-                        <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-slate-300">{item.body}</p>
+                        <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-ink-300">{item.body}</p>
                       </div>
                     </article>
                   ))}
                   <div ref={messagesEndRef} />
                 </div>
-                <form onSubmit={sendMessage} className="flex items-end gap-2 border-t border-slate-800 p-3">
+                <form onSubmit={sendMessage} className="flex items-end gap-2 border-t border-ink-800 p-3">
                   <label className="sr-only" htmlFor="room-message">Message the class</label>
                   <textarea
                     id="room-message"
@@ -1303,12 +1302,12 @@ export default function SessionRoom() {
                     }}
                     placeholder="Message everyone"
                     disabled={!connected}
-                    className="max-h-24 min-h-10 flex-1 resize-y rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-indigo-400 disabled:opacity-60"
+                    className="max-h-24 min-h-10 flex-1 resize-y rounded-lg border border-ink-700 bg-ink-800 px-3 py-2.5 text-sm text-white outline-none placeholder:text-ink-500 focus:border-ink-400 disabled:opacity-60"
                   />
                   <button
                     type="submit"
                     disabled={!connected || !message.trim() || sending}
-                    className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-indigo-500 text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-white text-ink-900 hover:bg-ink-200 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label="Send message"
                   >
                     {sending ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
@@ -1318,14 +1317,14 @@ export default function SessionRoom() {
             ) : activeTab === 'files' ? (
               <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
                 {canManageRoom && (
-                  <section className="space-y-2 rounded-lg border border-slate-700 bg-slate-800/60 p-3">
-                    <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Teacher controls</h2>
+                  <section className="space-y-2 rounded-lg border border-ink-700 bg-ink-800/60 p-3">
+                    <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-400">Teacher controls</h2>
                     <button
                       type="button"
                       aria-pressed={roomSettings.screenSharingEnabled}
                       disabled={!connected || updatingSettings}
                       onClick={() => toggleRoomSetting('screenSharingEnabled')}
-                      className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-60"
+                      className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-ink-200 hover:bg-ink-700 disabled:opacity-60"
                     >
                       Screen sharing
                       <span className={roomSettings.screenSharingEnabled ? 'text-emerald-300' : 'text-amber-300'}>
@@ -1337,7 +1336,7 @@ export default function SessionRoom() {
                       aria-pressed={roomSettings.fileUploadsEnabled}
                       disabled={!connected || updatingSettings}
                       onClick={() => toggleRoomSetting('fileUploadsEnabled')}
-                      className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-60"
+                      className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-ink-200 hover:bg-ink-700 disabled:opacity-60"
                     >
                       File uploads
                       <span className={roomSettings.fileUploadsEnabled ? 'text-emerald-300' : 'text-amber-300'}>
@@ -1348,8 +1347,8 @@ export default function SessionRoom() {
                 )}
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <h2 className="text-sm font-semibold text-slate-200">Shared files</h2>
-                    <p className="mt-1 text-xs text-slate-500">Files are removed when this session ends · 8 MB max</p>
+                    <h2 className="text-sm font-semibold text-ink-200">Shared files</h2>
+                    <p className="mt-1 text-xs text-ink-500">Files are removed when this session ends · 8 MB max</p>
                   </div>
                   <input
                     ref={fileInputRef}
@@ -1359,8 +1358,8 @@ export default function SessionRoom() {
                     aria-label="Choose a file to share"
                   />
                   <Button
-                    variant="secondary"
-                    className="!px-3 !py-2"
+                    variant="dark"
+                    size="sm"
                     disabled={!connected || !roomSettings.fileUploadsEnabled || uploading}
                     isLoading={uploading}
                     onClick={() => fileInputRef.current?.click()}
@@ -1374,20 +1373,20 @@ export default function SessionRoom() {
                 )}
                 <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto" aria-live="polite">
                   {files.length === 0 ? (
-                    <li className="py-6 text-center text-sm text-slate-500">No files have been shared in this session.</li>
+                    <li className="py-6 text-center text-sm text-ink-500">No files have been shared in this session.</li>
                   ) : files.map((item) => (
-                    <li key={item.id} className="flex items-center gap-2 rounded-lg bg-slate-800 p-2.5">
-                      <File className="size-4 shrink-0 text-indigo-300" aria-hidden="true" />
+                    <li key={item.id} className="flex items-center gap-2 rounded-lg bg-ink-800 p-2.5">
+                      <File className="size-4 shrink-0 text-ink-300" aria-hidden="true" />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm text-slate-200">{item.name}</span>
-                        <span className="block text-xs text-slate-500">
+                        <span className="block truncate text-sm text-ink-200">{item.name}</span>
+                        <span className="block text-xs text-ink-500">
                           {formatFileSize(item.size)}{item.uploader?.name ? ` · ${item.uploader.name}` : ''}
                         </span>
                       </span>
                       <button
                         type="button"
                         onClick={() => downloadSharedFile(item)}
-                        className="flex size-9 shrink-0 items-center justify-center rounded-md text-slate-300 hover:bg-slate-700 hover:text-white"
+                        className="flex size-9 shrink-0 items-center justify-center rounded-md text-ink-300 hover:bg-ink-700 hover:text-white"
                         aria-label={`Download ${item.name}`}
                       >
                         <Download className="size-4" aria-hidden="true" />
@@ -1399,14 +1398,14 @@ export default function SessionRoom() {
             ) : (
               <div className="min-h-0 flex-1 overflow-y-auto p-3">
                 <div className="mb-3 flex items-center justify-between gap-2 px-1">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">In this session</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">In this session</p>
                   {canManageRoom && participants.some((participant) => !participant.moderator && !participant.muted
                     && participant.id !== localParticipantId.current) && (
                     <button
                       type="button"
                       onClick={muteEveryone}
                       disabled={moderating}
-                      className="flex items-center gap-1.5 rounded-md border border-slate-700 px-2 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                      className="flex items-center gap-1.5 rounded-md border border-ink-700 px-2 py-1 text-xs font-medium text-ink-200 hover:bg-ink-800 disabled:opacity-50"
                     >
                       <MicOff className="size-3.5" aria-hidden="true" /> Mute all
                     </button>
@@ -1417,15 +1416,15 @@ export default function SessionRoom() {
                     const canModerate = canManageRoom && !participant.moderator
                       && participant.id !== localParticipantId.current;
                     return (
-                    <li key={participant.id} className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-slate-800">
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-semibold text-indigo-200">
+                    <li key={participant.id} className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-ink-800">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-ink-700 text-xs font-medium text-ink-100">
                         {initials(participant.name)}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-slate-200">
+                        <span className="block truncate text-sm font-medium text-ink-200">
                           {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
                         </span>
-                        <span className="block text-xs capitalize text-slate-500">{participant.role}</span>
+                        <span className="block text-xs capitalize text-ink-500">{participant.role}</span>
                         {speakingParticipantIds.has(participant.id) && (
                           <span className="mt-0.5 block text-xs font-medium text-emerald-300">Speaking</span>
                         )}
@@ -1433,7 +1432,7 @@ export default function SessionRoom() {
                       {speakingParticipantIds.has(participant.id)
                         ? <Volume2 className="size-4 text-emerald-300" aria-label="Speaking" />
                         : participant.muted
-                          ? <MicOff className="size-4 text-slate-500" aria-label="Muted" />
+                          ? <MicOff className="size-4 text-ink-500" aria-label="Muted" />
                           : <Mic className="size-4 text-emerald-400" aria-label="Microphone on" />}
                       {canModerate && (
                         <span className="flex shrink-0 items-center gap-0.5">
@@ -1442,7 +1441,7 @@ export default function SessionRoom() {
                               type="button"
                               onClick={() => muteParticipant(participant)}
                               disabled={moderating}
-                              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-50"
+                              className="rounded-md p-1.5 text-ink-400 hover:bg-ink-700 hover:text-white disabled:opacity-50"
                               aria-label={`Mute ${participant.name}`}
                               title="Mute"
                             >
@@ -1453,7 +1452,7 @@ export default function SessionRoom() {
                             type="button"
                             onClick={() => setPendingRemoval(participant)}
                             disabled={moderating}
-                            className="rounded-md p-1.5 text-slate-400 hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
+                            className="rounded-md p-1.5 text-ink-400 hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
                             aria-label={`Remove ${participant.name} from the class`}
                             title="Remove from class"
                           >
@@ -1467,16 +1466,16 @@ export default function SessionRoom() {
                 </ul>
                 {canManageRoom && removedParticipants.length > 0 && (
                   <>
-                    <p className="mb-2 mt-5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Removed from class</p>
+                    <p className="mb-2 mt-5 px-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Removed from class</p>
                     <ul className="space-y-1">
                       {removedParticipants.map((person) => (
                         <li key={person.userId} className="flex items-center gap-3 rounded-lg px-2 py-2">
-                          <span className="min-w-0 flex-1 truncate text-sm text-slate-400">{person.name}</span>
+                          <span className="min-w-0 flex-1 truncate text-sm text-ink-400">{person.name}</span>
                           <button
                             type="button"
                             onClick={() => readmitParticipant(person)}
                             disabled={moderating}
-                            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-indigo-300 hover:bg-slate-800 disabled:opacity-50"
+                            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-ink-300 hover:bg-ink-800 disabled:opacity-50"
                           >
                             <Undo2 className="size-3.5" aria-hidden="true" /> Allow back
                           </button>
@@ -1496,7 +1495,7 @@ export default function SessionRoom() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Alert tone="error">{error || mediaError}</Alert>
             {audioNeedsGesture && (
-              <Button variant="secondary" onClick={enableRoomAudio}>
+              <Button variant="inverse" onClick={enableRoomAudio}>
                 Enable room audio
               </Button>
             )}
@@ -1504,10 +1503,10 @@ export default function SessionRoom() {
         </div>
       )}
 
-      <footer className="flex min-h-16 items-center justify-center gap-2 border-t border-slate-800 bg-slate-950 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:min-h-20 sm:gap-3 sm:px-4">
+      <footer className="flex min-h-16 items-center justify-center gap-2 border-t border-ink-800 bg-ink-950 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:min-h-20 sm:gap-3 sm:px-4">
         <Button
-          variant={muted ? 'secondary' : 'primary'}
-          className={`!px-3 sm:!px-4 ${muted ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}`}
+          variant={muted ? 'dark' : 'inverse'}
+          className="max-sm:px-3"
           disabled={!connected || microphoneBusy}
           isLoading={microphoneBusy}
           onClick={toggleMicrophone}
@@ -1518,12 +1517,12 @@ export default function SessionRoom() {
         </Button>
         {!muted && (
           <div
-            className="flex h-10 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3"
+            className="flex h-10 items-center gap-2 rounded-lg border border-ink-700 bg-ink-900 px-3"
             role="status"
             aria-label={micLevel >= 0.06 ? 'Microphone is picking up sound' : 'Microphone is on, no sound detected'}
             title={micLevel >= 0.06 ? 'Microphone is picking up sound' : 'Microphone is on — speak to test'}
           >
-            <span className="hidden text-xs text-slate-300 sm:inline">
+            <span className="hidden text-xs text-ink-300 sm:inline">
               {micLevel >= 0.06 ? 'Mic active' : 'Mic on'}
             </span>
             <span className="sr-only">
@@ -1533,7 +1532,7 @@ export default function SessionRoom() {
               {[0.12, 0.25, 0.4, 0.58, 0.78].map((threshold, index) => (
                 <span
                   key={threshold}
-                  className={`w-1 rounded-full transition-colors ${micLevel >= threshold ? 'bg-emerald-400' : 'bg-slate-600'}`}
+                  className={`w-1 rounded-full transition-colors ${micLevel >= threshold ? 'bg-emerald-400' : 'bg-ink-600'}`}
                   style={{ height: `${6 + index * 3}px` }}
                 />
               ))}
@@ -1541,8 +1540,8 @@ export default function SessionRoom() {
           </div>
         )}
         <Button
-          variant={cameraStream ? 'primary' : 'secondary'}
-          className={`!px-3 sm:!px-4 ${!cameraStream ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}`}
+          variant={cameraStream ? 'inverse' : 'dark'}
+          className="max-sm:px-3"
           disabled={!connected || cameraBusy}
           isLoading={cameraBusy}
           onClick={toggleCamera}
@@ -1552,8 +1551,8 @@ export default function SessionRoom() {
           <span className="hidden sm:inline">{cameraStream ? 'Turn camera off' : 'Turn camera on'}</span>
         </Button>
         <Button
-          variant={screenStream ? 'primary' : 'secondary'}
-          className={`!px-3 sm:!px-4 ${!screenStream ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}`}
+          variant={screenStream ? 'inverse' : 'dark'}
+          className="max-sm:px-3"
           disabled={!connected || !roomSettings.screenSharingEnabled || Boolean(screenSharerId && screenSharerId !== localParticipantId.current)}
           onClick={toggleScreenShare}
           aria-pressed={Boolean(screenStream)}
@@ -1562,8 +1561,8 @@ export default function SessionRoom() {
           <span className="hidden sm:inline">{screenStream ? 'Stop sharing' : 'Share screen'}</span>
         </Button>
         <Button
-          variant={panelOpen ? 'primary' : 'secondary'}
-          className={`relative !px-3 sm:!px-4 ${!panelOpen ? '!border-slate-700 !bg-slate-800 !text-white hover:!bg-slate-700' : ''}`}
+          variant={panelOpen ? 'inverse' : 'dark'}
+          className="relative max-sm:px-3"
           onClick={() => setPanelOpen((open) => !open)}
           aria-pressed={panelOpen}
           aria-controls="room-side-panel"
@@ -1572,12 +1571,12 @@ export default function SessionRoom() {
           <MessageSquare className="size-4" />
           <span className="hidden sm:inline">{panelOpen ? 'Hide chat' : 'Show chat'}</span>
           {unreadMessages > 0 && (
-            <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+            <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
               {unreadMessages > 99 ? '99+' : unreadMessages}
             </span>
           )}
         </Button>
-        <Button variant="danger" className="!px-3 sm:!px-4" onClick={requestLeave} aria-label="Leave class room">
+        <Button variant="danger" className="max-sm:px-3" onClick={requestLeave} aria-label="Leave class room">
           <PhoneOff className="size-4" />
           <span className="hidden sm:inline">Leave</span>
         </Button>
@@ -1602,7 +1601,7 @@ export default function SessionRoom() {
           <Button variant="danger" onClick={endClassForEveryone} isLoading={moderating} className="justify-start">
             <CircleStop className="size-4" aria-hidden="true" /> End class for everyone
           </Button>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-ink-500">
             Ending removes everyone from the room. Students cannot rejoin until a teacher reopens the class.
           </p>
         </div>
@@ -1614,7 +1613,7 @@ export default function SessionRoom() {
         message={
           pendingRemoval && (
             <p>
-              <span className="font-medium text-slate-900">{pendingRemoval.name}</span> will be removed from this
+              <span className="font-medium text-ink-900">{pendingRemoval.name}</span> will be removed from this
               session and cannot rejoin unless you allow them back from the People tab.
             </p>
           )

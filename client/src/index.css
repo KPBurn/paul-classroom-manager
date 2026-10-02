@@ -1,7 +1,95 @@
 @import 'tailwindcss';
 
+/*
+ * Design tokens. Everything visual in the app resolves to these.
+ *
+ * - `ink-*`     warm neutral scale: text, borders, surfaces.
+ * - `accent-*`  the interactive colour (primary buttons, links, focus, selection).
+ *               It is ink-black today; change this scale to rebrand.
+ * - red / amber / emerald / sky are muted status colours and are only used for meaning.
+ * - Radius and shadow scales are narrowed so the same utility always means the same thing:
+ *   `rounded-md` small controls, `rounded-lg` buttons and inputs, `rounded-xl` cards,
+ *   `rounded-2xl` dialogs. Shadows are reserved for things that float (menus, dialogs).
+ */
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'Geist', 'SF Pro Display', 'Helvetica Neue', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Newsreader', 'Lyon Text', 'Iowan Old Style', Georgia, serif;
+  --font-mono: 'Geist Mono', 'SF Mono', ui-monospace, 'Cascadia Mono', Menlo, monospace;
+
+  --color-canvas: #fbfbfa;
+
+  --color-ink-50: #f7f6f3;
+  --color-ink-100: #efeeea;
+  --color-ink-200: #e8e7e3;
+  --color-ink-300: #d6d5d0;
+  --color-ink-400: #a8a7a2;
+  --color-ink-500: #72716d;
+  --color-ink-600: #5e5d59;
+  --color-ink-700: #3d3c39;
+  --color-ink-800: #262624;
+  --color-ink-900: #141413;
+  --color-ink-950: #0b0b0a;
+
+  --color-accent-50: #f3f2ee;
+  --color-accent-100: #e8e7e2;
+  --color-accent-200: #d6d5d0;
+  --color-accent-300: #b5b4af;
+  --color-accent-400: #8c8b87;
+  --color-accent-500: #333331;
+  --color-accent-600: #141413;
+  --color-accent-700: #141413;
+  --color-accent-800: #141413;
+  --color-accent-900: #0b0b0a;
+  --color-accent-950: #0b0b0a;
+
+  --color-red-50: #fdebec;
+  --color-red-100: #fad9db;
+  --color-red-200: #f5d0d1;
+  --color-red-300: #ebb0b2;
+  --color-red-400: #d98a8c;
+  --color-red-500: #c4403c;
+  --color-red-600: #b4332f;
+  --color-red-700: #9f2f2d;
+  --color-red-800: #8a2826;
+  --color-red-900: #6e201f;
+
+  --color-amber-50: #fbf3db;
+  --color-amber-100: #f7eac0;
+  --color-amber-200: #f1e2b0;
+  --color-amber-300: #e6cf85;
+  --color-amber-600: #a66f00;
+  --color-amber-700: #956400;
+  --color-amber-800: #7d5400;
+  --color-amber-900: #5f4000;
+  --color-amber-950: #3d2900;
+
+  --color-emerald-50: #edf3ec;
+  --color-emerald-100: #dde9db;
+  --color-emerald-200: #cfe0cd;
+  --color-emerald-600: #3d7a45;
+  --color-emerald-700: #346538;
+  --color-emerald-800: #2b542e;
+
+  --color-sky-50: #e1f3fe;
+  --color-sky-100: #cde9fb;
+  --color-sky-200: #bfe0f5;
+  --color-sky-600: #2b7cb3;
+  --color-sky-700: #1f6c9f;
+  --color-sky-800: #185a85;
+  --color-sky-900: #124665;
+
+  --radius-sm: 0.1875rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.375rem;
+  --radius-xl: 0.5rem;
+  --radius-2xl: 0.75rem;
+
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.03);
+  --shadow-md: 0 4px 16px rgb(0 0 0 / 0.05);
+  --shadow-lg: 0 8px 24px rgb(0 0 0 / 0.06);
+  --shadow-xl: 0 16px 40px rgb(0 0 0 / 0.08);
 }
 
 html {
@@ -9,7 +97,7 @@ html {
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-canvas text-ink-900 antialiased;
 }
 
 @layer base {
@@ -33,50 +121,62 @@ body {
   }
 
   /* A baseline keyboard focus ring for controls that do not define their own. */
-  :where(a, button, summary, [role='tab'], [role='radio'], [role='menuitem']):focus-visible {
-    outline: 2px solid var(--color-indigo-600);
+  :where(a, button, summary, [role='tab'], [role='radio'], [role='menuitem'], [role='switch']):focus-visible {
+    outline: 2px solid var(--color-accent-600);
     outline-offset: 2px;
+  }
+
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: var(--color-accent-600);
+  }
+
+  ::selection {
+    background: var(--color-amber-100);
+  }
+
+  kbd {
+    @apply rounded-md border border-ink-200 bg-ink-50 px-1.5 py-0.5 font-mono text-xs text-ink-700;
   }
 }
 
 dialog[open] {
-  animation: login-pop-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: dialog-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 dialog::backdrop {
-  background: rgb(15 23 42 / 45%);
-  backdrop-filter: blur(5px);
-  animation: login-backdrop-in 220ms ease-out both;
+  background: rgb(20 20 19 / 35%);
+  animation: fade-in 160ms ease-out both;
 }
 
 .landing-copy {
-  animation: landing-rise-in 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: rise-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .landing-preview {
-  animation: landing-rise-in 750ms 100ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: rise-in 600ms 80ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-@keyframes login-pop-in {
+@keyframes dialog-in {
   from {
     opacity: 0;
-    transform: translateY(20px) scale(0.96);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
-@keyframes login-backdrop-in {
+@keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
-@keyframes landing-rise-in {
+@keyframes rise-in {
   from {
     opacity: 0;
-    transform: translateY(18px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;

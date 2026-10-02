@@ -1,4 +1,5 @@
 import { BookOpen, CalendarDays, Clock3, School, UserRound } from 'lucide-react';
+import Card from '../common/Card.jsx';
 import StarRating from './StarRating.jsx';
 import StatusPill from './StatusPill.jsx';
 import { formatLessonDate, formatTime, SPEAKING_SKILLS } from './feedbackMeta.js';
@@ -9,8 +10,8 @@ function Field({ label, children }) {
   const empty = !children || (typeof children === 'string' && !children.trim());
   return (
     <div>
-      <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</h4>
-      <p className={`mt-1 whitespace-pre-line break-words text-sm leading-relaxed ${empty ? 'text-slate-400' : 'text-slate-800'}`}>
+      <h4 className="text-xs font-medium uppercase tracking-wider text-ink-500">{label}</h4>
+      <p className={`mt-1 whitespace-pre-line break-words text-sm leading-relaxed ${empty ? 'text-ink-400' : 'text-ink-800'}`}>
         {empty ? 'Not provided' : children}
       </p>
     </div>
@@ -19,15 +20,13 @@ function Field({ label, children }) {
 
 function Section({ number, title, children }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-      <h3 className="mb-3 flex items-center gap-2 font-semibold text-slate-900">
-        {number && (
-          <span className="flex size-6 items-center justify-center rounded-full bg-indigo-50 text-xs font-semibold text-indigo-700">{number}</span>
-        )}
+    <Card as="section" className="p-5">
+      <h3 className="mb-3 flex items-baseline gap-2 text-sm font-semibold text-ink-900">
+        {number && <span className="font-mono text-xs font-normal text-ink-400">{number.padStart(2, '0')}</span>}
         {title}
       </h3>
       <div className="space-y-4">{children}</div>
-    </section>
+    </Card>
   );
 }
 
@@ -35,14 +34,14 @@ function Section({ number, title, children }) {
 export default function FeedbackView({ feedback, schedule, actions }) {
   return (
     <div className="space-y-4">
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+      <Card as="section" className="p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-semibold text-slate-900">{feedback.student.name}</h2>
+              <h2 className="text-base font-semibold text-ink-900">{feedback.student.name}</h2>
               <StatusPill status={feedback.status} />
             </div>
-            <p className="mt-0.5 text-sm text-slate-500">
+            <p className="mt-0.5 text-sm text-ink-500">
               Feedback by {feedback.teacher.name ?? 'Teacher'}
               {feedback.submittedAt
                 ? ` · Submitted ${formatDateTime(feedback.submittedAt)}`
@@ -51,7 +50,7 @@ export default function FeedbackView({ feedback, schedule, actions }) {
           </div>
           {actions}
         </div>
-        <dl className="mt-4 grid gap-3 border-t border-slate-100 pt-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <dl className="mt-4 grid gap-3 border-t border-ink-200 pt-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
           {[
             { icon: School, label: 'Class', value: feedback.classroom.name },
             { icon: CalendarDays, label: 'Lesson date', value: formatLessonDate(feedback.session.startsAt) },
@@ -59,15 +58,15 @@ export default function FeedbackView({ feedback, schedule, actions }) {
             { icon: BookOpen, label: 'Book / material', value: feedback.book || 'Not provided' },
           ].map(({ icon: Icon, label, value }) => (
             <div key={label} className="flex gap-2">
-              <Icon className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden="true" />
+              <Icon className="mt-0.5 size-4 shrink-0 text-ink-400" aria-hidden="true" />
               <div className="min-w-0">
-                <dt className="text-xs text-slate-500">{label}</dt>
-                <dd className="font-medium text-slate-800">{value}</dd>
+                <dt className="text-xs text-ink-500">{label}</dt>
+                <dd className="font-medium text-ink-900">{value}</dd>
               </div>
             </div>
           ))}
         </dl>
-      </section>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Section number="1" title="What we learned">
@@ -96,7 +95,7 @@ export default function FeedbackView({ feedback, schedule, actions }) {
         </div>
       </Section>
       {feedback.notes && (
-        <Section title={<span className="flex items-center gap-2"><UserRound className="size-4 text-slate-400" aria-hidden="true" /> Additional notes</span>}>
+        <Section title={<span className="flex items-center gap-2"><UserRound className="size-4 text-ink-400" aria-hidden="true" /> Additional notes</span>}>
           <Field label="Notes">{feedback.notes}</Field>
         </Section>
       )}

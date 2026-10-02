@@ -1,32 +1,30 @@
 import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import Card from '../common/Card.jsx';
 
-/** Shortcut cards to each module in a portal, marking the ones still to come. */
+/** Shortcuts to each module in a portal, marking the ones still to come. */
 export default function ModuleGrid({ items }) {
   return (
-    <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <Card as="ul" className="grid divide-y divide-ink-200 overflow-hidden sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-3">
       {items.map(({ label, to, icon: Icon, phase }) => (
-        <li key={to}>
+        // Hairlines between cells without doubling up on the card's own border.
+        <li key={to} className="sm:-mb-px sm:-mr-px sm:border-b sm:border-r sm:border-ink-200">
           <Link
             to={to}
-            className="group flex h-full items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-xs transition hover:border-indigo-300 hover:shadow-sm"
+            className="group flex h-full items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50 focus-visible:-outline-offset-2"
           >
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-              <Icon className="size-5" aria-hidden="true" />
-            </span>
+            <Icon className={`size-4 shrink-0 ${phase ? 'text-ink-400' : 'text-ink-600'}`} aria-hidden="true" />
             <span className="min-w-0 flex-1">
-              <span className="block font-medium text-slate-900">{label}</span>
-              <span className="block text-xs text-slate-500">
-                {phase ? `Planned for phase ${phase}` : 'Available'}
-              </span>
+              <span className={`block text-sm font-medium ${phase ? 'text-ink-500' : 'text-ink-900'}`}>{label}</span>
+              {phase && <span className="block text-xs text-ink-400">Planned for phase {phase}</span>}
             </span>
             <ArrowRight
-              className="size-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-500"
+              className="size-4 text-ink-300 transition group-hover:translate-x-0.5 group-hover:text-ink-900"
               aria-hidden="true"
             />
           </Link>
         </li>
       ))}
-    </ul>
+    </Card>
   );
 }

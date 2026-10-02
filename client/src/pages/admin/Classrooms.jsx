@@ -1,12 +1,14 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, ChevronDown, Pencil, Plus, School } from 'lucide-react';
 import toast from 'react-hot-toast';
-import Alert from '../../components/common/Alert.jsx';
-import Button from '../../components/common/Button.jsx';
+import Alert, { ErrorState } from '../../components/common/Alert.jsx';
+import Badge from '../../components/common/Badge.jsx';
+import Button, { IconButton } from '../../components/common/Button.jsx';
+import Card from '../../components/common/Card.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import EmptyState, { Skeleton } from '../../components/common/EmptyState.jsx';
 import { FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
-import Modal from '../../components/common/Modal.jsx';
+import Modal, { ModalActions } from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import PeoplePicker from '../../components/common/PeoplePicker.jsx';
 import TextField from '../../components/common/TextField.jsx';
@@ -157,10 +159,7 @@ export default function Classrooms() {
           {[0, 1, 2, 3, 4].map((item) => <Skeleton key={item} className="h-14 rounded-xl" />)}
         </div>
       ) : error ? (
-        <div className="space-y-3">
-          <Alert tone="error">{error}</Alert>
-          <Button variant="secondary" onClick={load}>Try again</Button>
-        </div>
+        <ErrorState message={error} onRetry={load} />
       ) : shown.length === 0 ? (
         classrooms.length === 0 && !hasFilters ? (
           <EmptyState
@@ -183,33 +182,29 @@ export default function Classrooms() {
           />
         )
       ) : (
-        <div className="rounded-xl border border-slate-200 bg-white shadow-xs">
-          <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_9rem_12rem] gap-4 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 md:grid">
+        <Card>
+          <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_9rem_5rem] gap-4 border-b border-ink-200 px-5 py-2.5 text-xs font-medium uppercase tracking-wider text-ink-500 md:grid">
             <span>Classroom</span>
             <span>Teachers</span>
             <span>Students</span>
-            <span className="text-right">Actions</span>
+            <span className="sr-only">Actions</span>
           </div>
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-ink-200">
             {shown.map((classroom) => {
               const archived = isArchived(classroom);
               const roster = classroom.students ?? [];
               const expanded = expandedId === classroom.id;
               const rosterId = `roster-${classroom.id}`;
               return (
-                <li key={classroom.id} className={archived ? 'bg-slate-50/60' : ''}>
-                  <div className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_9rem_12rem] md:items-center md:gap-4">
+                <li key={classroom.id}>
+                  <div className="relative grid gap-1 px-5 py-3 pr-24 text-sm md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_9rem_5rem] md:items-center md:gap-4 md:pr-5">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className="truncate font-medium text-slate-900">{classroom.name}</span>
-                      {classroom.openAccess && (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">Open</span>
-                      )}
-                      {archived && (
-                        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">Archived</span>
-                      )}
+                      <span className={`truncate font-medium ${archived ? 'text-ink-500' : 'text-ink-900'}`}>{classroom.name}</span>
+                      {classroom.openAccess && <Badge tone="warning">Open</Badge>}
+                      {archived && <Badge>Archived</Badge>}
                     </div>
-                    <p className="truncate text-sm text-slate-600" title={teachersOf(classroom).map(personName).join(', ')}>
-                      <span className="text-slate-500 md:hidden">Teachers: </span>
+                    <p className="truncate text-sm text-ink-600" title={teachersOf(classroom).map(personName).join(', ')}>
+                      <span className="text-ink-500 md:hidden">Teachers: </span>
                       {teachersOf(classroom).map(personName).join(', ') || 'Unassigned'}
                     </p>
                     <div>
@@ -220,7 +215,7 @@ export default function Classrooms() {
                         aria-expanded={roster.length > 0 ? expanded : undefined}
                         aria-controls={expanded ? rosterId : undefined}
                         title={roster.length > 0 ? (expanded ? 'Hide students' : 'Show students') : undefined}
-                        className="-mx-2 inline-flex min-h-9 items-center gap-1 rounded-md px-2 text-sm text-slate-700 hover:bg-slate-100 hover:text-indigo-700 disabled:cursor-default disabled:text-slate-500 disabled:hover:bg-transparent"
+                        className="-mx-2 inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-sm tabular-nums text-ink-700 hover:bg-ink-100 hover:text-ink-900 disabled:cursor-default disabled:text-ink-500 disabled:hover:bg-transparent"
                       >
                         {roster.length} {roster.length === 1 ? 'student' : 'students'}
                         {roster.length > 0 && (
@@ -228,25 +223,22 @@ export default function Classrooms() {
                         )}
                       </button>
                     </div>
-                    <div className="flex gap-2 md:justify-end">
+                    {/* Pinned to the row's top-right corner on small screens, where the row stacks. */}
+                    <div className="absolute right-4 top-2.5 flex gap-0.5 md:static md:justify-end">
                       {archived ? (
-                        <span className="text-sm text-slate-500">Read only</span>
+                        <span className="py-1.5 text-xs text-ink-500">Read only</span>
                       ) : (
-                        <Fragment>
-                          <Button variant="secondary" size="sm" onClick={() => openEdit(classroom)} aria-label={`Edit ${classroom.name}`}>
-                            <Pencil className="size-4" aria-hidden="true" /> Edit
-                          </Button>
-                          <Button variant="secondary" size="sm" onClick={() => setArchiving(classroom)} aria-label={`Archive ${classroom.name}`}>
-                            <Archive className="size-4" aria-hidden="true" /> Archive
-                          </Button>
-                        </Fragment>
+                        <>
+                          <IconButton label={`Edit ${classroom.name}`} icon={Pencil} onClick={() => openEdit(classroom)} />
+                          <IconButton label={`Archive ${classroom.name}`} icon={Archive} onClick={() => setArchiving(classroom)} />
+                        </>
                       )}
                     </div>
                   </div>
                   {expanded && (
-                    <ul id={rosterId} className="flex flex-wrap gap-1.5 px-4 pb-3" aria-label={`${classroom.name} students`}>
+                    <ul id={rosterId} className="flex flex-wrap gap-1 px-5 pb-3" aria-label={`${classroom.name} students`}>
                       {roster.map((student) => (
-                        <li key={student.id ?? student} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700">
+                        <li key={student.id ?? student} className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">
                           {personName(student)}
                         </li>
                       ))}
@@ -256,7 +248,7 @@ export default function Classrooms() {
               );
             })}
           </ul>
-        </div>
+        </Card>
       )}
 
       <Modal
@@ -342,14 +334,14 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
           }}
         />
         <label
-          className="flex items-center sm:mt-[1.625rem] gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-medium text-amber-950"
+          className={`flex h-10.5 items-center gap-2.5 rounded-lg border px-3 text-sm font-medium transition sm:mt-6.5 ${openAccess ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-ink-300 bg-white text-ink-700 hover:border-ink-400'}`}
           title="Any signed-in active account can join its session rooms (up to 20 participants)."
         >
           <input
             type="checkbox"
             checked={openAccess}
             onChange={(event) => setOpenAccess(event.target.checked)}
-            className="size-4 rounded border-amber-400 text-indigo-600 focus:ring-indigo-500"
+            className="size-4"
           />
           Open classroom
         </label>
@@ -381,10 +373,10 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
           hint="Optional. You can add students later."
         />
       </div>
-      <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+      <ModalActions>
         <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
         <Button type="submit" isLoading={saving}>{initial.id ? 'Save changes' : 'Create classroom'}</Button>
-      </div>
+      </ModalActions>
     </form>
   );
 }
