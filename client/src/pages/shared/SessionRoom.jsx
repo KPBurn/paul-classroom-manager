@@ -29,6 +29,11 @@ import Button from '../../components/common/Button.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import Modal from '../../components/common/Modal.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
+import AudioOutput from '../../components/room/AudioOutput.jsx';
+import MicMeter from '../../components/room/MicMeter.jsx';
+import ParticipantTile, { initials } from '../../components/room/ParticipantTile.jsx';
+import { useSpeakingDetector } from '../../components/room/useSpeakingDetector.js';
+import VideoStage from '../../components/room/VideoStage.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { sessionService } from '../../services/session.service.js';
 import { connectToSessionRoom } from '../../services/sessionRoom.service.js';
@@ -43,14 +48,9 @@ const MEDIA_SECTIONS = [
   { kind: 'video', streamKey: 'screenStream' },
   { kind: 'audio', streamKey: 'presentationAudioStream' },
 ];
-// Microphone level (0–1) at which someone counts as speaking, and how long a pause is ignored.
-const SPEAKING_START_LEVEL = 0.06;
-const SPEAKING_STOP_LEVEL = 0.035;
-const SPEAKING_HOLD_MS = 700;
 const formatFileSize = (size) => size < 1024 * 1024
   ? `${Math.max(1, Math.round(size / 1024))} KB`
   : `${(size / (1024 * 1024)).toFixed(1)} MB`;
-const initials = (name) => name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
 const readableError = (error, fallback) =>
   error?.response || error?.request || error?.code === 'ECONNABORTED'
     ? getErrorMessage(error, fallback)
@@ -70,50 +70,6 @@ function emitAck(socket, event, ...args) {
       }
     });
   });
-}
-
-// Camera video is mirrored for every viewer, so others see you as you see yourself.
-function VideoStage({ stream, label, muted = true, kind = 'screen' }) {
-  const videoRef = useRef(null);
-
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = stream;
-  }, [stream]);
-
-  return (
-    <div className="relative flex h-full min-h-0 w-full items-center justify-center">
-      <video
-        ref={videoRef}
-        autoPlay
-        muted={muted}
-        playsInline
-        aria-label={kind === 'screen' ? `Screen shared by ${label}` : `Camera video from ${label}`}
-        className={kind === 'camera' ? 'h-full w-full -scale-x-100 object-cover' : 'max-h-full max-w-full rounded-lg object-contain'}
-      />
-      <p className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-md bg-black/70 px-2.5 py-1 text-xs font-medium text-white">
-        {kind === 'screen' ? `${label} is sharing their screen` : label}
-      </p>
-    </div>
-  );
-}
-
-function AudioOutput({ stream, onBlocked, elementKey, registerElement }) {
-  const audioRef = useRef(null);
-
-  useEffect(() => {
-    registerElement(elementKey, audioRef.current);
-    if (audioRef.current) {
-      audioRef.current.srcObject = stream;
-      audioRef.current.play().catch((error) => {
-        onBlocked(error.name === 'NotAllowedError'
-          ? 'Your browser is blocking audio playback. Click in the room to allow sound.'
-          : 'Unable to play participant audio.');
-      });
-    }
-    return () => registerElement(elementKey, null);
-  }, [elementKey, onBlocked, registerElement, stream]);
-
-  return <audio ref={audioRef} autoPlay playsInline />;
 }
 
 function useMediaQuery(query) {
@@ -149,7 +105,6 @@ export default function SessionRoom() {
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [muted, setMuted] = useState(true);
-  const [micLevel, setMicLevel] = useState(0);
   const [audioNeedsGesture, setAudioNeedsGesture] = useState(false);
   const [microphoneBusy, setMicrophoneBusy] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
@@ -180,7 +135,6 @@ export default function SessionRoom() {
   const audioElementsRef = useRef(new Map());
   const fileInputRef = useRef(null);
   const localParticipantId = useRef(null);
-  const localSpeakingRef = useRef(false);
   const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const mountedRef = useRef(false);
   const refreshFiles = useCallback(async () => {
@@ -588,81 +542,20 @@ export default function SessionRoom() {
     if (chatVisible) setLastSeenMessageId(messages.at(-1)?.id ?? null);
   }, [chatVisible, messages]);
 
-  useEffect(() => {
-    if (!connected || muted) {
-      localSpeakingRef.current = false;
-      setMicLevel(0);
-      return undefined;
-    }
-    const track = localAudioStreamRef.current?.getAudioTracks().find((item) => item.readyState === 'live');
-    if (!track || typeof window.AudioContext !== 'function') return undefined;
-
-    const context = new window.AudioContext();
-    const analyser = context.createAnalyser();
-    analyser.fftSize = 512;
-    const source = context.createMediaStreamSource(new MediaStream([track]));
-    source.connect(analyser);
-    const samples = new Uint8Array(analyser.fftSize);
-    let active = true;
-    let interval;
-    let lastLoudAt = 0;
-
-    context.resume()
-      .then(() => {
-        if (!active) return;
-        interval = window.setInterval(() => {
-          analyser.getByteTimeDomainData(samples);
-          let sum = 0;
-          for (const sample of samples) {
-            const normalized = (sample - 128) / 128;
-            sum += normalized * normalized;
-          }
-          const level = Math.min(1, Math.sqrt(sum / samples.length) * 5);
-          setMicLevel(level);
-          // Starting needs a clearly raised level; once speaking, short pauses between words
-          // do not count as stopping, so the room is not told "stopped, started" several times a second.
-          const now = Date.now();
-          if (level >= SPEAKING_STOP_LEVEL) lastLoudAt = now;
-          const nextSpeaking = localSpeakingRef.current
-            ? now - lastLoudAt < SPEAKING_HOLD_MS
-            : level >= SPEAKING_START_LEVEL;
-          if (nextSpeaking !== localSpeakingRef.current) {
-            localSpeakingRef.current = nextSpeaking;
-            socketRef.current?.emit('room:speaking', nextSpeaking, (response) => {
-              if (response?.error) {
-                setMediaError(readableError(new Error(response.error), 'Unable to notify the room about microphone activity.'));
-              }
-            });
-          }
-        }, 100);
-      })
-      .catch((audioError) => {
-        setMediaError(readableError(audioError, 'Unable to monitor microphone input level.'));
+  // Listens to the local microphone; tells the room when this person starts and stops speaking.
+  const micLevelStore = useSpeakingDetector({
+    enabled: connected && !muted,
+    getTrack: () => localAudioStreamRef.current?.getAudioTracks().find((item) => item.readyState === 'live'),
+    onSpeakingChange: (speaking) => {
+      if (localParticipantId.current) setParticipantSpeaking(localParticipantId.current, speaking);
+      socketRef.current?.emit('room:speaking', speaking, (response) => {
+        if (response?.error) {
+          setMediaError(readableError(new Error(response.error), 'Unable to notify the room about microphone activity.'));
+        }
       });
-
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-      source.disconnect();
-      analyser.disconnect();
-      if (context.state !== 'closed') {
-        context.close().catch((audioError) => {
-          setMediaError(readableError(audioError, 'Unable to close microphone level monitor.'));
-        });
-      }
-      if (localSpeakingRef.current) {
-        localSpeakingRef.current = false;
-        socketRef.current?.emit('room:speaking', false);
-      }
-      setMicLevel(0);
-    };
-  }, [connected, muted]);
-
-  useEffect(() => {
-    const localId = localParticipantId.current;
-    if (!localId) return;
-    setParticipantSpeaking(localId, localSpeakingRef.current);
-  }, [micLevel, setParticipantSpeaking]);
+    },
+    onError: (detectorError, fallback) => setMediaError(readableError(detectorError, fallback)),
+  });
 
   const toggleMicrophone = async () => {
     if (!connected) return;
@@ -1154,33 +1047,12 @@ export default function SessionRoom() {
                   aria-label="Participant cameras"
                 >
                   {cameraParticipants.map((participant) => (
-                    <div
+                    <ParticipantTile
                       key={participant.id}
-                      className={`relative aspect-video h-full shrink-0 overflow-hidden rounded-lg border bg-ink-900 sm:h-auto sm:min-h-20 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-ink-700'}`}
-                    >
-                      {participant.stream ? (
-                        <VideoStage
-                          stream={participant.stream}
-                          label={`${participant.name}${participant.id === localParticipantId.current ? ' (You)' : ''}`}
-                          kind="camera"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-ink-400 sm:gap-2">
-                          <span className="flex size-8 items-center justify-center rounded-full bg-ink-700 text-xs font-semibold text-ink-100 sm:size-10 sm:text-sm">
-                            {initials(participant.name)}
-                          </span>
-                          <span className="max-w-full truncate px-2 text-center text-xs font-medium text-ink-100">
-                            {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
-                          </span>
-                          <span className="hidden text-[10px] text-amber-300 sm:inline">Camera on · waiting for video</span>
-                        </div>
-                      )}
-                      {participant.isSpeaking && (
-                        <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-md bg-emerald-500/90 px-1.5 py-1 text-[10px] font-semibold text-white">
-                          <Volume2 className="size-3" aria-hidden="true" />
-                        </span>
-                      )}
-                    </div>
+                      participant={participant}
+                      isLocal={participant.id === localParticipantId.current}
+                      size="strip"
+                    />
                   ))}
                 </div>
               )}
@@ -1195,35 +1067,11 @@ export default function SessionRoom() {
               aria-label="Classroom participants"
             >
               {galleryParticipants.map((participant) => (
-                <div
+                <ParticipantTile
                   key={participant.id}
-                  className={`relative min-h-0 min-w-0 overflow-hidden rounded-lg border bg-ink-900 ${participant.isSpeaking ? 'border-emerald-400 ring-2 ring-emerald-400/70' : 'border-ink-800'}`}
-                >
-                  {participant.stream ? (
-                    <VideoStage
-                      stream={participant.stream}
-                      label={`${participant.name}${participant.id === localParticipantId.current ? ' (You)' : ''}`}
-                      kind="camera"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-ink-400">
-                      <span className="flex size-12 items-center justify-center rounded-full bg-ink-700 text-sm font-semibold text-ink-100">
-                        {initials(participant.name)}
-                      </span>
-                      <span className="max-w-full truncate px-2 text-xs font-medium text-ink-100">
-                        {participant.name}{participant.id === localParticipantId.current ? ' (You)' : ''}
-                      </span>
-                      <span className={`text-xs ${participant.cameraEnabled ? 'text-amber-300' : ''}`}>
-                        {participant.cameraEnabled ? 'Camera on · waiting for video' : 'Camera off'}
-                      </span>
-                    </div>
-                  )}
-                  {participant.isSpeaking && (
-                    <span className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-emerald-500/90 px-2 py-1 text-xs font-semibold text-white">
-                      <Volume2 className="size-3.5" aria-hidden="true" /> Speaking
-                    </span>
-                  )}
-                </div>
+                  participant={participant}
+                  isLocal={participant.id === localParticipantId.current}
+                />
               ))}
             </div>
           ) : (
@@ -1536,30 +1384,7 @@ export default function SessionRoom() {
           {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
           <span className="hidden sm:inline">{muted ? 'Unmute' : 'Mute'}</span>
         </Button>
-        {!muted && (
-          <div
-            className="flex h-10 items-center gap-2 rounded-lg border border-ink-700 bg-ink-900 px-3"
-            role="status"
-            aria-label={micLevel >= 0.06 ? 'Microphone is picking up sound' : 'Microphone is on, no sound detected'}
-            title={micLevel >= 0.06 ? 'Microphone is picking up sound' : 'Microphone is on — speak to test'}
-          >
-            <span className="hidden text-xs text-ink-300 sm:inline">
-              {micLevel >= 0.06 ? 'Mic active' : 'Mic on'}
-            </span>
-            <span className="sr-only">
-              {micLevel >= 0.06 ? 'Microphone is picking up sound' : 'Speak to test your microphone'}
-            </span>
-            <span className="flex h-5 items-center gap-0.5" aria-hidden="true">
-              {[0.12, 0.25, 0.4, 0.58, 0.78].map((threshold, index) => (
-                <span
-                  key={threshold}
-                  className={`w-1 rounded-full transition-colors ${micLevel >= threshold ? 'bg-emerald-400' : 'bg-ink-600'}`}
-                  style={{ height: `${6 + index * 3}px` }}
-                />
-              ))}
-            </span>
-          </div>
-        )}
+        {!muted && <MicMeter levelStore={micLevelStore} />}
         <Button
           variant={cameraStream ? 'inverse' : 'dark'}
           className="max-sm:px-3"
