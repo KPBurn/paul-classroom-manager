@@ -3,17 +3,7 @@ import { Subject } from '../models/Subject.js';
 import { SubjectMaterial } from '../models/SubjectMaterial.js';
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
-
-function teacherAssignedTo(classroom, user) {
-  const teacherIds = [classroom.teacher, ...(classroom.teachers ?? [])]
-    .filter(Boolean)
-    .map((teacher) => String(teacher._id ?? teacher));
-  return teacherIds.includes(String(user._id));
-}
-
-function isClassMember(classroom, user) {
-  return classroom.students.some((student) => String(student._id ?? student) === String(user._id));
-}
+import { classroomsTaughtBy, isEnrolledIn, teachesClassroom } from '../authz/policies.js';
 
 function subjectMaterialResult(material, includeUploader = false) {
   return {
@@ -60,7 +50,7 @@ function subjectResult(subject, materials = []) {
 async function loadAccessibleSubjects(user) {
   const classroomFilter = { status: 'active' };
   if (user.role === 'teacher') {
-    classroomFilter.$or = [{ teacher: user._id }, { teachers: user._id }];
+    Object.assign(classroomFilter, classroomsTaughtBy(user));
   } else {
     classroomFilter.students = user._id;
   }
@@ -95,10 +85,8 @@ async function loadSubject(id, user) {
     throw new AppError(404, 'Subject not found');
   }
 
-  if (user.role === 'teacher' && !teacherAssignedTo(subject.classroom, user)) {
-    throw new AppError(404, 'Subject not found');
-  }
-  if (user.role === 'student' && !isClassMember(subject.classroom, user)) {
+  // Answer "not found" rather than "forbidden", so the existence of another class's subject is not revealed.
+  if (!teachesClassroom(subject.classroom, user) && !isEnrolledIn(subject.classroom, user)) {
     throw new AppError(404, 'Subject not found');
   }
   return subject;
@@ -113,7 +101,7 @@ export async function createSubject(data, { actor, ipAddress }) {
   if (!classroom || classroom.status !== 'active') {
     throw new AppError(404, 'Active classroom not found');
   }
-  if (!teacherAssignedTo(classroom, actor)) {
+  if (!teachesClassroom(classroom, actor)) {
     throw new AppError(403, 'You are not assigned to this classroom');
   }
 

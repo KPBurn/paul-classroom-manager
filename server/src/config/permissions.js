@@ -1,6 +1,9 @@
 /**
- * Role-based access control. Routes check permissions, never role names, so
- * changing what a role may do means editing this map only.
+ * What each role may do with users and school-wide announcements. Other
+ * routes gate on the role itself (`requireRole`).
+ *
+ * Whether an account is connected to a particular classroom or session (its
+ * teacher, an enrolled student) is decided in authz/policies.js.
  */
 export const PERMISSIONS = {
   USERS_READ: 'users:read',

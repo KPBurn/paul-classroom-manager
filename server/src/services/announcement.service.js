@@ -3,22 +3,7 @@ import { Announcement } from '../models/Announcement.js';
 import { Classroom } from '../models/Classroom.js';
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
-
-const idsOf = (people) => (people ?? []).filter(Boolean).map((person) => String(person._id ?? person));
-
-export function teachesClassroom(classroom, user) {
-  return user?.role === 'teacher'
-    && idsOf([classroom.teacher, ...(classroom.teachers ?? [])]).includes(String(user._id));
-}
-
-export function canManageClassroom(classroom, user) {
-  return user?.role === 'admin' || teachesClassroom(classroom, user);
-}
-
-export function canReadClassroom(classroom, user) {
-  return canManageClassroom(classroom, user)
-    || (user?.role === 'student' && idsOf(classroom.students).includes(String(user._id)));
-}
+import { canManageClassroom, canReadClassroom, teachesClassroom } from '../authz/policies.js';
 
 async function findClassroom(id) {
   const classroom = await Classroom.findById(id);

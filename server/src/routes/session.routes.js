@@ -2,7 +2,6 @@ import express, { Router } from 'express';
 import { z } from 'zod';
 import {
   attendance,
-  assignmentOptions,
   cancel,
   correctAttendance,
   create,
@@ -24,7 +23,6 @@ import {
   createSessionSchema,
   listSessionsQuerySchema,
   sessionIdParamsSchema,
-  sessionAssignmentOptionsQuerySchema,
   sessionUpdateSchema,
 } from '../validators/session.validators.js';
 
@@ -36,7 +34,6 @@ const sessionFileParamsSchema = z.object({
 
 router.use(authenticateUser);
 router.get('/', requireRole('admin', 'teacher', 'student'), validate({ query: listSessionsQuerySchema }), list);
-router.get('/assignment-options', requireRole('admin', 'teacher'), validate({ query: sessionAssignmentOptionsQuerySchema }), assignmentOptions);
 router.post('/', requireRole('admin', 'teacher'), validate({ body: createSessionSchema }), create);
 router.get('/:id/room', validate({ params: sessionIdParamsSchema }), room);
 router.get('/:id/files', validate({ params: sessionIdParamsSchema }), listFiles);

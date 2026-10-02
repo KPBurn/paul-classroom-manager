@@ -2,7 +2,7 @@ import { Classroom } from '../models/Classroom.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
-import { canReadClassroom } from './announcement.service.js';
+import { canReadClassroom, classroomsTaughtBy } from '../authz/policies.js';
 
 async function activeUsersWithRole(ids, role, label) {
   const uniqueIds = [...new Set(ids)];
@@ -42,7 +42,7 @@ export async function listClassrooms({ includeArchived = false } = {}, user) {
   }
   const filter = includeArchived ? {} : { status: 'active' };
   if (user?.role === 'teacher') {
-    filter.$or = [{ teacher: user._id }, { teachers: user._id }];
+    Object.assign(filter, classroomsTaughtBy(user));
   }
   return Classroom.find(filter)
     .sort({ status: 1, name: 1 })

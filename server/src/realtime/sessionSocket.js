@@ -3,6 +3,7 @@ import { Server } from 'socket.io';
 import { z } from 'zod';
 import { env } from '../config/environment.js';
 import { User } from '../models/User.js';
+import { canManageSession } from '../authz/policies.js';
 import * as sessionService from '../services/session.service.js';
 import { AppError } from '../utils/AppError.js';
 import { verifyToken } from '../utils/jwt.js';
@@ -179,7 +180,7 @@ export function attachSessionSocket(httpServer) {
         const session = await sessionService.getSessionForParticipant(sessionId, socket.data.user);
         if (session.status === 'cancelled') throw new AppError(400, 'This session has been cancelled');
         sessionService.assertCanEnterRoom(session, socket.data.user);
-        const canManageRoom = sessionService.canManageSession(session, socket.data.user);
+        const canManageRoom = canManageSession(session, socket.data.user);
         const moderation = canManageRoom
           ? {
               classEnded: Boolean(session.endedAt),

@@ -12,7 +12,6 @@ import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../components/common/ListFilters.jsx';
 import Modal, { ModalActions } from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
-import PeoplePicker from '../../components/common/PeoplePicker.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import { inputClass, labelClass, SelectField } from '../../components/common/TextField.jsx';
 import { classroomService } from '../../services/classroom.service.js';
@@ -73,19 +72,10 @@ const dateTime = (value) => new Date(value).toLocaleString([], {
   weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
 });
 
-function classroomTeacherIds(classroom) {
-  if (!classroom) return [];
-  const teachers = classroom.teachers?.length ? classroom.teachers : [classroom.teacher];
-  return [...new Set(teachers.filter(Boolean).map((teacher) => (
-    typeof teacher === 'string' ? teacher : teacher.id ?? teacher._id
-  )))];
-}
-
-function classroomStudentIds(classroom) {
-  return classroom?.students?.map((student) => (
-    typeof student === 'string' ? student : student.id ?? student._id
-  )) ?? [];
-}
+/** A classroom's members who can take part; accounts that are not active are left out of new sessions. */
+const activeMembers = (people) => (people ?? [])
+  .filter((person) => person && typeof person === 'object' && (person.status ?? 'active') === 'active');
+const memberName = (person) => person.name ?? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim();
 
 export default function TeacherSchedule() {
   const navigate = useNavigate();
@@ -531,62 +521,26 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('10:00');
   const [weekdays, setWeekdays] = useState([today.getDay()]);
-  const initialClassroom = classrooms[0];
-  const [teachers, setTeachers] = useState([]);
-  const [students, setStudents] = useState([]);
-  const [teacherIds, setTeacherIds] = useState(classroomTeacherIds(initialClassroom));
-  const [studentIds, setStudentIds] = useState(classroomStudentIds(initialClassroom));
-  const [loadingOptions, setLoadingOptions] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  // Only a failed load of teachers and students blocks submitting; a validation message must not.
-  const [optionsFailed, setOptionsFailed] = useState(false);
 
   const toggleDay = (day) => setWeekdays((current) => current.includes(day)
     ? current.filter((value) => value !== day)
     : [...current, day].sort((a, b) => a - b));
 
-  useEffect(() => {
-    let cancelled = false;
-    const selectedClassroom = classrooms.find((room) => room.id === classroomId);
-    setError('');
-    setOptionsFailed(false);
-    setTeacherIds(classroomTeacherIds(selectedClassroom));
-    setStudentIds(classroomStudentIds(selectedClassroom));
-    setLoadingOptions(true);
-    sessionService.assignmentOptions(classroomId)
-      .then((options) => {
-        if (!cancelled) {
-          setTeachers(options.teachers);
-          setStudents(options.students);
-          const activeTeacherIds = new Set(options.teachers.map((teacher) => teacher.id));
-          const activeStudentIds = new Set(options.students.map((student) => student.id));
-          // A teacher always teaches the sessions they schedule; their own row is locked, so select it for them.
-          const ownId = actor.role === ROLES.TEACHER && activeTeacherIds.has(actor.id) ? [actor.id] : [];
-          setTeacherIds((current) => [...new Set([...ownId, ...current.filter((id) => activeTeacherIds.has(id))])]);
-          setStudentIds((current) => current.filter((id) => activeStudentIds.has(id)));
-        }
-      })
-      .catch((loadError) => {
-        if (!cancelled) {
-          setError(getErrorMessage(loadError, 'Unable to load active teachers and students.'));
-          setOptionsFailed(true);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingOptions(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [classroomId, classrooms, actor.id, actor.role]);
+  // A session takes everyone in its classroom; only administrators change who that is.
+  const classroom = classrooms.find((room) => room.id === classroomId);
+  const included = {
+    teachers: activeMembers(classroom?.teachers?.length ? classroom.teachers : [classroom?.teacher]),
+    students: activeMembers(classroom?.students),
+  };
 
   const submit = async (event) => {
     event.preventDefault();
     // Name the one thing that is wrong, so it is clear what to fix.
     const problem = !classroomId ? 'Choose a classroom.'
       : !title.trim() ? 'Enter a session title.'
-        : !teacherIds.length ? 'Assign at least one teacher.'
+        : !included.teachers.length ? 'This classroom has no active teacher. Ask an administrator to assign one.'
           : !startTime || !endTime ? 'Set a start and an end time.'
             : startTime >= endTime ? 'The end time must be after the start time, on the same day.'
               : '';
@@ -604,8 +558,6 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
       }
       values = {
         classroomId,
-        teacherIds,
-        studentIds,
         title: title.trim(),
         startsAt: startsAt.toISOString(),
         endsAt: endsAt.toISOString(),
@@ -616,7 +568,7 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
         return;
       }
       values = {
-        classroomId, teacherIds, studentIds, title: title.trim(), startDate, endDate, startTime, endTime, weekdays,
+        classroomId, title: title.trim(), startDate, endDate, startTime, endTime, weekdays,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
     }
@@ -640,27 +592,28 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
           <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder="e.g. Math – Fractions" className={inputClass(false, 'mt-1.5 font-normal')} required />
         </label>
       </div>
-      <fieldset disabled={loadingOptions} className="disabled:opacity-60">
-        <legend className="sr-only">Classroom assignments</legend>
-        <div className="grid gap-4 md:grid-cols-2">
-          <PeoplePicker
-            label="Teachers"
-            people={teachers}
-            selectedIds={teacherIds}
-            onChange={setTeacherIds}
-            lockedIds={actor.role === ROLES.TEACHER ? [actor.id] : []}
-            emptyMessage={loadingOptions ? 'Loading…' : 'No active teachers are available.'}
-          />
-          <PeoplePicker
-            label="Students"
-            people={students}
-            selectedIds={studentIds}
-            onChange={setStudentIds}
-            emptyMessage={loadingOptions ? 'Loading…' : 'No active students are available.'}
-          />
-        </div>
-        <p className="mt-1.5 text-xs text-ink-500">Saving this schedule updates the classroom’s assigned teachers and student roster.</p>
-      </fieldset>
+      <section aria-labelledby="session-included" className="rounded-lg border border-ink-200 bg-ink-50 px-4 py-3">
+        <h3 id="session-included" className="text-sm font-medium text-ink-900">Who is included</h3>
+        <dl className="mt-2 grid gap-3 text-sm md:grid-cols-2">
+          {[
+            ['Teachers', included.teachers, 'No active teacher is assigned.'],
+            ['Students', included.students, 'No students are enrolled yet.'],
+          ].map(([label, people, emptyMessage]) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-xs text-ink-500">{label} <span className="tabular-nums">({people.length})</span></dt>
+              <dd className="mt-0.5 max-h-24 overflow-y-auto text-ink-700">
+                {people.length ? people.map(memberName).join(', ') : <span className="text-ink-500">{emptyMessage}</span>}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-2 text-xs text-ink-500">
+          Everyone in the classroom is included.{' '}
+          {actor.role === ROLES.ADMIN
+            ? 'To change who that is, edit the classroom.'
+            : 'Ask an administrator to change who is in the classroom.'}
+        </p>
+      </section>
       <div className="grid gap-4 sm:grid-cols-3">
         <SelectField id="session-type" label="Schedule type" value={mode} onChange={(event) => setMode(event.target.value)} options={[{ value: 'single', label: 'One-time session' }, { value: 'recurring', label: 'Weekly sessions' }]} />
         <label className={labelClass}>Starts
@@ -705,7 +658,7 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
       )}
       <ModalActions>
         <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
-        <Button type="submit" isLoading={saving || loadingOptions} disabled={optionsFailed || loadingOptions}>
+        <Button type="submit" isLoading={saving}>
           Create schedule
         </Button>
       </ModalActions>

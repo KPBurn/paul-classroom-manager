@@ -8,11 +8,6 @@ export async function list(req, res) {
   sendSuccess(res, { data });
 }
 
-export async function assignmentOptions(req, res) {
-  const data = await sessionService.getAssignmentOptions(req.validatedQuery.classroomId, req.user);
-  sendSuccess(res, { data });
-}
-
 export async function create(req, res) {
   const items = await sessionService.createSessions(req.body, { actor: req.user, ipAddress: req.ip });
   sendSuccess(res, { status: 201, message: 'Session(s) scheduled successfully', data: { items } });

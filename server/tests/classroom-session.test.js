@@ -340,10 +340,9 @@ describe('class sessions and attendance', () => {
     assert.equal(String(teacher._id), String(classroom.teacher));
   });
 
-  it('lets teachers and admins update classroom assignments while preserving session rosters', async () => {
+  it('schedules sessions for the whole classroom and leaves roster changes to admins', async () => {
     const teacher = await createUser({ role: 'teacher' });
     const coTeacher = await createUser({ role: 'teacher' });
-    const inactiveTeacher = await createUser({ role: 'teacher', status: 'inactive' });
     const student = await createUser({ role: 'student' });
     const addedStudent = await createUser({ role: 'student' });
     const inactiveStudent = await createUser({ role: 'student', status: 'inactive' });
@@ -351,60 +350,64 @@ describe('class sessions and attendance', () => {
     const classroom = await Classroom.create({
       name: 'Assigned room',
       teacher: teacher._id,
-      teachers: [teacher._id],
-      students: [student._id],
+      teachers: [teacher._id, coTeacher._id],
+      students: [student._id, inactiveStudent._id],
     });
     const teacherToken = await login(teacher);
     const coTeacherToken = await login(coTeacher);
     const adminToken = await login(admin);
+    const times = (startHour) => ({
+      startsAt: new Date(Date.now() + startHour * 60 * 60_000).toISOString(),
+      endsAt: new Date(Date.now() + (startHour + 1) * 60 * 60_000).toISOString(),
+    });
 
+    // The school-wide list of teachers and students is no longer offered to teachers.
     const options = await request(app)
       .get(`/api/sessions/assignment-options?classroomId=${classroom.id}`)
       .set(auth(teacherToken));
-    assert.equal(options.status, 200);
-    assert.ok(options.body.data.teachers.some(({ id }) => id === teacher.id));
-    assert.ok(options.body.data.teachers.some(({ id }) => id === coTeacher.id));
-    assert.ok(!options.body.data.teachers.some(({ id }) => id === inactiveTeacher.id));
-    assert.ok(options.body.data.students.some(({ id }) => id === student.id));
-    assert.ok(options.body.data.students.some(({ id }) => id === addedStudent.id));
-    assert.ok(!options.body.data.students.some(({ id }) => id === inactiveStudent.id));
+    assert.notEqual(options.status, 200);
 
-    const startsAt = new Date(Date.now() + 60 * 60_000);
-    const endsAt = new Date(Date.now() + 2 * 60 * 60_000);
+    // A teacher cannot choose who attends: the request is rejected, and the roster is untouched.
+    const rewrite = await request(app)
+      .post('/api/sessions')
+      .set(auth(teacherToken))
+      .send({ classroomId: classroom.id, teacherIds: [teacher.id], studentIds: [addedStudent.id], title: 'Rewrite', ...times(1) });
+    assert.equal(rewrite.status, 400);
+
     const first = await request(app)
       .post('/api/sessions')
       .set(auth(teacherToken))
-      .send({
-        classroomId: classroom.id,
-        teacherIds: [teacher.id, coTeacher.id],
-        studentIds: [student.id, addedStudent.id],
-        title: 'Shared roster',
-        startsAt: startsAt.toISOString(),
-        endsAt: endsAt.toISOString(),
-      });
+      .send({ classroomId: classroom.id, title: 'Shared roster', ...times(1) });
     assert.equal(first.status, 201);
     const firstSession = first.body.data.items[0];
-    assert.equal(firstSession.assignments.teachers.length, 2);
-    assert.equal(firstSession.assignments.students.length, 2);
+    // Everyone active in the classroom is included; the inactive student is not.
+    assert.deepEqual(firstSession.assignments.teachers.map(({ id }) => id).sort(), [teacher.id, coTeacher.id].sort());
+    assert.deepEqual(firstSession.assignments.students.map(({ id }) => id), [student.id]);
+
+    const unchanged = await Classroom.findById(classroom.id);
+    assert.deepEqual(unchanged.teachers.map(String), [String(teacher._id), String(coTeacher._id)]);
+    assert.deepEqual(unchanged.students.map(String), [String(student._id), String(inactiveStudent._id)]);
+
+    // An administrator changes the roster on the classroom; sessions made afterwards follow it.
+    const edited = await request(app)
+      .patch(`/api/classrooms/${classroom.id}`)
+      .set(auth(adminToken))
+      .send({ teacherIds: [coTeacher.id], studentIds: [addedStudent.id] });
+    assert.equal(edited.status, 200);
+
+    const denied = await request(app)
+      .post('/api/sessions')
+      .set(auth(teacherToken))
+      .send({ classroomId: classroom.id, title: 'No longer mine', ...times(3) });
+    assert.equal(denied.status, 403);
 
     const next = await request(app)
       .post('/api/sessions')
       .set(auth(adminToken))
-      .send({
-        classroomId: classroom.id,
-        teacherIds: [coTeacher.id],
-        studentIds: [addedStudent.id],
-        title: 'Updated roster',
-        startsAt: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-        endsAt: new Date(Date.now() + 4 * 60 * 60_000).toISOString(),
-      });
+      .send({ classroomId: classroom.id, title: 'Updated roster', ...times(3) });
     assert.equal(next.status, 201);
-    assert.equal(next.body.data.items[0].assignments.teachers.length, 1);
-    assert.equal(next.body.data.items[0].assignments.students.length, 1);
-
-    const savedClassroom = await Classroom.findById(classroom.id);
-    assert.deepEqual(savedClassroom.teachers.map(String), [String(coTeacher._id)]);
-    assert.deepEqual(savedClassroom.students.map(String), [String(addedStudent._id)]);
+    assert.deepEqual(next.body.data.items[0].assignments.teachers.map(({ id }) => id), [coTeacher.id]);
+    assert.deepEqual(next.body.data.items[0].assignments.students.map(({ id }) => id), [addedStudent.id]);
 
     const teacherSessions = await request(app).get('/api/sessions').set(auth(teacherToken));
     assert.deepEqual(teacherSessions.body.data.items.map(({ id }) => id), [firstSession.id]);

@@ -6,11 +6,6 @@ export const sessionService = {
     return data.data.items;
   },
 
-  async assignmentOptions(classroomId) {
-    const { data } = await api.get('/sessions/assignment-options', { params: { classroomId } });
-    return data.data;
-  },
-
   async messages(id) {
     const { data } = await api.get(`/sessions/${id}/messages`);
     return data.data.items;

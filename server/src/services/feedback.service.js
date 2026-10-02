@@ -3,7 +3,7 @@ import { ClassSession } from '../models/ClassSession.js';
 import { TeacherFeedback } from '../models/TeacherFeedback.js';
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
-import { isSessionTeacher } from './session.service.js';
+import { canManageSession, classroomsTaughtBy, isSessionTeacher } from '../authz/policies.js';
 
 const PERSON_FIELDS = 'firstName lastName email';
 const idOf = (value) => String(value?._id ?? value);
@@ -78,7 +78,7 @@ function feedbackResult(feedback) {
 /** Students of a lesson with their feedback status, for working through a class. */
 export async function getLessonRoster(sessionId, user) {
   const session = await loadSession(sessionId);
-  if (user.role !== 'admin' && !isSessionTeacher(session, user)) {
+  if (!canManageSession(session, user)) {
     throw new AppError(403, 'You are not assigned to this lesson');
   }
   const [feedback, lastWithBook] = await Promise.all([
@@ -151,7 +151,7 @@ const PENDING_LIMIT = 20;
 export async function listPendingLessons(user) {
   const now = new Date();
   const since = new Date(now.getTime() - PENDING_WINDOW_DAYS * DAY_MS);
-  const classrooms = await Classroom.find({ $or: [{ teacher: user._id }, { teachers: user._id }] }).select('_id');
+  const classrooms = await Classroom.find(classroomsTaughtBy(user)).select('_id');
   const sessions = await ClassSession.find({
     status: 'scheduled',
     startsAt: { $gte: since, $lte: now },

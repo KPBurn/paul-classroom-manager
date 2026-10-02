@@ -4,6 +4,15 @@ import { ClassSession } from '../models/ClassSession.js';
 import { SessionFile } from '../models/SessionFile.js';
 import { SessionMessage } from '../models/SessionMessage.js';
 import { User } from '../models/User.js';
+import {
+  canJoinSession,
+  canManageSession,
+  classroomsTaughtBy,
+  classroomTeacherIds,
+  sessionStudentIds,
+  sessionTeacherIds,
+  teachesClassroom,
+} from '../authz/policies.js';
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { attendanceStatusForCheckIn } from '../utils/attendancePolicy.js';
@@ -85,7 +94,7 @@ function occurrenceDates(data) {
 async function assignedClassroom(id, teacher, { requireActive = false } = {}) {
   const classroom = await Classroom.findById(id);
   if (!classroom) throw new AppError(404, 'Classroom not found');
-  if (teacher && !isAssignedTeacher(classroom, teacher)) {
+  if (teacher && !teachesClassroom(classroom, teacher)) {
     throw new AppError(403, 'You are not assigned to this classroom');
   }
   if (requireActive && classroom.status !== 'active') {
@@ -94,83 +103,25 @@ async function assignedClassroom(id, teacher, { requireActive = false } = {}) {
   return classroom;
 }
 
-export function isAssignedTeacher(classroom, user) {
-  if (user?.role !== 'teacher') return false;
-  const assignedIds = [classroom.teacher, ...(classroom.teachers ?? [])]
-    .filter(Boolean)
-    .map((teacher) => String(teacher._id ?? teacher));
-  return assignedIds.includes(String(user._id));
-}
-
-function classroomTeacherIds(classroom) {
-  return [...new Set([classroom.teacher, ...(classroom.teachers ?? [])]
-    .filter(Boolean)
-    .map((teacher) => String(teacher._id ?? teacher)))];
-}
-
-function sessionTeacherIds(session) {
-  return session.assignedTeachers
-    ? session.assignedTeachers.map((teacher) => String(teacher._id ?? teacher))
-    : classroomTeacherIds(session.classroom);
-}
-
-function sessionStudentIds(session) {
-  return session.assignedStudents
-    ? session.assignedStudents.map((student) => String(student._id ?? student))
-    : session.classroom.students.map((student) => String(student._id ?? student));
-}
-
-export function isSessionTeacher(session, user) {
-  return user?.role === 'teacher' && sessionTeacherIds(session).includes(String(user._id));
-}
-
-export function canManageSession(session, user) {
-  return user?.role === 'admin' || isSessionTeacher(session, user);
-}
-
-export async function getAssignmentOptions(classroomId, user) {
-  const classroom = await Classroom.findById(classroomId);
-  if (!classroom) throw new AppError(404, 'Classroom not found');
-  if (classroom.status !== 'active') throw new AppError(400, 'Archived classrooms cannot be scheduled');
-  if (user.role === 'teacher' && !isAssignedTeacher(classroom, user)) {
-    throw new AppError(403, 'You are not assigned to this classroom');
-  }
-
-  const [teachers, students] = await Promise.all([
-    User.find({ role: 'teacher', status: 'active' })
-      .select('firstName lastName email')
-      .sort({ firstName: 1, lastName: 1, _id: 1 })
-      .limit(100),
-    User.find({ role: 'student', status: 'active' })
-      .select('firstName lastName email')
-      .sort({ firstName: 1, lastName: 1, _id: 1 })
-      .limit(500),
-  ]);
-  return { teachers, students };
-}
-
+/**
+ * A session always takes everyone in its classroom: only administrators change
+ * who belongs to a classroom, so scheduling never edits the roster. The session
+ * keeps a snapshot of the active teachers and students at the time it is made.
+ */
 export async function createSessions(data, { actor, ipAddress }) {
   const classroom = await assignedClassroom(
     data.classroomId,
     actor.role === 'teacher' ? actor : null,
     { requireActive: true },
   );
-  const teacherIds = [...new Set(data.teacherIds ?? classroomTeacherIds(classroom))];
-  const studentIds = [...new Set((data.studentIds ?? classroom.students)
-    .map((student) => String(student._id ?? student)))];
-  if (!teacherIds.length) throw new AppError(400, 'Assign at least one teacher to the classroom');
-  if (actor.role === 'teacher' && !teacherIds.includes(String(actor._id))) {
-    throw new AppError(400, 'You must remain assigned to the classroom to schedule its sessions');
-  }
   const [teachers, students] = await Promise.all([
-    User.find({ _id: { $in: teacherIds }, role: 'teacher', status: 'active' }).select('_id'),
-    User.find({ _id: { $in: studentIds }, role: 'student', status: 'active' }).select('_id'),
+    User.find({ _id: { $in: classroomTeacherIds(classroom) }, role: 'teacher', status: 'active' }).select('_id'),
+    User.find({ _id: { $in: classroom.students }, role: 'student', status: 'active' }).select('_id'),
   ]);
-  if (teachers.length !== teacherIds.length) {
-    throw new AppError(400, 'Teachers must reference active teacher accounts');
-  }
-  if (students.length !== studentIds.length) {
-    throw new AppError(400, 'Students must reference active student accounts');
+  const teacherIds = teachers.map(({ _id }) => String(_id));
+  const studentIds = students.map(({ _id }) => String(_id));
+  if (!teacherIds.length) {
+    throw new AppError(400, 'This classroom has no active teacher. Ask an administrator to assign one.');
   }
 
   let entries;
@@ -187,11 +138,6 @@ export async function createSessions(data, { actor, ipAddress }) {
     entries = occurrenceDates(data);
     seriesId = randomUUID();
   }
-  classroom.teacher = teacherIds[0];
-  classroom.teachers = teacherIds;
-  classroom.students = studentIds;
-  await classroom.save();
-
   const sessions = await ClassSession.insertMany(entries.map(({ startsAt, endsAt }) => ({
     classroom: classroom._id,
     assignedTeachers: teacherIds,
@@ -304,7 +250,7 @@ export async function listSessions(user, { view } = {}) {
   let filter;
   if (user.role === 'teacher' && !view) {
     const [assignedClassrooms, openClassrooms] = await Promise.all([
-      Classroom.find({ $or: [{ teacher: user._id }, { teachers: user._id }] }).select('_id'),
+      Classroom.find(classroomsTaughtBy(user)).select('_id'),
       Classroom.find({ openAccess: true }).select('_id'),
     ]);
     filter = {
@@ -382,11 +328,7 @@ function assertAssignedTeacher(session, user) {
 
 export async function getSessionForParticipant(id, user) {
   const session = await getSession(id);
-  const isTeacher = isSessionTeacher(session, user);
-  const isAdmin = user.role === 'admin';
-  const isStudent = user.role === 'student'
-    && sessionStudentIds(session).includes(String(user._id));
-  if (!isAdmin && !isTeacher && !isStudent && !session.classroom.openAccess) {
+  if (!canJoinSession(session, user)) {
     throw new AppError(403, 'You are not assigned to this classroom');
   }
   return session;
