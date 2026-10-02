@@ -1,5 +1,6 @@
 import { permissionsFor } from '../config/permissions.js';
 import { User } from '../models/User.js';
+import { disconnectUser } from '../realtime/connections.js';
 import { SystemSettings } from '../models/SystemSettings.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { AppError } from '../utils/AppError.js';
@@ -76,6 +77,38 @@ export async function loginWithTestRole(role, { ipAddress } = {}) {
   });
 
   return { user: toAuthUser(user), token: signToken(user, { roleTestSession: true }) };
+}
+
+/**
+ * Lets someone replace their own password. Every other place they are signed
+ * in is signed out; this session carries on with the new token that is returned.
+ */
+export async function changeOwnPassword(userId, { currentPassword, newPassword }, { roleTestSession, ipAddress } = {}) {
+  // Role testing borrows a real account; a tester must not be able to lock its owner out.
+  if (roleTestSession) {
+    throw new AppError(403, 'Passwords cannot be changed during temporary role testing.');
+  }
+  const user = await User.findById(userId).select('+password');
+  if (!user || !(await comparePassword(currentPassword, user.password))) {
+    throw new AppError(400, 'Your current password is not correct', {
+      details: [{ field: 'currentPassword', message: 'Your current password is not correct' }],
+    });
+  }
+
+  user.password = newPassword;
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+  await user.save();
+  await logActivity({
+    actorId: user._id,
+    action: 'user.password_changed',
+    entityType: 'User',
+    entityId: user._id,
+    description: `${user.fullName} changed their password`,
+    ipAddress,
+  });
+  await disconnectUser(user._id, 'Your password was changed. Sign in again with the new password.');
+
+  return { user: toAuthUser(user), token: signToken(user) };
 }
 
 export async function register(data, context) {

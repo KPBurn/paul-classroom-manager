@@ -44,5 +44,7 @@ export async function authenticateUser(req, _res, next) {
   }
 
   req.user = user;
+  // Signed in through temporary role testing rather than with the account's own password.
+  req.roleTestSession = Boolean(payload.roleTestSession);
   next();
 }

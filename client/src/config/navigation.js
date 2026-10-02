@@ -49,6 +49,7 @@ export const adminNavigation = [
       { label: 'Salaries', to: '/admin/salaries', icon: Wallet, phase: 5 },
       { label: 'Activity Logs', to: '/admin/activity-logs', icon: History, phase: 3 },
       { label: 'Settings', to: '/admin/settings', icon: Settings },
+      { label: 'Profile', to: '/admin/profile', icon: CircleUser },
     ],
   },
 ];
@@ -76,6 +77,7 @@ export const studentNavigation = [
       { label: 'Dashboard', to: '/student', icon: LayoutDashboard, end: true },
       { label: 'My Classrooms', to: '/student/classrooms', icon: School },
       { label: 'Materials', to: '/student/materials', icon: BookOpen },
+      { label: 'Profile', to: '/student/profile', icon: CircleUser },
     ],
   },
 ];

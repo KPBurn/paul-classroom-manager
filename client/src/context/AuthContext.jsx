@@ -61,6 +61,11 @@ export function AuthProvider({ children }) {
     return saveLogin(await authService.loginWithTestRole(role));
   }, [saveLogin]);
 
+  // Changing the password signs out every other device; this one continues with a fresh token.
+  const changePassword = useCallback(async (passwords) => {
+    return saveLogin(await authService.changePassword(passwords));
+  }, [saveLogin]);
+
   const logout = useCallback(async () => {
     try {
       await authService.logout();
@@ -72,8 +77,8 @@ export function AuthProvider({ children }) {
   }, [clearSession]);
 
   const value = useMemo(
-    () => ({ user, isAuthenticated: Boolean(user), isLoading, login, loginWithTestRole, logout }),
-    [user, isLoading, login, loginWithTestRole, logout],
+    () => ({ user, isAuthenticated: Boolean(user), isLoading, login, loginWithTestRole, changePassword, logout }),
+    [user, isLoading, login, loginWithTestRole, changePassword, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

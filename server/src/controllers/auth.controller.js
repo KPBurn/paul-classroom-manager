@@ -21,6 +21,14 @@ export async function register(req, res) {
   sendSuccess(res, { status: 201, message: 'User created successfully', data: { user } });
 }
 
+export async function changePassword(req, res) {
+  const data = await authService.changeOwnPassword(req.user._id, req.body, {
+    roleTestSession: req.roleTestSession,
+    ipAddress: req.ip,
+  });
+  sendSuccess(res, { message: 'Password changed. Other devices have been signed out.', data });
+}
+
 export function me(req, res) {
   sendSuccess(res, { data: { user: authService.toAuthUser(req.user) } });
 }

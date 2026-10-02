@@ -23,6 +23,17 @@ export const roleTestLoginSchema = z.object({
   role: z.enum(USER_ROLES),
 });
 
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Enter your current password').max(128),
+    newPassword: passwordSchema,
+  })
+  .strict()
+  .refine((data) => data.newPassword !== data.currentPassword, {
+    path: ['newPassword'],
+    message: 'Choose a password that is different from your current one',
+  });
+
 export const registerSchema = z.object({
   firstName: nameSchema('First name'),
   lastName: nameSchema('Last name'),

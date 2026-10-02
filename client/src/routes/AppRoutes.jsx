@@ -69,6 +69,7 @@ export default function AppRoutes() {
         <Route path="feedback" element={suspense(<AdminFeedback />)} />
         <Route path="feedback/:id" element={suspense(<FeedbackDetail />)} />
         <Route path="settings" element={<Settings />} />
+        <Route path="profile" element={<Profile />} />
         {/* Keys stop React reusing one page's filters and search on another. */}
         <Route path="users" element={<Users key="all" />} />
         <Route path="teachers" element={<Users key="teacher" role={ROLES.TEACHER} />} />
@@ -112,6 +113,7 @@ export default function AppRoutes() {
         <Route path="classrooms" element={suspense(<MyClassrooms />)} />
         <Route path="classrooms/:id" element={suspense(<ClassroomDetail />)} />
         <Route path="materials" element={<StudentMaterials />} />
+        <Route path="profile" element={<Profile />} />
         {plannedRoutes(studentNavigation)}
         <Route path="*" element={<Navigate to="/student" replace />} />
       </Route>

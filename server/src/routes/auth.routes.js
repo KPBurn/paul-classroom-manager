@@ -1,11 +1,19 @@
 import { Router } from 'express';
 import { PERMISSIONS } from '../config/permissions.js';
-import { login, loginWithTestRole, logout, me, register, roleTestingStatus } from '../controllers/auth.controller.js';
+import {
+  changePassword,
+  login,
+  loginWithTestRole,
+  logout,
+  me,
+  register,
+  roleTestingStatus,
+} from '../controllers/auth.controller.js';
 import { authenticateUser } from '../middleware/auth.middleware.js';
 import { loginLimiter } from '../middleware/rateLimit.middleware.js';
 import { requirePermission } from '../middleware/role.middleware.js';
 import { validate } from '../middleware/validation.middleware.js';
-import { loginSchema, registerSchema, roleTestLoginSchema } from '../validators/auth.validators.js';
+import { changePasswordSchema, loginSchema, registerSchema, roleTestLoginSchema } from '../validators/auth.validators.js';
 
 const router = Router();
 
@@ -23,6 +31,8 @@ router.post(
 );
 
 router.get('/me', authenticateUser, me);
+// Limited like sign-in, so a stolen session cannot be used to guess the current password.
+router.put('/password', loginLimiter, authenticateUser, validate({ body: changePasswordSchema }), changePassword);
 router.post('/logout', authenticateUser, logout);
 
 export default router;

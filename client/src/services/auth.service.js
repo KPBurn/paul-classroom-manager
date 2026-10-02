@@ -16,6 +16,12 @@ export const authService = {
     return data.data;
   },
 
+  /** Returns `{ user, token }`: the new token replaces the one this change invalidated. */
+  async changePassword(passwords) {
+    const { data } = await api.put('/auth/password', passwords);
+    return data.data;
+  },
+
   async me() {
     const { data } = await api.get('/auth/me');
     return data.data.user;

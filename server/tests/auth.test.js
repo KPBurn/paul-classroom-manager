@@ -230,3 +230,57 @@ describe('API basics', () => {
     assert.equal(res.headers['x-powered-by'], undefined);
   });
 });
+
+describe('PUT /api/auth/password', () => {
+  const change = (token, body) => request(app).put('/api/auth/password').set('Authorization', `Bearer ${token}`).send(body);
+
+  it('changes the password, keeps this session and signs out the others', async () => {
+    const user = await createUser();
+    const thisDevice = (await login(user.email)).body.data.token;
+    const otherDevice = (await login(user.email)).body.data.token;
+
+    const res = await change(thisDevice, { currentPassword: TEST_PASSWORD, newPassword: 'Different123' });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.data.user.email, user.email);
+    const me = (token) => request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
+    assert.equal((await me(res.body.data.token)).status, 200);
+    assert.equal((await me(otherDevice)).status, 401);
+    assert.equal((await me(thisDevice)).status, 401);
+    assert.equal((await login(user.email, 'Different123')).status, 200);
+    assert.equal((await login(user.email)).status, 401);
+    assert.ok(await ActivityLog.exists({ action: 'user.password_changed', actorId: user._id }));
+  });
+
+  it('needs the current password', async () => {
+    const user = await createUser();
+    const token = (await login(user.email)).body.data.token;
+
+    const res = await change(token, { currentPassword: 'NotMyPassword1', newPassword: 'Different123' });
+
+    assert.equal(res.status, 400);
+    assert.equal(res.body.details[0].field, 'currentPassword');
+    assert.equal((await login(user.email)).status, 200);
+  });
+
+  it('applies the password policy and refuses the same password again', async () => {
+    const user = await createUser();
+    const token = (await login(user.email)).body.data.token;
+
+    assert.equal((await change(token, { currentPassword: TEST_PASSWORD, newPassword: 'short' })).status, 400);
+    assert.equal((await change(token, { currentPassword: TEST_PASSWORD, newPassword: TEST_PASSWORD })).status, 400);
+    assert.equal((await request(app).put('/api/auth/password').send({ currentPassword: 'a', newPassword: 'Different123' })).status, 401);
+  });
+
+  it('is not available to a temporary role-testing session', async () => {
+    const { SystemSettings } = await import('../src/models/SystemSettings.js');
+    await createUser({ role: 'teacher' });
+    await SystemSettings.create({ _id: 'system', roleTestingEnabled: true });
+    const tester = await request(app).post('/api/auth/test-login').send({ role: 'teacher' });
+    assert.equal(tester.status, 200);
+
+    const res = await change(tester.body.data.token, { currentPassword: TEST_PASSWORD, newPassword: 'Different123' });
+
+    assert.equal(res.status, 403);
+  });
+});
