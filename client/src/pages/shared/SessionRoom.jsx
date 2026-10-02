@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Mic,
   MicOff,
+  LayoutGrid,
   MonitorUp,
   PhoneOff,
   ScreenShareOff,
@@ -30,6 +31,7 @@ import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import Modal from '../../components/common/Modal.jsx';
 import Spinner from '../../components/common/Spinner.jsx';
 import AudioOutput from '../../components/room/AudioOutput.jsx';
+import ClassMonitor from '../../components/room/ClassMonitor.jsx';
 import MicMeter from '../../components/room/MicMeter.jsx';
 import ParticipantTile, { initials } from '../../components/room/ParticipantTile.jsx';
 import { useSpeakingDetector } from '../../components/room/useSpeakingDetector.js';
@@ -100,6 +102,7 @@ export default function SessionRoom() {
   const isPhone = useMediaQuery('(max-width: 639px)');
   // The side panel starts open where it sits beside the stage, and hidden on small screens.
   const [panelOpen, setPanelOpen] = useState(() => window.matchMedia('(min-width: 768px)').matches);
+  const [monitorOpen, setMonitorOpen] = useState(false);
   const [lastSeenMessageId, setLastSeenMessageId] = useState(null);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -537,6 +540,10 @@ export default function SessionRoom() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, activeTab, panelOpen]);
 
+  useEffect(() => {
+    if (screenStream && canManageRoom) setMonitorOpen(true);
+  }, [screenStream, canManageRoom]);
+
   const chatVisible = panelOpen && activeTab === 'chat';
   useEffect(() => {
     if (chatVisible) setLastSeenMessageId(messages.at(-1)?.id ?? null);
@@ -916,6 +923,9 @@ export default function SessionRoom() {
       ...participant,
       isSpeaking: speakingParticipantIds.has(participant.id),
     }));
+  // The class monitor is about the students: not the teachers, and not yourself.
+  const monitorStudents = galleryParticipants.filter((participant) =>
+    !participant.moderator && participant.id !== localParticipantId.current);
   const cameraParticipants = galleryParticipants.filter((participant) =>
     participant.stream || participant.cameraEnabled);
   const speakingParticipants = participants.filter((participant) => speakingParticipantIds.has(participant.id));
@@ -1406,6 +1416,19 @@ export default function SessionRoom() {
           {screenStream ? <ScreenShareOff className="size-4" /> : <MonitorUp className="size-4" />}
           <span className="hidden sm:inline">{screenStream ? 'Stop sharing' : 'Share screen'}</span>
         </Button>
+        {canManageRoom && (
+          <Button
+            variant={monitorOpen ? 'inverse' : 'dark'}
+            className="max-sm:hidden"
+            onClick={() => setMonitorOpen((open) => !open)}
+            aria-pressed={monitorOpen}
+            title="A small panel of students that stays visible while you present"
+          >
+            <LayoutGrid className="size-4" />
+            <span className="hidden lg:inline">Class monitor</span>
+            <span className="sr-only lg:hidden">Class monitor</span>
+          </Button>
+        )}
         <Button
           variant={panelOpen ? 'inverse' : 'dark'}
           className="relative max-sm:px-3"
@@ -1452,6 +1475,15 @@ export default function SessionRoom() {
           </p>
         </div>
       </Modal>
+
+      {canManageRoom && monitorOpen && (
+        <ClassMonitor
+          students={monitorStudents}
+          unreadMessages={unreadMessages}
+          sharing={Boolean(screenStream)}
+          onClose={() => setMonitorOpen(false)}
+        />
+      )}
 
       <ConfirmDialog
         open={Boolean(pendingRemoval)}

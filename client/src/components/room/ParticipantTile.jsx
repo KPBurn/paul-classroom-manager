@@ -1,9 +1,10 @@
-import { Volume2 } from 'lucide-react';
+import { MicOff, Volume2 } from 'lucide-react';
 import VideoStage from './VideoStage.jsx';
 
 export const initials = (name) => name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
 
-// `grid` is the main gallery; `strip` is the row of small tiles beside a shared screen.
+// `grid` is the main gallery, `strip` the row of small tiles beside a shared screen,
+// and `pane` one of the four tiles in the class monitor.
 const SIZES = {
   grid: {
     frame: 'min-h-0 min-w-0',
@@ -23,12 +24,21 @@ const SIZES = {
     speaking: 'left-1.5 top-1.5 px-1.5 py-1 text-[10px]',
     speakingIcon: 'size-3',
   },
+  pane: {
+    frame: 'aspect-video min-w-0',
+    idleBorder: 'border-ink-700',
+    placeholder: 'gap-1',
+    avatar: 'size-8 text-xs',
+    name: 'text-center',
+    speaking: 'left-1.5 top-1.5 px-1.5 py-1 text-[10px]',
+    speakingIcon: 'size-3',
+  },
 };
 
 /**
  * One person in the room: their camera when it is on, otherwise their
  * initials, with a green ring while they are speaking. `participant` carries
- * `name`, `stream`, `cameraEnabled` and `isSpeaking`.
+ * `name`, `stream`, `cameraEnabled`, `muted` and `isSpeaking`.
  */
 export default function ParticipantTile({ participant, isLocal = false, size = 'grid' }) {
   const styles = SIZES[size];
@@ -45,11 +55,12 @@ export default function ParticipantTile({ participant, isLocal = false, size = '
             {initials(participant.name)}
           </span>
           <span className={`max-w-full truncate px-2 text-xs font-medium text-ink-100 ${styles.name}`}>{label}</span>
-          {size === 'grid' ? (
+          {size === 'grid' && (
             <span className={`text-xs ${participant.cameraEnabled ? 'text-amber-300' : ''}`}>
               {participant.cameraEnabled ? 'Camera on · waiting for video' : 'Camera off'}
             </span>
-          ) : (
+          )}
+          {size === 'strip' && (
             <span className="hidden text-[10px] text-amber-300 sm:inline">Camera on · waiting for video</span>
           )}
         </div>
@@ -58,6 +69,12 @@ export default function ParticipantTile({ participant, isLocal = false, size = '
         <span className={`absolute flex items-center gap-1 rounded-md bg-emerald-500/90 font-semibold text-white ${styles.speaking}`}>
           <Volume2 className={styles.speakingIcon} aria-hidden="true" />
           {size === 'grid' && ' Speaking'}
+        </span>
+      )}
+      {size === 'pane' && participant.muted && (
+        <span className="absolute right-1.5 top-1.5 rounded-md bg-black/70 p-1 text-ink-200" title="Microphone off">
+          <MicOff className="size-3" aria-hidden="true" />
+          <span className="sr-only">Microphone off</span>
         </span>
       )}
     </div>
