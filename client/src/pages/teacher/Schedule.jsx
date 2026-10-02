@@ -539,6 +539,8 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Only a failed load of teachers and students blocks submitting; a validation message must not.
+  const [optionsFailed, setOptionsFailed] = useState(false);
 
   const toggleDay = (day) => setWeekdays((current) => current.includes(day)
     ? current.filter((value) => value !== day)
@@ -548,6 +550,7 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
     let cancelled = false;
     const selectedClassroom = classrooms.find((room) => room.id === classroomId);
     setError('');
+    setOptionsFailed(false);
     setTeacherIds(classroomTeacherIds(selectedClassroom));
     setStudentIds(classroomStudentIds(selectedClassroom));
     setLoadingOptions(true);
@@ -563,7 +566,10 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
         }
       })
       .catch((loadError) => {
-        if (!cancelled) setError(getErrorMessage(loadError, 'Unable to load active teachers and students.'));
+        if (!cancelled) {
+          setError(getErrorMessage(loadError, 'Unable to load active teachers and students.'));
+          setOptionsFailed(true);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingOptions(false);
@@ -690,7 +696,7 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
       )}
       <ModalActions>
         <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
-        <Button type="submit" isLoading={saving || loadingOptions} disabled={Boolean(error) || loadingOptions}>
+        <Button type="submit" isLoading={saving || loadingOptions} disabled={optionsFailed || loadingOptions}>
           Create schedule
         </Button>
       </ModalActions>
