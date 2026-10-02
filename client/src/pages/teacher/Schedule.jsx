@@ -561,7 +561,9 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
           setStudents(options.students);
           const activeTeacherIds = new Set(options.teachers.map((teacher) => teacher.id));
           const activeStudentIds = new Set(options.students.map((student) => student.id));
-          setTeacherIds((current) => current.filter((id) => activeTeacherIds.has(id)));
+          // A teacher always teaches the sessions they schedule; their own row is locked, so select it for them.
+          const ownId = actor.role === ROLES.TEACHER && activeTeacherIds.has(actor.id) ? [actor.id] : [];
+          setTeacherIds((current) => [...new Set([...ownId, ...current.filter((id) => activeTeacherIds.has(id))])]);
           setStudentIds((current) => current.filter((id) => activeStudentIds.has(id)));
         }
       })
@@ -577,12 +579,19 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
     return () => {
       cancelled = true;
     };
-  }, [classroomId, classrooms]);
+  }, [classroomId, classrooms, actor.id, actor.role]);
 
   const submit = async (event) => {
     event.preventDefault();
-    if (!classroomId || !title.trim() || !teacherIds.length || startTime >= endTime) {
-      setError('Choose a classroom, assign at least one teacher, enter a session title, and set an end time after the start.');
+    // Name the one thing that is wrong, so it is clear what to fix.
+    const problem = !classroomId ? 'Choose a classroom.'
+      : !title.trim() ? 'Enter a session title.'
+        : !teacherIds.length ? 'Assign at least one teacher.'
+          : !startTime || !endTime ? 'Set a start and an end time.'
+            : startTime >= endTime ? 'The end time must be after the start time, on the same day.'
+              : '';
+    if (problem) {
+      setError(problem);
       return;
     }
     let values;
