@@ -1,4 +1,4 @@
-import { CalendarClock, Plus, UsersRound, Video } from 'lucide-react';
+import { CalendarClock, Play, Plus, UsersRound, Video } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -13,6 +13,8 @@ import Card, { CardHeader, SectionLabel } from '../../components/common/Card.jsx
 import PageHeader, { BackLink } from '../../components/common/PageHeader.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import Tabs from '../../components/common/Tabs.jsx';
+import RoomPresence, { LiveStatusNote } from '../../components/sessions/RoomPresence.jsx';
+import { useLiveSessionList, useSessionEvents } from '../../context/LiveSessionsContext.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { useAnnouncements } from '../../hooks/useAnnouncements.js';
 import { useNow } from '../../hooks/useNow.js';
@@ -54,31 +56,60 @@ export default function ClassroomDetail() {
   const [isPostOpen, setIsPostOpen] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
 
+  const [isStarting, setIsStarting] = useState(false);
+
   const loader = useCallback((params) => classroomService.announcements(id, params), [id]);
   const announcements = useAnnouncements(PAGE_SIZE, { status, loader });
   const actions = useAnnouncementActions(announcements.reload);
+
+  const inThisClass = useCallback((session) => session.classroom?.id === id, [id]);
+  // Only this class's sessions that are still to come.
+  const loadSessions = useCallback(async () => (
+    await sessionService.list({ ...(isStudent && { view: 'mine' }), classroomId: id, ...periodParams(new Date()) })
+  ).filter(inThisClass), [id, isStudent, inThisClass]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [loadedClassroom, allSessions] = await Promise.all([
-        classroomService.get(id),
-        // Only this class's sessions that are still to come.
-        sessionService.list({ ...(isStudent && { view: 'mine' }), classroomId: id, ...periodParams(new Date()) }),
-      ]);
+      const [loadedClassroom, classSessions] = await Promise.all([classroomService.get(id), loadSessions()]);
       setClassroom(loadedClassroom);
-      setSessions(allSessions.filter((session) => session.classroom?.id === id));
+      setSessions(classSessions);
     } catch (loadError) {
       setError(getErrorMessage(loadError, 'Unable to load this classroom.'));
     } finally {
       setLoading(false);
     }
-  }, [id, isStudent]);
+  }, [id, loadSessions]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // A class starting or ending shows here as it happens; a changed schedule asks for the sessions again.
+  const reloadSessions = useCallback((change) => {
+    if (change && change.classroomId !== id) return;
+    // A failed quiet refresh leaves the list as it was; the next event or visit tries again.
+    loadSessions().then(setSessions).catch(() => {});
+  }, [id, loadSessions]);
+  useLiveSessionList({ setSessions, reload: reloadSessions, accept: inThisClass });
+  // Teachers are told who comes and goes while they are on their class page.
+  useSessionEvents((type, payload) => {
+    const change = type === 'presence' && payload.classroomId === id ? payload.change : null;
+    if (!change?.name || change.userId === user.id) return;
+    toast(`${change.name} ${change.type === 'joined' ? 'joined' : 'left'} the class.`, { id: `presence-${change.userId}` });
+  });
+
+  const startSession = async () => {
+    setIsStarting(true);
+    try {
+      const { session } = await sessionService.startNow(id);
+      navigate(`/sessions/${session.id}/room`);
+    } catch (startError) {
+      toast.error(getErrorMessage(startError, 'Unable to start the session.'));
+      setIsStarting(false);
+    }
+  };
 
   const post = async (values) => {
     setIsPosting(true);
@@ -115,6 +146,8 @@ export default function ClassroomDetail() {
     .filter((session) => isJoinable(session.phase) || session.phase === 'closed')
     .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))
     .slice(0, UPCOMING_LIMIT);
+  const hasLiveSession = upcoming.some((session) => session.phase === 'live');
+  const canStart = canManage && !classroom.archived && !hasLiveSession;
 
   return (
     <>
@@ -167,9 +200,25 @@ export default function ClassroomDetail() {
         {/* On small screens the aside's cards join the page flow so upcoming sessions (and Join) come first. */}
         <aside className="contents lg:block lg:space-y-6">
           <Card as="section" className="order-first lg:order-0" aria-labelledby="class-sessions">
-            <CardHeader title="Upcoming sessions" titleId="class-sessions" icon={CalendarClock} />
+            <CardHeader
+              title="Sessions"
+              titleId="class-sessions"
+              icon={CalendarClock}
+              action={canStart && (
+                <Button size="sm" onClick={startSession} isLoading={isStarting}>
+                  {!isStarting && <Play className="size-4" aria-hidden="true" />} Start session
+                </Button>
+              )}
+            />
+            <LiveStatusNote className="border-b border-ink-200 px-5 py-2" />
             {upcoming.length === 0 ? (
-              <p className="px-5 py-4 text-sm text-ink-500">No upcoming sessions are scheduled for this class.</p>
+              <p className="px-5 py-4 text-sm text-ink-500">
+                {canStart
+                  ? 'Nothing is scheduled. Start a session now, or plan one from the Schedule page.'
+                  : isStudent
+                    ? 'No session is live or scheduled. This page updates when your teacher starts one.'
+                    : 'No upcoming sessions are scheduled for this class.'}
+              </p>
             ) : (
               <ul className="divide-y divide-ink-200">
                 {upcoming.map((session) => {
@@ -184,6 +233,9 @@ export default function ClassroomDetail() {
                         {session.phase !== 'upcoming' && (
                           <Badge tone={PHASE_TONES[session.phase]} className="mt-1.5">{PHASE_LABELS[session.phase]}</Badge>
                         )}
+                        {session.phase !== 'closed' && (
+                          <RoomPresence sessionId={session.id} always={session.phase === 'live'} className="mt-1.5" />
+                        )}
                       </div>
                       {(joinNow || (canManage && session.phase === 'closed')) && (
                         <Button
@@ -192,7 +244,7 @@ export default function ClassroomDetail() {
                           variant={session.phase === 'live' ? 'primary' : 'secondary'}
                           onClick={() => navigate(`/sessions/${session.id}/room`)}
                         >
-                          <Video className="size-4" aria-hidden="true" /> Join
+                          <Video className="size-4" aria-hidden="true" /> {session.phase === 'soon' ? 'Join early' : 'Join'}
                         </Button>
                       )}
                     </li>

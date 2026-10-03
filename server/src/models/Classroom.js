@@ -8,6 +8,8 @@ const classroomSchema = new mongoose.Schema(
     students: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     openAccess: { type: Boolean, default: false, required: true },
     status: { type: String, enum: ['active', 'archived'], default: 'active', required: true },
+    // Held for a moment while a teacher starts a class now, so two requests cannot both create one.
+    sessionStartLockedAt: { type: Date, select: false },
   },
   {
     timestamps: true,

@@ -38,6 +38,13 @@ const recurring = z.object({
 
 export const createSessionSchema = z.union([oneTime, recurring]);
 
+/** Starting a class now: no date or time, only how long it should run. */
+export const startSessionSchema = z.object({
+  classroomId: objectId,
+  title: title.optional(),
+  durationMinutes: z.number().int().min(15).max(240).optional(),
+}).strict();
+
 export const listSessionsQuerySchema = z.object({
   view: z.enum(['mine']).optional(),
   // The period to list: sessions that end after `from` and start before `to`.

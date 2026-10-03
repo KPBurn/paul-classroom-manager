@@ -4,6 +4,7 @@ import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { canReadClassroom, classroomsTaughtBy } from '../authz/policies.js';
+import { classroomPeopleChanged } from '../realtime/connections.js';
 
 async function activeUsersWithRole(ids, role, label) {
   const uniqueIds = [...new Set(ids)];
@@ -74,6 +75,7 @@ export async function getClassroom(id, user) {
 export async function createClassroom(data, { actor, ipAddress }) {
   const assigned = await assignments(data);
   const classroom = await Classroom.create({ name: data.name, openAccess: data.openAccess, ...assigned });
+  classroomPeopleChanged(classroom);
   await logActivity({
     actorId: actor._id,
     action: 'classroom.created',
@@ -101,6 +103,7 @@ export async function updateClassroom(id, data, { actor, ipAddress }) {
   }
   if (assigned.students) classroom.students = assigned.students;
   await classroom.save();
+  classroomPeopleChanged(classroom);
   await logActivity({
     actorId: actor._id,
     action: 'classroom.updated',

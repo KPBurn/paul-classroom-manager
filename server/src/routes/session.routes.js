@@ -8,6 +8,7 @@ import {
   list,
   messages,
   room,
+  startNow,
   downloadFile,
   listFiles,
   uploadFile,
@@ -24,6 +25,7 @@ import {
   listSessionsQuerySchema,
   sessionIdParamsSchema,
   sessionUpdateSchema,
+  startSessionSchema,
 } from '../validators/session.validators.js';
 
 const router = Router();
@@ -35,7 +37,8 @@ const sessionFileParamsSchema = z.object({
 router.use(authenticateUser);
 router.get('/', requireRole('admin', 'teacher', 'student'), validate({ query: listSessionsQuerySchema }), list);
 router.post('/', requireRole('admin', 'teacher'), validate({ body: createSessionSchema }), create);
-router.get('/:id/room', validate({ params: sessionIdParamsSchema }), room);
+router.post('/start', requireRole('admin', 'teacher'), validate({ body: startSessionSchema }), startNow);
+router.get('/:id/room',validate({ params: sessionIdParamsSchema }), room);
 router.get('/:id/files', validate({ params: sessionIdParamsSchema }), listFiles);
 router.post(
   '/:id/files',

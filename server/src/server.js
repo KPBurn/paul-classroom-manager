@@ -3,10 +3,13 @@ import { createApp } from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { assertRequiredEnv, env } from './config/environment.js';
 import { attachSessionSocket } from './realtime/sessionSocket.js';
+import { closeInterruptedAttendance } from './services/session.service.js';
 
 async function start() {
   assertRequiredEnv();
   await connectDatabase(env.mongodbUri);
+  // Attendance left running by the last shutdown stops here; see closeInterruptedAttendance.
+  await closeInterruptedAttendance();
 
   const server = createServer(createApp());
   const io = attachSessionSocket(server);

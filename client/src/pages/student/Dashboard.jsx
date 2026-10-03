@@ -11,6 +11,7 @@ import PageHeader from '../../components/common/PageHeader.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import StatStrip from '../../components/common/StatStrip.jsx';
 import NextUp from '../../components/sessions/NextUp.jsx';
+import { useLiveSessionList } from '../../context/LiveSessionsContext.jsx';
 import { sessionService } from '../../services/session.service.js';
 import { useAuth } from '../../hooks/useAuth.js';
 import { useNow } from '../../hooks/useNow.js';
@@ -108,6 +109,10 @@ export default function StudentDashboard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // A class starting or ending shows here as it happens.
+  const reloadQuietly = useCallback(() => load({ quiet: true }), [load]);
+  useLiveSessionList({ setSessions, reload: reloadQuietly });
 
   // A session that has just finished gets its attendance result; pick it up without a manual refresh.
   useEffect(() => {

@@ -8,6 +8,7 @@ import Button, { ButtonLink } from '../../components/common/Button.jsx';
 import Card, { CardHeader, textLinkClass } from '../../components/common/Card.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import NextUp from '../../components/sessions/NextUp.jsx';
+import { useLiveSessionList } from '../../context/LiveSessionsContext.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import StatStrip from '../../components/common/StatStrip.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
@@ -44,30 +45,48 @@ export default function TeacherDashboard() {
   const [error, setError] = useState('');
   const [openAnnouncement, setOpenAnnouncement] = useState(null);
 
+  // The schedule also lists open-classroom sessions; the dashboard is about classes you teach.
+  const isMine = useCallback(
+    (session) => Boolean(session.assignments?.teachers?.some((teacher) => teacher.id === user.id)),
+    [user.id],
+  );
+  // Today, the week ahead, and far enough on to find the next session after a quiet spell.
+  const loadSessions = useCallback(async () => (
+    await sessionService.list(periodParams(startOfDay(), addDays(startOfDay(), DAYS_AHEAD)))
+  ).filter(isMine), [isMine]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const [sessions, classrooms, announcements] = await Promise.all([
-        // Today, the week ahead, and far enough on to find the next session after a quiet spell.
-        sessionService.list(periodParams(startOfDay(), addDays(startOfDay(), DAYS_AHEAD))),
+        loadSessions(),
         classroomService.list(),
         announcementService.list({ page: 1, limit: 3 }),
       ]);
-      // The schedule also lists open-classroom sessions; the dashboard is about classes you teach.
-      const mine = sessions.filter((session) => session.assignments?.teachers?.some((teacher) => teacher.id === user.id));
-      setData({ sessions: mine, classrooms, announcements: announcements.items });
+      setData({ sessions, classrooms, announcements: announcements.items });
     } catch (loadError) {
       setError(getErrorMessage(loadError, 'Unable to load your dashboard.'));
     } finally {
       setLoading(false);
     }
-  }, [user.id]);
+  }, [loadSessions]);
 
   useEffect(() => {
     load();
     refreshReminder();
   }, [load, refreshReminder]);
+
+  // A class starting or ending shows here as it happens; only the sessions are asked for again.
+  const setSessions = useCallback((update) => setData((current) => {
+    const sessions = typeof update === 'function' ? update(current.sessions) : update;
+    return sessions === current.sessions ? current : { ...current, sessions };
+  }), []);
+  const reloadSessions = useCallback(() => {
+    // A failed quiet refresh leaves the page as it was; the next event or visit tries again.
+    loadSessions().then(setSessions).catch(() => {});
+  }, [loadSessions, setSessions]);
+  useLiveSessionList({ setSessions, reload: reloadSessions, accept: isMine });
 
   const join = (session) => navigate(`/sessions/${session.id}/room`);
 

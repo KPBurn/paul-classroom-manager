@@ -2,13 +2,21 @@ import mongoose from 'mongoose';
 import { Server } from 'socket.io';
 import { z } from 'zod';
 import { env } from '../config/environment.js';
+import { Classroom } from '../models/Classroom.js';
 import { SystemSettings } from '../models/SystemSettings.js';
 import { User } from '../models/User.js';
-import { canManageSession } from '../authz/policies.js';
+import { canManageSession, classroomsTaughtBy, isEnrolledIn, teachesClassroom } from '../authz/policies.js';
 import * as sessionService from '../services/session.service.js';
 import { AppError } from '../utils/AppError.js';
 import { verifyToken } from '../utils/jwt.js';
 import { registerSocketServer } from './connections.js';
+import {
+  ALL_CLASSROOMS_ROOM,
+  classroomRoom,
+  classroomStaffRoom,
+  publishToClassroom,
+  SESSION_EVENTS,
+} from './sessionEvents.js';
 import { sessionMessageSchema } from '../validators/session.validators.js';
 
 const roomName = (sessionId) => `session:${sessionId}`;
@@ -16,6 +24,8 @@ const MAX_ROOM_PARTICIPANTS = 12;
 const MAX_OPEN_ROOM_PARTICIPANTS = 20;
 const CHAT_RATE_WINDOW_MS = 10_000;
 const MAX_CHAT_MESSAGES_PER_WINDOW = 10;
+// The longest delay a timer can hold; a start further away is looked at again when it fires.
+const MAX_TIMER_MS = 2_147_000_000;
 const signalSchema = z.object({
   target: z.string().min(1).max(100),
   description: z.object({
@@ -55,6 +65,9 @@ function roomState(rooms, sessionId) {
   if (!state) {
     state = {
       participants: new Map(),
+      classroomId: null,
+      // Set while people wait in the room for the class to start.
+      startTimer: null,
       screenSharerId: null,
       screenSharingEnabled: true,
       fileUploadsEnabled: true,
@@ -62,6 +75,46 @@ function roomState(rooms, sessionId) {
     rooms.set(sessionId, state);
   }
   return state;
+}
+
+/** Who is in a room, one entry per person however many tabs they have open. See `SessionPresence`. */
+function presenceOf(sessionId, state) {
+  const people = [...new Map([...state.participants.values()].map((item) => [item.userId, item])).values()];
+  return {
+    sessionId,
+    classroomId: state.classroomId,
+    count: people.length,
+    teachers: people
+      .filter((item) => item.moderator && item.role === 'teacher')
+      .map((item) => ({ id: item.userId, name: item.name })),
+    participants: people.map(({ userId, name, role }) => ({ userId, name, role })),
+  };
+}
+
+/** What students are told: how many people, and which teachers, but not which classmates. */
+const withoutNames = ({ participants, ...presence }) => presence;
+
+function publishPresence(sessionId, state, type, { userId, name, role }) {
+  const presence = presenceOf(sessionId, state);
+  publishToClassroom(
+    state.classroomId,
+    SESSION_EVENTS.presence,
+    { ...withoutNames(presence), change: { type, role } },
+    { ...presence, change: { type, role, name, userId } },
+  );
+}
+
+/** Puts a connection in, or takes it out of, the rooms that carry a classroom's session events. */
+function followClassroom(socket, classroom) {
+  const { user } = socket.data;
+  const id = String(classroom._id);
+  const staff = teachesClassroom(classroom, user);
+  const allowed = staff || isEnrolledIn(classroom, user) || Boolean(classroom.openAccess);
+  if (allowed) socket.join(classroomRoom(id));
+  else socket.leave(classroomRoom(id));
+  if (staff) socket.join(classroomStaffRoom(id));
+  else socket.leave(classroomStaffRoom(id));
+  return { allowed, staff };
 }
 
 function replyWithError(ack, error, fallback) {
@@ -83,7 +136,46 @@ export function attachSessionSocket(httpServer) {
     cors: { origin: env.clientUrls, methods: ['GET', 'POST'] },
     maxHttpBufferSize: 100_000,
   });
-  registerSocketServer(io);
+  const socketsInRoom = (sessionId) => [...io.sockets.sockets.values()]
+    .filter((item) => item.data.sessionId === sessionId);
+  const logAttendanceStartError = (error) => console.error('Unable to open attendance at the start of a session', error);
+
+  /**
+   * Time in the room before the class starts is not attendance. For people
+   * who came early, this opens their attendance when the start arrives.
+   */
+  async function openAttendanceAtStart(sessionId) {
+    const startsAt = await sessionService.sessionStartTime(sessionId);
+    const state = rooms.get(sessionId);
+    if (!state) return;
+    clearTimeout(state.startTimer);
+    state.startTimer = null;
+    if (!startsAt) return;
+    const wait = startsAt.getTime() - Date.now();
+    if (wait > 0) {
+      state.startTimer = setTimeout(
+        () => openAttendanceAtStart(sessionId).catch(logAttendanceStartError),
+        Math.min(wait, MAX_TIMER_MS),
+      );
+      state.startTimer.unref();
+      return;
+    }
+    const users = new Map(socketsInRoom(sessionId).map((item) => [String(item.data.user._id), item.data.user]));
+    for (const user of users.values()) {
+      await sessionService.recordRoomJoin(sessionId, user).catch(logAttendanceStartError);
+    }
+  }
+
+  registerSocketServer(io, {
+    sessionTimingChanged: (sessionId) => {
+      if (rooms.has(sessionId)) openAttendanceAtStart(sessionId).catch(logAttendanceStartError);
+    },
+    classroomPeopleChanged: (classroom) => {
+      for (const socket of io.sockets.sockets.values()) {
+        if (socket.data.watching && socket.data.user.role !== 'admin') followClassroom(socket, classroom);
+      }
+    },
+  });
 
   io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
@@ -173,7 +265,11 @@ export function attachSessionSocket(httpServer) {
             leaveError = error;
           }
         }
-        if (state.participants.size === 0) rooms.delete(sessionId);
+        if (participant && !userStillPresent) publishPresence(sessionId, state, 'left', participant);
+        if (state.participants.size === 0) {
+          clearTimeout(state.startTimer);
+          rooms.delete(sessionId);
+        }
       }
       socket.data.sessionId = null;
       socket.data.sessionOpenAccess = false;
@@ -186,6 +282,36 @@ export function attachSessionSocket(httpServer) {
 
     // Moderation makes other participants leave, which needs their own leave handling.
     socket.data.leaveRoom = leaveRoom;
+
+    // Follows the sessions of every classroom this account may see, from any page. Nothing is
+    // taken from the browser: the classrooms come from the database, so they cannot be chosen.
+    socket.on('sessions:watch', async (ack) => {
+      const reply = typeof ack === 'function' ? ack : null;
+      try {
+        const { user } = socket.data;
+        const access = new Map();
+        if (user.role === 'admin') {
+          socket.join(ALL_CLASSROOMS_ROOM);
+        } else {
+          const classrooms = await Classroom
+            .find({ $or: [classroomsTaughtBy(user), { students: user._id }, { openAccess: true }] })
+            .select('teacher teachers students openAccess')
+            .lean();
+          for (const classroom of classrooms) access.set(String(classroom._id), followClassroom(socket, classroom));
+        }
+        socket.data.watching = true;
+        // Who is in each room right now, so a page that has just connected, or reconnected, is up to date.
+        const presence = [];
+        for (const [sessionId, state] of rooms) {
+          const staff = user.role === 'admin' || access.get(state.classroomId)?.staff;
+          if (staff) presence.push(presenceOf(sessionId, state));
+          else if (access.get(state.classroomId)?.allowed) presence.push(withoutNames(presenceOf(sessionId, state)));
+        }
+        reply?.({ presence });
+      } catch (error) {
+        replyWithError(reply, error, 'Unable to follow your classes');
+      }
+    });
 
     socket.on('room:join', async (sessionId, ack) => {
       try {
@@ -233,8 +359,9 @@ export function attachSessionSocket(httpServer) {
         const participant = participantResult(socket);
         const alreadyPresent = existingParticipants.some((item) => item.userId === participant.userId);
         let activity = null;
+        let beforeStart = false;
         if (!alreadyPresent) {
-          await sessionService.recordRoomJoin(sessionId, socket.data.user);
+          ({ beforeStart } = await sessionService.recordRoomJoin(sessionId, socket.data.user));
           if (session.classroom.openAccess) {
             activity = await sessionService.createRoomActivity(sessionId, socket.data.user, 'joined');
           }
@@ -246,7 +373,10 @@ export function attachSessionSocket(httpServer) {
         socket.data.cameraEnabled = false;
         socket.join(room);
         state.participants.set(socket.id, participant);
+        state.classroomId = String(session.classroom._id);
         socket.to(room).emit('room:participant-joined', participant);
+        if (!alreadyPresent) publishPresence(sessionId, state, 'joined', participant);
+        if (beforeStart && !state.startTimer) openAttendanceAtStart(sessionId).catch(logAttendanceStartError);
         if (activity) io.to(room).emit('room:message', activity);
         ack?.({
           session: {
@@ -419,8 +549,6 @@ export function attachSessionSocket(httpServer) {
       if (!socket.data.canManageRoom) throw new AppError(403, 'Only the class teacher can do that');
       return sessionId;
     };
-    const socketsInRoom = (sessionId) => [...io.sockets.sockets.values()]
-      .filter((item) => item.data.sessionId === sessionId);
     const moderatableTarget = (sessionId, participantId) => {
       const target = typeof participantId === 'string' ? io.sockets.sockets.get(participantId) : null;
       if (!target || target.data.sessionId !== sessionId) throw new AppError(404, 'That participant is not in this session');

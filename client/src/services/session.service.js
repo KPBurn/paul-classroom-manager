@@ -53,6 +53,15 @@ export const sessionService = {
     return data.data.items;
   },
 
+  /**
+   * Starts a class in this classroom now, with no date to enter. Gives back
+   * the session to open; `created` is false when the class was already running.
+   */
+  async startNow(classroomId) {
+    const { data } = await api.post('/sessions/start', { classroomId });
+    return data.data;
+  },
+
   async update(id, changes) {
     const { data } = await api.patch(`/sessions/${id}`, changes);
     return data.data.items;

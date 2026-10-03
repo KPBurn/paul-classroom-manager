@@ -14,8 +14,10 @@ import Modal, { ModalActions } from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import { inputClass, labelClass, SelectField } from '../../components/common/TextField.jsx';
+import { useSessionEvents } from '../../context/LiveSessionsContext.jsx';
 import { classroomService } from '../../services/classroom.service.js';
 import { sessionService } from '../../services/session.service.js';
+import { applySessionEvent } from '../../utils/liveSessions.js';
 import { useAuth } from '../../hooks/useAuth.js';
 import { useNow } from '../../hooks/useNow.js';
 import { ROLES } from '../../utils/roles.js';
@@ -212,6 +214,14 @@ export default function TeacherSchedule() {
 
   // After a change that can move sessions around, reload what is shown without clearing the list.
   const refresh = () => load({ size: Math.min(MAX_PAGE_SIZE, Math.max(PAGE_SIZE, sessions.length)) });
+
+  // A class ending or reopening is applied to the list as it is. One that starts, or a changed
+  // schedule, can move sessions between pages and filters, so the list shown is asked for again.
+  useSessionEvents((type, payload) => {
+    if (type === 'presence') return;
+    if (type === 'ended' || type === 'reopened') setSessions((current) => applySessionEvent(current, type, payload));
+    else refresh();
+  });
 
   // Puts the changed details of saved sessions into the rows already shown.
   const applyChanges = (changed) => {
@@ -795,13 +805,14 @@ function AttendancePanel({ session }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // `quiet` refreshes the list in place instead of replacing it with a spinner.
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setLoading(true);
     try {
       setItems(await sessionService.attendance(session.id));
       setError('');
     } catch (loadError) {
-      setError(getErrorMessage(loadError, 'Unable to load attendance.'));
+      if (!quiet) setError(getErrorMessage(loadError, 'Unable to load attendance.'));
     } finally {
       setLoading(false);
     }
@@ -810,6 +821,13 @@ function AttendancePanel({ session }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Attendance follows people entering and leaving the room, so it is read again when they do.
+  useSessionEvents((type, payload) => {
+    if (type === 'resync' || ((type === 'presence' || type === 'ended') && payload.sessionId === session.id)) {
+      load({ quiet: true });
+    }
+  });
 
   const setStatus = async (studentId, status) => {
     try {

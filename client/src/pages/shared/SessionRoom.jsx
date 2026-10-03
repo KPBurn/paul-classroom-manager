@@ -34,11 +34,12 @@ import AudioOutput from '../../components/room/AudioOutput.jsx';
 import ClassMonitor from '../../components/room/ClassMonitor.jsx';
 import MicMeter from '../../components/room/MicMeter.jsx';
 import ParticipantTile, { initials } from '../../components/room/ParticipantTile.jsx';
+import SessionLobby from '../../components/room/SessionLobby.jsx';
 import { useSpeakingDetector } from '../../components/room/useSpeakingDetector.js';
 import VideoStage from '../../components/room/VideoStage.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { sessionService } from '../../services/session.service.js';
-import { connectToSessionRoom } from '../../services/sessionRoom.service.js';
+import { connectToSessionRoom, SESSION_EVENTS } from '../../services/sessionRoom.service.js';
 import { tokenStorage } from '../../utils/tokenStorage.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
@@ -107,6 +108,13 @@ export default function SessionRoom() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
+  // Whether the connection has been up before: after that, being disconnected means reconnecting.
+  const [everConnected, setEverConnected] = useState(false);
+  // Opening this page shows the lobby; the room is entered only when the person chooses to join.
+  const [joined, setJoined] = useState(false);
+  const [joining, setJoining] = useState(false);
+  // Who is in the room, as told to people who have not joined it yet.
+  const [lobbyPresence, setLobbyPresence] = useState(null);
   const [muted, setMuted] = useState(true);
   const [audioNeedsGesture, setAudioNeedsGesture] = useState(false);
   const [microphoneBusy, setMicrophoneBusy] = useState(false);
@@ -140,6 +148,9 @@ export default function SessionRoom() {
   const localParticipantId = useRef(null);
   const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const mountedRef = useRef(false);
+  // Whether this person means to be in the room, so a reconnection puts them back in it.
+  const wantsRoomRef = useRef(false);
+  const joinRoomRef = useRef(null);
   const refreshFiles = useCallback(async () => {
     setFiles(await sessionService.files(id));
   }, [id]);
@@ -163,6 +174,7 @@ export default function SessionRoom() {
 
   const leaveRoom = useCallback(() => {
     const socket = socketRef.current;
+    wantsRoomRef.current = false;
     socket?.emit('room:leave');
     socket?.disconnect();
     socketRef.current = null;
@@ -205,9 +217,8 @@ export default function SessionRoom() {
           ? current.iceServers
           : [{ urls: 'stun:stun.l.google.com:19302' }];
 
-        const token = tokenStorage.get();
-        if (!token) throw new Error('Your session has ended. Please sign in again.');
-        socket = connectToSessionRoom(token);
+        if (!tokenStorage.get()) throw new Error('Your session has ended. Please sign in again.');
+        socket = connectToSessionRoom();
         socketRef.current = socket;
 
         const relay = (target, signal) => {
@@ -354,16 +365,10 @@ export default function SessionRoom() {
           }
         };
 
-        socket.on('connect', async () => {
-          setConnected(true);
+        const joinRoom = async () => {
+          wantsRoomRef.current = true;
+          setJoining(true);
           setError('');
-          setMediaError('');
-          for (const peer of peersRef.current.values()) peer.pc.close();
-          peersRef.current.clear();
-          setRemoteMedia({});
-          setMuted(true);
-          setAudioNeedsGesture(false);
-          for (const track of localAudioStreamRef.current?.getAudioTracks() ?? []) track.enabled = false;
           try {
             const result = await emitAck(socket, 'room:join', id);
             if (cancelled) return;
@@ -388,12 +393,54 @@ export default function SessionRoom() {
             setClassEnded(Boolean(result.classEnded));
             setRemovedParticipants(result.removedParticipants ?? []);
             for (const participant of result.participants) createPeer(participant.id);
+            setJoined(true);
           } catch (joinError) {
+            if (cancelled) return;
+            // Back to the lobby, which stays connected and says why.
+            wantsRoomRef.current = false;
+            setJoined(false);
             setError(readableError(joinError, 'Unable to join this session.'));
-            socket.disconnect();
+          } finally {
+            if (!cancelled) setJoining(false);
           }
+        };
+        joinRoomRef.current = joinRoom;
+
+        socket.on('connect', () => {
+          setConnected(true);
+          setEverConnected(true);
+          setError('');
+          setMediaError('');
+          for (const peer of peersRef.current.values()) peer.pc.close();
+          peersRef.current.clear();
+          setRemoteMedia({});
+          setMuted(true);
+          setAudioNeedsGesture(false);
+          for (const track of localAudioStreamRef.current?.getAudioTracks() ?? []) track.enabled = false;
+          // Follow the class from the lobby: who is in the room, and whether it has started or ended.
+          socket.emit('sessions:watch', (reply) => {
+            if (cancelled || !reply?.presence) return;
+            setLobbyPresence(reply.presence.find((item) => item.sessionId === id) ?? null);
+          });
+          // After a dropped connection, go straight back into the room.
+          if (wantsRoomRef.current) joinRoom();
         });
-        socket.on('disconnect', () => {
+        socket.on(SESSION_EVENTS.presence, (presence) => {
+          if (presence.sessionId === id) setLobbyPresence(presence.count ? presence : null);
+        });
+        socket.on(SESSION_EVENTS.started, ({ session: started }) => {
+          if (started.id !== id) return;
+          setSession((current) => current && { ...current, startsAt: started.startsAt, endsAt: started.endsAt });
+        });
+        const setEndedAt = ({ sessionId, endedAt }) => {
+          if (sessionId === id) setSession((current) => current && { ...current, endedAt: endedAt ?? null });
+        };
+        socket.on(SESSION_EVENTS.ended, setEndedAt);
+        socket.on(SESSION_EVENTS.reopened, setEndedAt);
+        socket.on('disconnect', (reason) => {
+          // The server closed the connection (for example the sign-in ran out): try again with the
+          // token stored now. A token the server rejects is reported by `connect_error`.
+          if (reason === 'io server disconnect') socket.connect();
           setConnected(false);
           setMuted(true);
           setScreenSharerId(null);
@@ -419,7 +466,8 @@ export default function SessionRoom() {
         });
         socket.on('connect_error', (connectionError) => {
           setConnected(false);
-          setError(connectionError.message || 'Unable to connect to the session room.');
+          // While it keeps retrying, the page says it is reconnecting; only a refusal is an error.
+          if (!socket.active) setError(connectionError.message || 'Unable to connect to the session room.');
         });
         socket.on('room:participant-joined', (participant) => {
           setParticipants((current) => [...current.filter((item) => item.id !== participant.id), participant]);
@@ -518,6 +566,8 @@ export default function SessionRoom() {
     openRoom();
     return () => {
       cancelled = true;
+      wantsRoomRef.current = false;
+      setJoined(false);
       socket?.disconnect();
       if (socketRef.current === socket) socketRef.current = null;
       for (const peer of peersRef.current.values()) peer.pc.close();
@@ -950,6 +1000,21 @@ export default function SessionRoom() {
       </main>
     );
   }
+  if (!exitNotice && !joined) {
+    return (
+      <SessionLobby
+        session={session}
+        presence={lobbyPresence}
+        canManageRoom={Boolean(session.canManageRoom)}
+        connected={connected}
+        reconnecting={everConnected}
+        joining={joining}
+        error={error}
+        onJoin={() => joinRoomRef.current?.()}
+        onBack={exitRoom}
+      />
+    );
+  }
   if (exitNotice) {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-ink-950 px-6 text-ink-100">
@@ -992,11 +1057,12 @@ export default function SessionRoom() {
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <span
             className={`flex items-center gap-2 text-xs ${connected ? 'text-emerald-300' : 'text-amber-300'}`}
-            title={connected ? 'Room connected' : 'Connecting'}
+            title={connected ? 'Room connected' : 'Reconnecting…'}
+            role="status"
           >
             <span className={`size-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-            <span className="hidden sm:inline">{connected ? 'Room connected' : 'Connecting'}</span>
-            <span className="sr-only sm:hidden">{connected ? 'Room connected' : 'Connecting'}</span>
+            <span className="hidden sm:inline">{connected ? 'Room connected' : 'Reconnecting…'}</span>
+            <span className="sr-only sm:hidden">{connected ? 'Room connected' : 'Reconnecting…'}</span>
           </span>
           {speakingParticipants.length > 0 && (
             <span

@@ -20,6 +20,17 @@ import { attendanceStatusForCheckIn } from '../utils/attendancePolicy.js';
 import { LIST_BATCH_SIZE } from '../config/database.js';
 import { env } from '../config/environment.js';
 import { fetchMeteredTurnIceServers } from './meteredTurn.service.js';
+import { sessionTimingChanged } from '../realtime/connections.js';
+import { publishToClassroom, SESSION_EVENTS } from '../realtime/sessionEvents.js';
+
+const MINUTE_MS = 60 * 1000;
+/** How long a class started on the spot runs unless the teacher says otherwise. */
+const DEFAULT_INSTANT_SESSION_MINUTES = 60;
+/** Starting now takes over a session scheduled to begin this soon instead of adding a second one. */
+const EARLY_START_WINDOW_MS = 15 * MINUTE_MS;
+const START_LOCK_MS = 10_000;
+const START_LOCK_RETRY_MS = 100;
+const personResult = (user) => ({ id: String(user._id), name: user.fullName });
 
 function localDateTimeToUtc(date, time, timezone) {
   const [year, month, day] = date.split('-').map(Number);
@@ -110,12 +121,7 @@ async function assignedClassroom(id, teacher, { requireActive = false } = {}) {
  * who belongs to a classroom, so scheduling never edits the roster. The session
  * keeps a snapshot of the active teachers and students at the time it is made.
  */
-export async function createSessions(data, { actor, ipAddress }) {
-  const classroom = await assignedClassroom(
-    data.classroomId,
-    actor.role === 'teacher' ? actor : null,
-    { requireActive: true },
-  );
+async function activeRoster(classroom) {
   const [teachers, students] = await Promise.all([
     User.find({ _id: { $in: classroomTeacherIds(classroom) }, role: 'teacher', status: 'active' }).select('_id'),
     User.find({ _id: { $in: classroom.students }, role: 'student', status: 'active' }).select('_id'),
@@ -125,6 +131,16 @@ export async function createSessions(data, { actor, ipAddress }) {
   if (!teacherIds.length) {
     throw new AppError(400, 'This classroom has no active teacher. Ask an administrator to assign one.');
   }
+  return { teacherIds, studentIds };
+}
+
+export async function createSessions(data, { actor, ipAddress }) {
+  const classroom = await assignedClassroom(
+    data.classroomId,
+    actor.role === 'teacher' ? actor : null,
+    { requireActive: true },
+  );
+  const { teacherIds, studentIds } = await activeRoster(classroom);
 
   let entries;
   let seriesId = null;
@@ -163,7 +179,99 @@ export async function createSessions(data, { actor, ipAddress }) {
     .populate('classroom', 'name openAccess')
     .populate('assignedTeachers', 'firstName lastName')
     .populate('assignedStudents', 'firstName lastName email');
+  publishToClassroom(classroom._id, SESSION_EVENTS.scheduleChanged, { classroomId: String(classroom._id) });
   return created.map((session) => sessionResult(session, actor));
+}
+
+/** Runs `work` while holding the classroom's start lock, so starting a class twice at once happens one after the other. */
+async function withStartLock(classroomId, work) {
+  for (let waited = 0; waited < START_LOCK_MS; waited += START_LOCK_RETRY_MS) {
+    const lockedAt = new Date();
+    const { modifiedCount } = await Classroom.updateOne(
+      {
+        _id: classroomId,
+        // A lock left behind by a request that died is taken over once it is stale.
+        $or: [{ sessionStartLockedAt: null }, { sessionStartLockedAt: { $lt: new Date(lockedAt.getTime() - START_LOCK_MS) } }],
+      },
+      { $set: { sessionStartLockedAt: lockedAt } },
+      { timestamps: false },
+    );
+    if (modifiedCount) {
+      try {
+        return await work();
+      } finally {
+        await Classroom.updateOne(
+          { _id: classroomId, sessionStartLockedAt: lockedAt },
+          { $unset: { sessionStartLockedAt: '' } },
+          { timestamps: false },
+        );
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, START_LOCK_RETRY_MS));
+  }
+  throw new AppError(409, 'This class is already being started. Please try again.');
+}
+
+/**
+ * Starts a class now, with no date to enter. Asking again while the class is
+ * in session gives the same session back, so a second click never makes a
+ * second class. A session already scheduled to begin within fifteen minutes is
+ * started early instead; otherwise a new one is made for the whole classroom.
+ */
+export async function startSessionNow(data, { actor, ipAddress }) {
+  const classroom = await assignedClassroom(
+    data.classroomId,
+    actor.role === 'teacher' ? actor : null,
+    { requireActive: true },
+  );
+  const { id, created, startedNow } = await withStartLock(classroom._id, async () => {
+    const now = new Date();
+    const open = { classroom: classroom._id, status: 'scheduled', endedAt: null, endsAt: { $gt: now } };
+    const live = await ClassSession.findOne({ ...open, startsAt: { $lte: now } }).sort({ startsAt: -1 }).select('_id');
+    if (live) return { id: live._id, created: false, startedNow: false };
+
+    const soon = await ClassSession
+      .findOne({ ...open, startsAt: { $gt: now, $lte: new Date(now.getTime() + EARLY_START_WINDOW_MS) } })
+      .sort({ startsAt: 1 })
+      .select('_id');
+    if (soon) {
+      await ClassSession.updateOne({ _id: soon._id }, { $set: { startsAt: now } });
+      return { id: soon._id, created: false, startedNow: true };
+    }
+
+    const { teacherIds, studentIds } = await activeRoster(classroom);
+    const session = await ClassSession.create({
+      classroom: classroom._id,
+      assignedTeachers: teacherIds,
+      assignedStudents: studentIds,
+      title: data.title ?? `${classroom.name} class`.slice(0, 120),
+      startsAt: now,
+      endsAt: new Date(now.getTime() + (data.durationMinutes ?? DEFAULT_INSTANT_SESSION_MINUTES) * MINUTE_MS),
+    });
+    return { id: session._id, created: true, startedNow: true };
+  });
+
+  const session = await ClassSession.findById(id)
+    .populate('classroom', 'name openAccess')
+    .populate('assignedTeachers', 'firstName lastName');
+  if (startedNow) {
+    await logActivity({
+      actorId: actor._id,
+      action: 'session.started',
+      entityType: 'ClassSession',
+      entityId: session._id,
+      description: `${actor.fullName} started "${session.title}" in "${classroom.name}"`,
+      ipAddress,
+    });
+    publishToClassroom(classroom._id, SESSION_EVENTS.started, {
+      // The same for every reader: each one's own attendance is not part of it.
+      session: sessionResult(session, { _id: null }),
+      by: personResult(actor),
+    });
+    // Anyone already waiting in the room of a session started early is in class from now.
+    sessionTimingChanged(session._id);
+  }
+  return { session: sessionResult(session, actor), created };
 }
 
 async function ensureAbsences(session) {
@@ -510,6 +618,13 @@ export async function setRoomEnded(id, ended, user) {
     entityId: session._id,
     description: `${user.fullName} ${ended ? 'ended' : 'reopened'} the class "${session.title}"`,
   });
+  const classroomId = String(session.classroom._id);
+  publishToClassroom(classroomId, ended ? SESSION_EVENTS.ended : SESSION_EVENTS.reopened, {
+    sessionId: String(session._id),
+    classroomId,
+    endedAt: session.endedAt,
+    by: personResult(user),
+  });
 }
 
 function sessionFileResult(file) {
@@ -616,49 +731,104 @@ function attendanceForUser(session, userId) {
   );
 }
 
+/** Matches a person's attendance entry; entries from before teachers were recorded name them under `student`. */
+const attendanceOf = (userId) => ({ $or: [{ participant: userId }, { student: userId }] });
+
+/**
+ * Attendance is the time someone is in the room while the class is on. Each
+ * stay is one interval: entering opens it (`activeSince`) and leaving adds its
+ * length to `durationMs`, so leaving and coming back adds up. The server takes
+ * every time from its own clock; nothing about attendance comes from the browser.
+ *
+ * Every step is a single conditional update, so it is safe to repeat and safe
+ * when several people, or two tabs of one person, enter at the same moment.
+ *
+ * Tells the caller whether the class has yet to start: time in the room before
+ * then is not attendance, and the caller opens the interval at the start.
+ */
 export async function recordRoomJoin(id, user) {
   const session = await getSessionForParticipant(id, user);
   if (session.status === 'cancelled') throw new AppError(400, 'This session has been cancelled');
-  if (!['teacher', 'student'].includes(user.role)) return session;
+  if (!['teacher', 'student'].includes(user.role)) return { beforeStart: false };
   const now = new Date();
-  if (now < session.startsAt || now > session.endsAt) return session;
-  let entry = attendanceForUser(session, user._id);
-  if (!entry) {
-    entry = {
-      participant: user._id,
-      role: user.role,
-      status: session.attendanceConditionEnabled === false ? 'present' : attendanceStatusForCheckIn(session.startsAt, now),
-      checkInAt: now,
-      activeSince: now,
-      durationMs: 0,
-    };
-    session.attendance.push(entry);
-  } else if (!entry.activeSince) {
-    if (!entry.checkInAt) {
-      entry.role = user.role;
-      entry.status = session.attendanceConditionEnabled === false
-        ? 'present'
-        : attendanceStatusForCheckIn(session.startsAt, now);
-      entry.checkInAt = now;
-    }
-    entry.activeSince = now;
-    entry.leftAt = undefined;
-  }
-  await session.save();
-  return session;
+  if (now < session.startsAt) return { beforeStart: true };
+  if (now > session.endsAt) return { beforeStart: false };
+  const status = session.attendanceConditionEnabled === false
+    ? 'present'
+    : attendanceStatusForCheckIn(session.startsAt, now);
+  const mine = attendanceOf(user._id);
+
+  // First time in: add the entry, unless another request has just added it.
+  const added = await ClassSession.updateOne(
+    { _id: session._id, attendance: { $not: { $elemMatch: mine } } },
+    { $push: { attendance: { participant: user._id, role: user.role, status, checkInAt: now, activeSince: now, durationMs: 0 } } },
+  );
+  if (added.modifiedCount) return { beforeStart: false };
+  // Back after leaving: open a new interval. Already in the room: nothing matches, nothing changes.
+  const resumed = await ClassSession.updateOne(
+    { _id: session._id, attendance: { $elemMatch: { ...mine, activeSince: null, checkInAt: { $ne: null } } } },
+    { $set: { 'attendance.$.activeSince': now }, $unset: { 'attendance.$.leftAt': '' } },
+  );
+  if (resumed.modifiedCount) return { beforeStart: false };
+  // Marked without ever having joined (an absence a teacher recorded): this is the check-in.
+  await ClassSession.updateOne(
+    { _id: session._id, attendance: { $elemMatch: { ...mine, activeSince: null, checkInAt: null } } },
+    {
+      $set: {
+        'attendance.$.activeSince': now,
+        'attendance.$.checkInAt': now,
+        'attendance.$.status': status,
+        'attendance.$.role': user.role,
+      },
+      $unset: { 'attendance.$.leftAt': '' },
+    },
+  );
+  return { beforeStart: false };
+}
+
+/** Closes the interval that is open, if there is one, counting no time past the end of the session. */
+async function closeAttendanceInterval(session, userId, at) {
+  const entry = attendanceForUser(session, userId);
+  if (!entry?.activeSince) return;
+  const leftAt = new Date(Math.min(at.getTime(), session.endsAt.getTime()));
+  await ClassSession.updateOne(
+    // Only if that interval is still the open one, so closing twice counts once.
+    { _id: session._id, attendance: { $elemMatch: { ...attendanceOf(userId), activeSince: entry.activeSince } } },
+    {
+      $inc: { 'attendance.$.durationMs': Math.max(0, leftAt - entry.activeSince) },
+      $set: { 'attendance.$.leftAt': leftAt },
+      $unset: { 'attendance.$.activeSince': '' },
+    },
+  );
 }
 
 export async function recordRoomLeave(id, user) {
-  const session = await getSession(id);
-  const entry = attendanceForUser(session, user._id);
-  if (entry?.activeSince) {
-    const leftAt = new Date(Math.min(Date.now(), session.endsAt.getTime()));
-    entry.durationMs = (entry.durationMs ?? 0) + Math.max(0, leftAt - entry.activeSince);
-    entry.leftAt = leftAt;
-    entry.activeSince = undefined;
-    await session.save();
+  const session = await ClassSession.findById(id).select('endsAt attendance').lean();
+  if (session) await closeAttendanceInterval(session, user._id, new Date());
+}
+
+/**
+ * For the server's start-up. Nobody is in a room yet, so an interval still
+ * open was cut off when the server stopped; it is closed here instead of
+ * running on to the end of the session. People who come back open a new one.
+ */
+export async function closeInterruptedAttendance(at = new Date()) {
+  const sessions = await ClassSession
+    .find({ startsAt: { $lte: at }, attendance: { $elemMatch: { activeSince: { $type: 'date' } } } })
+    .select('endsAt attendance')
+    .lean();
+  for (const session of sessions) {
+    for (const entry of session.attendance) {
+      if (entry.activeSince) await closeAttendanceInterval(session, entry.participant ?? entry.student, at);
+    }
   }
-  return session;
+  return sessions.length;
+}
+
+/** When a session starts, for the live room to open attendance for people who came early. */
+export async function sessionStartTime(id) {
+  const session = await ClassSession.findById(id).select('startsAt status').lean();
+  return session && session.status !== 'cancelled' ? session.startsAt : null;
 }
 
 export async function createRoomActivity(id, user, action) {
@@ -797,6 +967,8 @@ export async function updateSession(id, changes, user, { ipAddress }) {
     description: `${user.fullName} updated ${matches.length} session occurrence(s)`,
     ipAddress,
   });
+  publishToClassroom(session.classroom._id, SESSION_EVENTS.scheduleChanged, { classroomId: String(session.classroom._id) });
+  if (changes.startsAt) for (const occurrence of matches) sessionTimingChanged(occurrence._id);
   const updated = await ClassSession.find({ _id: { $in: matches.map((item) => item._id) } })
     .sort({ startsAt: 1 })
     .populate('classroom', 'name');
@@ -825,6 +997,7 @@ export async function cancelSession(id, scope, user, { ipAddress }) {
     description: `${user.fullName} cancelled ${scope === 'series' ? 'a session series' : 'a session occurrence'}`,
     ipAddress,
   });
+  publishToClassroom(session.classroom._id, SESSION_EVENTS.scheduleChanged, { classroomId: String(session.classroom._id) });
   const cancelled = await ClassSession.find({ ...filter, status: 'cancelled' })
     .sort({ startsAt: 1 })
     .populate('classroom', 'name');

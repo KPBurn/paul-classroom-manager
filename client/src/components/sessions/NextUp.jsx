@@ -2,6 +2,7 @@ import { Video } from 'lucide-react';
 import Button from '../common/Button.jsx';
 import Card, { SectionLabel } from '../common/Card.jsx';
 import { formatTime, isSameLocalDay, timeUntil } from '../../utils/sessionTiming.js';
+import RoomPresence, { LiveStatusNote } from './RoomPresence.jsx';
 
 /**
  * The session to join next, with a join button: the one that is live, or the
@@ -41,6 +42,8 @@ export default function NextUp({ session, now, onJoin, emptyMessage }) {
           {session.classroom?.name} · {when}
           {startsIn && <span className="font-medium text-ink-900"> · Starts {startsIn}</span>}
         </p>
+        <RoomPresence sessionId={session.id} always={live} className="mt-2" />
+        <LiveStatusNote className="mt-2" />
       </div>
       <Button size="lg" className="shrink-0" onClick={() => onJoin(session)}>
         <Video className="size-5" aria-hidden="true" /> {live ? 'Join now' : 'Join session'}

@@ -192,6 +192,18 @@ Teachers and assigned students can open a session room for persistent group chat
 
 Teachers of a session (and admins) can moderate its room from the People tab: mute a student or everyone, remove a participant (who cannot rejoin that session until a teacher allows them back), and, from the Leave button, end the class for everyone. An ended class stays closed to students until a teacher reopens it from the room. Removals and ended classes are stored on the session, so they survive server restarts. Teachers and admins cannot be moderated.
 
+### Live sessions and attendance
+
+A teacher starts a class from its classroom page with **Start session** (`POST /api/sessions/start`, body `{ classroomId, durationMinutes?, title? }`): no date is entered and the class runs for 60 minutes unless a length is given. Asking again while the class is in session returns the same session, and a session already scheduled to begin within 15 minutes is started early instead of a second one being made. Scheduled sessions work as before.
+
+Every signed-in page keeps one Socket.IO connection and follows the classrooms the account may see (`sessions:watch`; the server chooses the classrooms). The server sends `session:started`, `session:ended`, `session:reopened`, `session:schedule-changed` and `session:presence`, so dashboards, classroom pages and the schedule update without a refresh. Teachers and administrators are told who is in a room by name; students are told how many people and which teachers. The payloads are described in `server/src/realtime/sessionEvents.js`.
+
+Opening a room shows a lobby first: the class, its teacher, its time, whether it has started and who is there. Nobody is in the room until they choose to join.
+
+Attendance is the time spent in the room while the class is on, measured by the server. Each stay is an interval: entering opens it and leaving adds its length to the total, so leaving and returning adds up. Time before the start or after the end is not counted, a second tab is not counted twice, and repeating a join or leave changes nothing. A connection that drops closes the interval when the server notices (up to about 45 seconds later) and a return opens a new one. Intervals left open by a server restart are closed when it starts again.
+
+Who is in a room is held in the memory of the one API process. Running more than one instance would need the Socket.IO Redis adapter, sticky sessions and shared presence.
+
 ### Authentication and authorization (RBAC)
 
 - Passwords are hashed with bcrypt (12 rounds) and never returned by the API.

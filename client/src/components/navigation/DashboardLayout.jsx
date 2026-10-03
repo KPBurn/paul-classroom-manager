@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
+import { LiveSessionsProvider } from '../../context/LiveSessionsContext.jsx';
 import Sidebar from './Sidebar.jsx';
 import Topbar from './Topbar.jsx';
 
@@ -27,7 +28,10 @@ export default function DashboardLayout({ navigation, portalName, badges }) {
       <div className="lg:pl-64">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
         <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
-          <Outlet />
+          {/* Every page in the portal hears about classes starting, ending and filling up. */}
+          <LiveSessionsProvider>
+            <Outlet />
+          </LiveSessionsProvider>
         </main>
       </div>
     </div>

@@ -13,6 +13,15 @@ export async function create(req, res) {
   sendSuccess(res, { status: 201, message: 'Session(s) scheduled successfully', data: { items } });
 }
 
+export async function startNow(req, res) {
+  const { session, created } = await sessionService.startSessionNow(req.body, { actor: req.user, ipAddress: req.ip });
+  sendSuccess(res, {
+    status: created ? 201 : 200,
+    message: created ? 'Session started' : 'This class is already in session',
+    data: { session, created },
+  });
+}
+
 export async function attendance(req, res) {
   const data = await sessionService.getAttendance(req.params.id, req.user);
   sendSuccess(res, { data });
