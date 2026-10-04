@@ -3,8 +3,8 @@ import VideoStage from './VideoStage.jsx';
 
 export const initials = (name) => name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
 
-// `grid` is the main gallery, `strip` the row of small tiles beside a shared screen,
-// and `pane` one of the four tiles in the class monitor.
+// `grid` is the main gallery, `feed` the bottom row of feeds while presenting, and
+// `pane` one of the four tiles in the class monitor.
 const SIZES = {
   grid: {
     frame: 'min-h-0 min-w-0',
@@ -15,11 +15,12 @@ const SIZES = {
     speaking: 'left-2 top-2 px-2 py-1 text-xs',
     speakingIcon: 'size-3.5',
   },
-  strip: {
-    frame: 'aspect-video h-full shrink-0 sm:h-auto sm:min-h-20',
+  // A fixed-height row: the tile's height comes from the row, its width from the ratio.
+  feed: {
+    frame: 'aspect-video h-full shrink-0',
     idleBorder: 'border-ink-700',
-    placeholder: 'gap-1 sm:gap-2',
-    avatar: 'size-8 text-xs sm:size-10 sm:text-sm',
+    placeholder: 'gap-1',
+    avatar: 'size-8 text-xs',
     name: 'text-center',
     speaking: 'left-1.5 top-1.5 px-1.5 py-1 text-[10px]',
     speakingIcon: 'size-3',
@@ -59,9 +60,6 @@ export default function ParticipantTile({ participant, isLocal = false, size = '
             <span className={`text-xs ${participant.cameraEnabled ? 'text-amber-300' : ''}`}>
               {participant.cameraEnabled ? 'Camera on · waiting for video' : 'Camera off'}
             </span>
-          )}
-          {size === 'strip' && (
-            <span className="hidden text-[10px] text-amber-300 sm:inline">Camera on · waiting for video</span>
           )}
         </div>
       )}

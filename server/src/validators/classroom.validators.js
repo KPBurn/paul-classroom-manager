@@ -9,6 +9,8 @@ export const createClassroomSchema = z.object({
   teacherIds: z.array(objectId).min(1).max(100).optional(),
   studentIds: z.array(objectId).max(500).default([]),
   openAccess: z.boolean().default(false),
+  // What this class pays a teacher who is present for the whole session.
+  sessionRate: z.number().min(0).max(1_000_000).nullable().optional(),
 }).strict().refine((data) => data.teacherIds?.length || data.teacherId, {
   message: 'Assign at least one teacher',
   path: ['teacherIds'],
@@ -20,6 +22,7 @@ export const updateClassroomSchema = z.object({
   teacherIds: z.array(objectId).min(1).max(100).optional(),
   studentIds: z.array(objectId).max(500).optional(),
   openAccess: z.boolean().optional(),
+  sessionRate: z.number().min(0).max(1_000_000).nullable().optional(),
 }).strict().refine((data) => Object.keys(data).length > 0, 'At least one field is required');
 
 export const classroomIdParamsSchema = z.object({ id: objectId });

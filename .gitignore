@@ -7,3 +7,6 @@ coverage/
 .env
 .env.local
 .env.*.local
+
+# Local test account credentials — see the README for the seeded sign-ins
+account.txt

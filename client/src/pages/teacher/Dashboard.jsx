@@ -21,6 +21,7 @@ import { getErrorMessage } from '../../utils/errors.js';
 import { addDays, periodParams, startOfDay } from '../../utils/period.js';
 import { formatDateTime } from '../../utils/format.js';
 import {
+  canJoinOpenClassroomAnytime,
   formatTime,
   isJoinable,
   isSameLocalDay,
@@ -161,7 +162,7 @@ export default function TeacherDashboard() {
                         <Badge tone={PHASE_TONES[session.phase]}>
                           {session.phase === 'upcoming' ? `Starts ${timeUntil(session.startsAt, now)}` : PHASE_LABELS[session.phase]}
                         </Badge>
-                        {(isJoinable(session.phase) || session.phase === 'closed') && (
+                        {(isJoinable(session.phase) || session.phase === 'closed' || canJoinOpenClassroomAnytime(session)) && (
                           <Button
                             size="sm"
                             variant={session.phase === 'live' ? 'primary' : 'secondary'}

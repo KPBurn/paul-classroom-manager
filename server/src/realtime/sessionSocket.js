@@ -416,7 +416,7 @@ export function attachSessionSocket(httpServer) {
     const moderatedSessionId = () => {
       const sessionId = socket.data.sessionId;
       if (!sessionId || !rooms.has(sessionId)) throw new AppError(400, 'Join the session before moderating it');
-      if (!socket.data.canManageRoom) throw new AppError(403, 'Only the class teacher can do that');
+      if (!socket.data.canManageRoom) throw new AppError(403, 'Only a teacher or administrator can do that');
       return sessionId;
     };
     const socketsInRoom = (sessionId) => [...io.sockets.sockets.values()]

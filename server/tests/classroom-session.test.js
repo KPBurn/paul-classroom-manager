@@ -245,6 +245,71 @@ describe('class sessions and attendance', () => {
     };
   }
 
+  it('rejects past schedule dates while accepting today and future dates', async () => {
+    const { teacherToken, classroom } = await setupClass();
+    const shiftDate = (days) => {
+      const date = new Date();
+      date.setUTCDate(date.getUTCDate() + days);
+      return date.toISOString().slice(0, 10);
+    };
+    const today = shiftDate(0);
+    const yesterday = shiftDate(-1);
+    const tomorrow = shiftDate(1);
+    const weekday = (date) => new Date(`${date}T00:00:00.000Z`).getUTCDay();
+    const schedule = (date) => ({
+      classroomId: classroom.id,
+      title: 'Date validation',
+      startsAt: `${date}T09:00:00.000Z`,
+      endsAt: `${date}T10:00:00.000Z`,
+      timezone: 'UTC',
+    });
+
+    const past = await request(app)
+      .post('/api/sessions')
+      .set(auth(teacherToken))
+      .send(schedule(yesterday));
+    assert.equal(past.status, 400);
+
+    for (const date of [today, tomorrow]) {
+      const response = await request(app)
+        .post('/api/sessions')
+        .set(auth(teacherToken))
+        .send(schedule(date));
+      assert.equal(response.status, 201);
+    }
+
+    const pastRecurring = await request(app)
+      .post('/api/sessions')
+      .set(auth(teacherToken))
+      .send({
+        classroomId: classroom.id,
+        title: 'Past recurring schedule',
+        startDate: yesterday,
+        endDate: yesterday,
+        startTime: '09:00',
+        endTime: '10:00',
+        weekdays: [weekday(yesterday)],
+        timezone: 'UTC',
+      });
+    assert.equal(pastRecurring.status, 400);
+
+    const todayRecurring = await request(app)
+      .post('/api/sessions')
+      .set(auth(teacherToken))
+      .send({
+        classroomId: classroom.id,
+        title: 'Today recurring schedule',
+        startDate: today,
+        endDate: tomorrow,
+        startTime: '09:00',
+        endTime: '10:00',
+        weekdays: [weekday(today)],
+        timezone: 'UTC',
+      });
+    assert.equal(todayRecurring.status, 201);
+    assert.ok(todayRecurring.body.data.items.length > 0);
+  });
+
   it('creates one-time and recurring sessions only for the assigned teacher', async () => {
     const { teacher, teacherToken, classroom } = await setupClass();
     const otherTeacher = await createUser({ role: 'teacher' });
@@ -268,14 +333,17 @@ describe('class sessions and attendance', () => {
     assert.ok(once.body.data.items[0].id);
     assert.ok(once.body.data.items[0].startsAt);
 
+    const recurringStart = new Date();
+    recurringStart.setUTCDate(recurringStart.getUTCDate() + ((8 - recurringStart.getUTCDay()) % 7 || 7));
+    const recurringEnd = new Date(recurringStart.getTime() + 14 * 24 * 60 * 60_000);
     const recurring = await request(app)
       .post('/api/sessions')
       .set(auth(teacherToken))
       .send({
         classroomId: classroom.id,
         title: 'Weekly',
-        startDate: '2026-10-05',
-        endDate: '2026-10-19',
+        startDate: recurringStart.toISOString().slice(0, 10),
+        endDate: recurringEnd.toISOString().slice(0, 10),
         startTime: '09:00',
         endTime: '10:00',
         weekdays: [1],
@@ -562,10 +630,17 @@ describe('class sessions and attendance', () => {
     const { teacherToken, student, classroom } = await setupClass();
     const seriesId = 'history-preservation-series';
     const now = Date.now();
-    const pastStart = new Date(now - 48 * 60 * 60_000);
-    const pastEnd = new Date(now - 47 * 60 * 60_000);
-    const futureStart = new Date(Math.ceil((now + 24 * 60 * 60_000) / 60_000) * 60_000);
-    const futureEnd = new Date(now + 25 * 60 * 60_000);
+    // Fixed clock times (09:00 UTC) keep the series edit's start and end clocks on the
+    // same side of midnight, so the fixture stays valid whatever time the suite runs.
+    const atHour = (dayOffset) => {
+      const date = new Date(now + dayOffset * 86_400_000);
+      date.setUTCHours(9, 0, 0, 0);
+      return date;
+    };
+    const pastStart = atHour(-2);
+    const pastEnd = new Date(pastStart.getTime() + 60 * 60_000);
+    const futureStart = atHour(1);
+    const futureEnd = new Date(futureStart.getTime() + 60 * 60_000);
     const past = await ClassSession.create({
       classroom: classroom._id,
       title: 'Original series',

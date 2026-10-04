@@ -19,6 +19,11 @@ export function sessionPhase(session, now = Date.now()) {
 /** Sessions people can still join: not cancelled, closed or over. */
 export const isJoinable = (phase) => phase === 'live' || phase === 'soon' || phase === 'upcoming';
 
+/** Open classrooms allow participants to join outside the scheduled time window. */
+export const canJoinOpenClassroomAnytime = (session) => Boolean(session.classroom?.openAccess)
+  && session.status !== 'cancelled'
+  && !session.endedAt;
+
 export const PHASE_LABELS = {
   cancelled: 'Cancelled',
   closed: 'Class ended',

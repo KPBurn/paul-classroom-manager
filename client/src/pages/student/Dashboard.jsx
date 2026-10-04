@@ -15,8 +15,10 @@ import { sessionService } from '../../services/session.service.js';
 import { useAuth } from '../../hooks/useAuth.js';
 import { useNow } from '../../hooks/useNow.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { formatDuration } from '../../utils/format.js';
 import { addDays, dateInputToDate, dateInputValue, periodParams, startOfDay } from '../../utils/period.js';
 import {
+  canJoinOpenClassroomAnytime,
   formatTime,
   isJoinable,
   isSameLocalDay,
@@ -43,7 +45,15 @@ const formatDay = (value, now) => (isSameLocalDay(value, now)
 function SessionRow({ session, now, onJoin }) {
   const cancelled = session.status === 'cancelled';
   const attendanceStatus = session.attendance?.status;
-  const joinable = isJoinable(session.phase) && !session.endedAt;
+  const joinable = isJoinable(session.phase) || canJoinOpenClassroomAnytime(session);
+  // Attendance follows the class room: joining starts it and leaving stops it.
+  const attended = session.attendance?.checkInAt
+    ? session.attendance.leftAt
+      ? `Joined ${formatTime(session.attendance.checkInAt)} · left ${formatTime(session.attendance.leftAt)}`
+        + ` · ${formatDuration(session.attendance.durationMs)} attended`
+      : `Joined ${formatTime(session.attendance.checkInAt)} · in class now`
+        + ` · ${formatDuration(session.attendance.durationMs)} so far`
+    : attendanceStatus === 'absent' ? 'Did not join the class room' : null;
   return (
     <li className="grid gap-2 px-5 py-3 sm:grid-cols-[6.5rem_minmax(0,1fr)_auto] sm:items-center sm:gap-4">
       <p className={`text-sm tabular-nums ${cancelled ? 'text-ink-400 line-through' : 'text-ink-900'}`}>
@@ -56,6 +66,7 @@ function SessionRow({ session, now, onJoin }) {
           {session.classroom?.name}
           {!cancelled && session.endedAt && session.phase !== 'ended' && ' · The teacher ended this class'}
         </p>
+        {attended && <p className="text-xs text-ink-500">{attended}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-3 sm:justify-end">
         {attendanceStatus ? (
@@ -151,8 +162,10 @@ export default function StudentDashboard() {
     .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt));
 
   const all = withPhase(sessions);
-  const ahead = all.filter((session) => isJoinable(session.phase) && !session.endedAt);
-  const nextUp = ahead.find((session) => session.phase === 'live') ?? ahead[0];
+  const ahead = all.filter((session) => isJoinable(session.phase) || canJoinOpenClassroomAnytime(session));
+  const nextUp = ahead.find((session) => session.phase === 'live')
+    ?? ahead.find((session) => isJoinable(session.phase))
+    ?? ahead[0];
   const weekEnd = addDays(startOfDay(now), WEEK_DAYS).getTime();
   const thisWeek = all.filter((session) => new Date(session.endsAt).getTime() > now
     && new Date(session.startsAt).getTime() < weekEnd);
@@ -162,6 +175,8 @@ export default function StudentDashboard() {
     .reverse();
   const count = (status) => history.filter((session) => session.attendance.status === status).length;
   const attended = count('present') + count('late');
+  // Time in class is recorded automatically: joining starts it, leaving stops it.
+  const attendedMs = history.reduce((sum, session) => sum + (session.attendance?.durationMs ?? 0), 0);
 
   const stats = [
     {
@@ -171,6 +186,7 @@ export default function StudentDashboard() {
     },
     { label: 'Late', value: count('late'), hint: 'Joined after the first five minutes' },
     { label: 'Absent', value: count('absent'), hint: 'Classes you did not join', emphasis: count('absent') > 0 },
+    { label: 'Time in class', value: formatDuration(attendedMs), hint: `In the last ${HISTORY_DAYS} days` },
   ];
 
   return (
@@ -199,7 +215,7 @@ export default function StudentDashboard() {
             emptyMessage={`You have no classes scheduled in the next ${DAYS_AHEAD} days.`}
           />
 
-          <StatStrip stats={stats} columns="sm:grid-cols-3" label={`Attendance in the last ${HISTORY_DAYS} days`} />
+          <StatStrip stats={stats} columns="sm:grid-cols-2 lg:grid-cols-4" label={`Attendance in the last ${HISTORY_DAYS} days`} />
 
           <div className="grid gap-6 lg:grid-cols-2">
             <Card as="section" className="self-start" aria-labelledby="week-heading">

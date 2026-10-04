@@ -29,6 +29,8 @@ const TeacherFeedback = lazy(() => import('../pages/teacher/Feedback.jsx'));
 const FeedbackForm = lazy(() => import('../pages/teacher/FeedbackForm.jsx'));
 const FeedbackDetail = lazy(() => import('../pages/shared/FeedbackDetail.jsx'));
 const AdminFeedback = lazy(() => import('../pages/admin/Feedback.jsx'));
+const AdminSalaries = lazy(() => import('../pages/admin/Salaries.jsx'));
+const TeacherSalary = lazy(() => import('../pages/teacher/Salary.jsx'));
 const suspense = (element) => <Suspense fallback={<FullPageSpinner />}>{element}</Suspense>;
 
 /** Placeholder routes for sidebar modules that have not been built yet. */
@@ -68,6 +70,7 @@ export default function AppRoutes() {
         <Route path="schedules" element={suspense(<TeacherSchedule />)} />
         <Route path="feedback" element={suspense(<AdminFeedback />)} />
         <Route path="feedback/:id" element={suspense(<FeedbackDetail />)} />
+        <Route path="salaries" element={suspense(<AdminSalaries />)} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
         {/* Keys stop React reusing one page's filters and search on another. */}
@@ -96,6 +99,7 @@ export default function AppRoutes() {
         <Route path="feedback" element={suspense(<TeacherFeedback />)} />
         <Route path="feedback/lesson/:sessionId/student/:studentId" element={suspense(<FeedbackForm />)} />
         <Route path="feedback/:id" element={suspense(<FeedbackDetail />)} />
+        <Route path="salary" element={suspense(<TeacherSalary />)} />
         <Route path="profile" element={<Profile />} />
         {plannedRoutes(teacherNavigation)}
         <Route path="*" element={<Navigate to="/teacher" replace />} />

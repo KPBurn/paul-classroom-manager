@@ -21,7 +21,7 @@ import { useUsers } from '../../hooks/useUsers.js';
 import { classroomService } from '../../services/classroom.service.js';
 import { userService } from '../../services/user.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
-import { formatDateTime } from '../../utils/format.js';
+import { formatAmount, formatDateTime } from '../../utils/format.js';
 import { hasPermission, PERMISSIONS, ROLE_LABELS, STATUS_LABELS } from '../../utils/roles.js';
 
 const PAGE_SIZE = 10;
@@ -51,6 +51,11 @@ const password = z
   .regex(/\d/, 'Password must contain a number');
 const role = z.enum(Object.keys(ROLE_LABELS));
 const status = z.enum(Object.keys(STATUS_LABELS));
+// An empty box means "no individual rate", so the class's own rate is used.
+const sessionRate = z.preprocess(
+  (value) => (value === '' || value === undefined || value === null ? null : Number(value)),
+  z.number().min(0, 'Enter a rate of zero or more').max(1_000_000).nullable(),
+);
 
 const createUserSchema = z.object({
   firstName: name('First name'),
@@ -59,6 +64,7 @@ const createUserSchema = z.object({
   password,
   role,
   status,
+  sessionRate: sessionRate.optional(),
 });
 // Role and status are left out (undefined) when admins edit their own account.
 const editUserSchema = z.object({
@@ -67,6 +73,7 @@ const editUserSchema = z.object({
   email,
   role: role.optional(),
   status: status.optional(),
+  sessionRate: sessionRate.optional(),
 });
 const resetPasswordSchema = z.object({ password });
 
@@ -288,7 +295,17 @@ function UserTable({ list, currentUserId, hasFilters, can, onEdit, onResetPasswo
                     </p>
                     <p className="truncate text-ink-500">{user.email}</p>
                   </td>
-                  <td className="px-5 py-3 text-ink-700">{ROLE_LABELS[user.role]}</td>
+                  <td className="px-5 py-3 text-ink-700">
+                    {ROLE_LABELS[user.role]}
+                    {user.role === 'teacher' && user.sessionRate != null && (
+                      <span
+                        className="ml-2 whitespace-nowrap text-xs tabular-nums text-ink-500"
+                        title="Rate per class assigned by an administrator"
+                      >
+                        {formatAmount(user.sessionRate)}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-5 py-3">
                     <Badge tone={STATUS_TONES[user.status]}>{STATUS_LABELS[user.status]}</Badge>
                   </td>
@@ -398,6 +415,7 @@ function UserForm({ user, fixedRole, isSelf, onCancel, onSaved }) {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm({
     resolver: zodResolver(isEdit ? editUserSchema : createUserSchema),
@@ -408,6 +426,7 @@ function UserForm({ user, fixedRole, isSelf, onCancel, onSaved }) {
           email: user.email,
           role: user.role,
           status: user.status,
+          sessionRate: user.sessionRate ?? '',
         }
       : { firstName: '', lastName: '', email: '', password: '', role: fixedRole ?? 'teacher', status: 'active' },
   });
@@ -445,6 +464,9 @@ function UserForm({ user, fixedRole, isSelf, onCancel, onSaved }) {
     setIsConfirming(false);
     setRoleChange(null);
   };
+
+  // Only teachers are paid per class, so the rate only applies to them.
+  const teachesClasses = (watch('role') ?? fixedRole) === 'teacher';
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
@@ -542,6 +564,26 @@ function UserForm({ user, fixedRole, isSelf, onCancel, onSaved }) {
         />
       </div>
       {isSelf && <p className="-mt-2 text-sm text-ink-500">You cannot change your own role or status.</p>}
+
+      {teachesClasses && (
+        <div className="max-w-xs">
+          <TextField
+            id="user-rate"
+            label="Rate per class"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="Uses the class rate"
+            title="What this teacher is paid for a class they teach for the whole session. Leave empty to follow the rate of each class."
+            error={errors.sessionRate?.message}
+            {...register('sessionRate')}
+          />
+          <p className="mt-1.5 text-xs text-ink-500">
+            An individual rate is used for every class this teacher takes, ahead of the class’s own rate.
+            Leave empty to follow whatever rate each class has.
+          </p>
+        </div>
+      )}
 
       <FormActions onCancel={onCancel} isSubmitting={isSubmitting} submitLabel={isEdit ? 'Save changes' : 'Add user'} />
     </form>

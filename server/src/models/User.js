@@ -13,6 +13,9 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true, select: false },
     role: { type: String, enum: USER_ROLES, required: true, default: 'teacher' },
     status: { type: String, enum: USER_STATUSES, required: true, default: 'active' },
+    // What this teacher is paid for a class they teach for the whole session.
+    // Administrators assign it; when it is null the class's own rate is used.
+    sessionRate: { type: Number, default: null, min: 0 },
     lastLoginAt: { type: Date },
     // Part of every JWT. Bumping it signs the user out everywhere (e.g. after a password reset).
     tokenVersion: { type: Number, default: 0 },

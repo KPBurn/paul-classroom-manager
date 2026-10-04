@@ -297,6 +297,8 @@ describe('session room collaboration', () => {
         .set(auth(adminToken));
       assert.equal(adminSessions.status, 200);
       assert.equal(adminSessions.body.data.items[0].id, String(session._id));
+      assert.equal((await emitAck(studentSocket, 'room:end')).error, 'Only a teacher or administrator can do that');
+      assert.deepEqual(await emitAck(adminSocket, 'room:end'), { success: true });
     } finally {
       await cleanup();
     }
@@ -412,7 +414,7 @@ describe('teacher room moderation', () => {
       await emitAck(studentSocket, 'room:microphone', false);
 
       const studentMute = await emitAck(studentSocket, 'room:mute-participant', teacherSocket.id);
-      assert.equal(studentMute.error, 'Only the class teacher can do that');
+      assert.equal(studentMute.error, 'Only a teacher or administrator can do that');
       const teacherMute = await emitAck(teacherSocket, 'room:mute-participant', coTeacherSocket.id);
       assert.equal(teacherMute.error, 'Teachers cannot be moderated');
 

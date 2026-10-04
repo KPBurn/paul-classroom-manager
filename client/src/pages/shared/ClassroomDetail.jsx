@@ -21,6 +21,7 @@ import { sessionService } from '../../services/session.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { periodParams } from '../../utils/period.js';
 import {
+  canJoinOpenClassroomAnytime,
   formatTime,
   isJoinable,
   isSameLocalDay,
@@ -112,7 +113,7 @@ export default function ClassroomDetail() {
   const size = classroomSize(classroom);
   const upcoming = sessions
     .map((session) => ({ ...session, phase: sessionPhase(session, now) }))
-    .filter((session) => isJoinable(session.phase) || session.phase === 'closed')
+    .filter((session) => isJoinable(session.phase) || session.phase === 'closed' || canJoinOpenClassroomAnytime(session))
     .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))
     .slice(0, UPCOMING_LIMIT);
 
@@ -173,7 +174,9 @@ export default function ClassroomDetail() {
             ) : (
               <ul className="divide-y divide-ink-200">
                 {upcoming.map((session) => {
-                  const joinNow = session.phase === 'live' || session.phase === 'soon';
+                  const joinNow = canJoinOpenClassroomAnytime(session)
+                    || session.phase === 'live'
+                    || session.phase === 'soon';
                   return (
                     <li key={session.id} className="flex items-center justify-between gap-3 px-5 py-3">
                       <div className="min-w-0">

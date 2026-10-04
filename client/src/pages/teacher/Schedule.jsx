@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, CalendarX, Clock3, MessageSquareText, Pencil, Plus, Repeat, UsersRound, Video } from 'lucide-react';
+import { Banknote, CalendarDays, CalendarX, Clock3, MessageSquareText, Pencil, Plus, Repeat, UsersRound, Video } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ActionMenu from '../../components/common/ActionMenu.jsx';
 import Alert from '../../components/common/Alert.jsx';
@@ -16,12 +16,14 @@ import { PageLoader } from '../../components/common/Spinner.jsx';
 import { inputClass, labelClass, SelectField } from '../../components/common/TextField.jsx';
 import { classroomService } from '../../services/classroom.service.js';
 import { sessionService } from '../../services/session.service.js';
+import { formatAmount } from '../../utils/format.js';
 import { useAuth } from '../../hooks/useAuth.js';
 import { useNow } from '../../hooks/useNow.js';
 import { ROLES } from '../../utils/roles.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { addDays, dateInputToDate, dateInputValue, periodParams, startOfDay } from '../../utils/period.js';
 import {
+  canJoinOpenClassroomAnytime,
   formatTime,
   isJoinable,
   isSameLocalDay,
@@ -312,7 +314,9 @@ export default function TeacherSchedule() {
               <Card as="ul" className="divide-y divide-ink-200">
                 {day.sessions.map((session) => {
                   const cancelled = session.status === 'cancelled';
-                  const joinable = isJoinable(session.phase) || session.phase === 'closed';
+                  const joinable = isJoinable(session.phase)
+                    || session.phase === 'closed'
+                    || canJoinOpenClassroomAnytime(session);
                   const teacherNames = session.assignments?.teachers?.map((teacher) => teacher.name ?? 'Teacher').join(', ');
                   // Teachers write feedback for lessons they taught, once the lesson has started.
                   const canGiveFeedback = !isAdmin
@@ -332,6 +336,14 @@ export default function TeacherSchedule() {
                           <p className={`truncate text-sm font-medium ${cancelled ? 'text-ink-500' : 'text-ink-900'}`}>{session.title}</p>
                           {session.phase !== 'upcoming' && (
                             <Badge tone={PHASE_TONES[session.phase]}>{PHASE_LABELS[session.phase]}</Badge>
+                          )}
+                          {session.rate !== null && session.rate !== undefined && (
+                            <span
+                              className="inline-flex items-center gap-1 text-xs text-ink-500"
+                              title="What this class pays for a full session"
+                            >
+                              <Banknote className="size-3" aria-hidden="true" /> {formatAmount(session.rate)}
+                            </span>
                           )}
                           {session.seriesId && (
                             <span className="inline-flex items-center gap-1 text-xs text-ink-500" title="Part of a weekly series">
@@ -492,11 +504,14 @@ function EditSessionForm({ session, seriesSessions, onCancel, onSave }) {
     const date = new Date(value);
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   };
+  const minDate = localDate(new Date());
   const localTime = (value) => {
     const date = new Date(value);
     return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
   };
   const [title, setTitle] = useState(session.title);
+  // Empty means "pay the school/class rate"; a number is what this class pays.
+  const [rate, setRate] = useState(session.sessionRate ?? '');
   const [date, setDate] = useState(localDate(start));
   const [startTime, setStartTime] = useState(localTime(start));
   const [endTime, setEndTime] = useState(localTime(end));
@@ -510,15 +525,25 @@ function EditSessionForm({ session, seriesSessions, onCancel, onSave }) {
       setError('Enter a title and an end time after the start.');
       return;
     }
+    if (rate !== '' && (!Number.isFinite(Number(rate)) || Number(rate) < 0)) {
+      setError('Enter a class rate of zero or more, or leave it empty.');
+      return;
+    }
     const startsAt = new Date(`${date}T${startTime}`);
     const endsAt = new Date(`${date}T${endTime}`);
-    if (endsAt <= startsAt) {
-      setError('Set a valid session time.');
+    if (date < minDate || Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
+      setError('Choose today or a future date and set a valid session time.');
       return;
     }
     setSaving(true);
     try {
-      await onSave({ scope, title: title.trim(), startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() });
+      await onSave({
+        scope,
+        title: title.trim(),
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+        rate: rate === '' ? null : Number(rate),
+      });
     } catch (saveError) {
       setError(getErrorMessage(saveError, 'Unable to update session.'));
     } finally {
@@ -542,7 +567,7 @@ function EditSessionForm({ session, seriesSessions, onCancel, onSave }) {
         <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} className={inputClass(false, 'mt-1.5 font-normal')} required />
       </label>
       <label className={labelClass}>Date
-        <input type="date" value={date} disabled={scope === 'series'} onChange={(event) => setDate(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
+        <input type="date" min={minDate} value={date} disabled={scope === 'series'} onChange={(event) => setDate(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
       </label>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className={labelClass}>Starts
@@ -550,6 +575,20 @@ function EditSessionForm({ session, seriesSessions, onCancel, onSave }) {
         </label>
         <label className={labelClass}>Ends
           <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className={inputClass(false, 'mt-1.5 font-normal')} required />
+        </label>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className={labelClass}>Class rate
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={rate}
+            onChange={(event) => setRate(event.target.value)}
+            placeholder="Class or school rate"
+            title="What this class pays for the whole session. Leave empty to follow the teacher's individual rate or the school rate."
+            className={inputClass(false, 'mt-1.5 font-normal')}
+          />
         </label>
       </div>
       {scope === 'series' && seriesSessions.length > 0 && (
@@ -568,6 +607,8 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
   const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const [classroomId, setClassroomId] = useState(classrooms[0]?.id ?? '');
   const [title, setTitle] = useState('');
+  // Empty means "pay the school rate"; a number is what this class pays for a full session.
+  const [rate, setRate] = useState('');
   const [mode, setMode] = useState('single');
   const [date, setDate] = useState(localDate);
   const [startDate, setStartDate] = useState(localDate);
@@ -597,7 +638,9 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
         : !included.teachers.length ? 'This classroom has no active teacher. Ask an administrator to assign one.'
           : !startTime || !endTime ? 'Set a start and an end time.'
             : startTime >= endTime ? 'The end time must be after the start time, on the same day.'
-              : '';
+              : rate !== '' && (!Number.isFinite(Number(rate)) || Number(rate) < 0)
+                ? 'Enter a class rate of zero or more, or leave it empty.'
+                : '';
     if (problem) {
       setError(problem);
       return;
@@ -606,8 +649,8 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
     if (mode === 'single') {
       const startsAt = new Date(`${date}T${startTime}`);
       const endsAt = new Date(`${date}T${endTime}`);
-      if (Number.isNaN(startsAt.getTime()) || endsAt <= startsAt || startsAt <= new Date()) {
-        setError('Choose a future date and valid session times.');
+      if (date < localDate || Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
+        setError('Choose today or a future date and valid session times.');
         return;
       }
       values = {
@@ -615,15 +658,18 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
         title: title.trim(),
         startsAt: startsAt.toISOString(),
         endsAt: endsAt.toISOString(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        rate: rate === '' ? null : Number(rate),
       };
     } else {
-      if (startDate > endDate || !weekdays.length) {
-        setError('Choose a valid date range and at least one weekday.');
+      if (startDate < localDate || startDate > endDate || !weekdays.length) {
+        setError('Choose today or a future start date, a valid date range and at least one weekday.');
         return;
       }
       values = {
         classroomId, title: title.trim(), startDate, endDate, startTime, endTime, weekdays,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        rate: rate === '' ? null : Number(rate),
       };
     }
     setSaving(true);
@@ -644,6 +690,20 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
         <SelectField id="session-classroom" label="Classroom" value={classroomId} onChange={(event) => setClassroomId(event.target.value)} options={classrooms.map((room) => ({ value: room.id, label: room.name }))} />
         <label className={labelClass}>Session title
           <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder="e.g. Math – Fractions" className={inputClass(false, 'mt-1.5 font-normal')} required />
+        </label>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className={labelClass}>Class rate (optional)
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={rate}
+            onChange={(event) => setRate(event.target.value)}
+            placeholder="Class or school rate"
+            title="What this class pays for the whole session. Leave empty to follow the teacher's individual rate or the school rate."
+            className={inputClass(false, 'mt-1.5 font-normal')}
+          />
         </label>
       </div>
       <section aria-labelledby="session-included" className="rounded-lg border border-ink-200 bg-ink-50 px-4 py-3">

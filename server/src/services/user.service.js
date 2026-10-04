@@ -2,20 +2,8 @@ import { User } from '../models/User.js';
 import { disconnectUser } from '../realtime/connections.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { AppError } from '../utils/AppError.js';
+import { searchFilter } from '../utils/search.js';
 import { assertDeletable, leaveClassrooms } from './userLinks.service.js';
-
-const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/** Every word must match a name or the email, so "jane cruz" finds Jane Cruz. */
-function searchFilter(search) {
-  if (!search) return {};
-  return {
-    $and: search.split(/\s+/).map((word) => {
-      const pattern = new RegExp(escapeRegex(word), 'i');
-      return { $or: [{ firstName: pattern }, { lastName: pattern }, { email: pattern }] };
-    }),
-  };
-}
 
 async function findUserOrThrow(id) {
   const user = await User.findById(id);

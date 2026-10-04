@@ -16,8 +16,10 @@ import {
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { attendanceStatusForCheckIn } from '../utils/attendancePolicy.js';
+import { DEFAULT_SESSION_RATE, rateForClass } from '../utils/salary.js';
 import { env } from '../config/environment.js';
 import { fetchMeteredTurnIceServers } from './meteredTurn.service.js';
+import { defaultSessionRate } from './salary.service.js';
 
 function localDateTimeToUtc(date, time, timezone) {
   const [year, month, day] = date.split('-').map(Number);
@@ -65,6 +67,19 @@ function localDateAndTime(instant, timezone) {
     date: `${parts.year}-${parts.month}-${parts.day}`,
     time: `${parts.hour}:${parts.minute}`,
   };
+}
+
+function dateInTimezone(instant, timezone) {
+  try {
+    return localDateAndTime(instant, timezone).date;
+  } catch {
+    throw new AppError(400, 'Invalid timezone');
+  }
+}
+
+function assertScheduleDateNotPast(date, timezone) {
+  const today = dateInTimezone(new Date(), timezone);
+  if (date < today) throw new AppError(400, 'Sessions cannot be scheduled on a past date');
 }
 
 function occurrenceDates(data) {
@@ -127,22 +142,24 @@ export async function createSessions(data, { actor, ipAddress }) {
   let entries;
   let seriesId = null;
   if (data.startsAt) {
+    const timezone = data.timezone ?? 'UTC';
+    assertScheduleDateNotPast(dateInTimezone(data.startsAt, timezone), timezone);
     if (data.endsAt <= data.startsAt) throw new AppError(400, 'End time must be after start time');
     entries = [{ startsAt: data.startsAt, endsAt: data.endsAt }];
   } else {
-    try {
-      new Intl.DateTimeFormat('en-US', { timeZone: data.timezone });
-    } catch {
-      throw new AppError(400, 'Invalid timezone');
-    }
+    assertScheduleDateNotPast(data.startDate, data.timezone);
     entries = occurrenceDates(data);
     seriesId = randomUUID();
   }
+  // The rate is fixed when the class is scheduled, so a later change to the school
+  // rate does not rewrite what an already-scheduled class pays.
+  const rate = data.rate ?? await defaultSessionRate();
   const sessions = await ClassSession.insertMany(entries.map(({ startsAt, endsAt }) => ({
     classroom: classroom._id,
     assignedTeachers: teacherIds,
     assignedStudents: studentIds,
     title: data.title,
+    rate,
     startsAt,
     endsAt,
     seriesId,
@@ -158,10 +175,10 @@ export async function createSessions(data, { actor, ipAddress }) {
   });
   const created = await ClassSession.find({ _id: { $in: sessions.map((session) => session._id) } })
     .sort({ startsAt: 1 })
-    .populate('classroom', 'name openAccess')
+    .populate('classroom', 'name openAccess sessionRate')
     .populate('assignedTeachers', 'firstName lastName')
     .populate('assignedStudents', 'firstName lastName email');
-  return created.map((session) => sessionResult(session, actor));
+  return created.map((session) => sessionResult(session, actor, rate));
 }
 
 async function ensureAbsences(session) {
@@ -199,10 +216,19 @@ async function ensureAbsences(session) {
   }
 }
 
-function sessionResult(session, user) {
+/**
+ * `defaultRate` is what a class pays when the session has no rate of its own.
+ * Only administrators and the class's own teachers see it.
+ */
+function sessionResult(session, user, defaultRate = null) {
   const attendance = session.attendance.find(
     (entry) => String(entry.participant?._id ?? entry.participant ?? entry.student?._id ?? entry.student) === String(user._id),
   );
+  // Joining starts the clock and leaving stops it, so a visit still in progress counts now.
+  const inRoomNow = attendance?.activeSince
+    ? Math.max(0, Math.min(Date.now(), session.endsAt.getTime()) - attendance.activeSince.getTime())
+    : 0;
+  const canSeeRate = canManageSession(session, user);
   return {
     id: String(session._id),
     classroom: {
@@ -240,9 +266,22 @@ function sessionResult(session, user) {
           status: attendance.status,
           checkInAt: attendance.checkInAt ?? null,
           leftAt: attendance.leftAt ?? null,
-          durationMs: attendance.durationMs ?? 0,
+          durationMs: (attendance.durationMs ?? 0) + inRoomNow,
+          inRoom: Boolean(attendance.activeSince),
         }
       : { status: missedSession(session, user) ? 'absent' : null, checkInAt: null },
+    // What this class pays the viewer: their individual rate, the rate on this
+    // class, the classroom's rate, or the school default. Hidden from everyone else.
+    rate: canSeeRate
+      ? rateForClass({
+        teacherRate: user.role === 'teacher' ? (user.sessionRate ?? null) : null,
+        sessionRate: session.rate ?? null,
+        classroomRate: session.classroom?.sessionRate ?? null,
+        defaultRate: defaultRate ?? DEFAULT_SESSION_RATE,
+      })
+      : null,
+    // The rate set on this class itself, for editing; null follows the rules above.
+    sessionRate: canSeeRate ? (session.rate ?? null) : null,
   };
 }
 
@@ -308,11 +347,12 @@ export async function listSessions(user, { view, from, to, classroomId } = {}) {
     ...(to && { startsAt: { $lt: to } }),
     ...(classroomId && { classroom: classroomId }),
   };
+  const defaultRate = await defaultSessionRate();
   const sessions = await ClassSession.find({ $and: [filter, period] })
     .sort({ startsAt: 1 })
     .populate({
       path: 'classroom',
-      select: 'name openAccess teacher teachers students',
+      select: 'name openAccess sessionRate teacher teachers students',
       populate: [
         { path: 'teacher', select: 'firstName lastName' },
         { path: 'teachers', select: 'firstName lastName' },
@@ -321,13 +361,13 @@ export async function listSessions(user, { view, from, to, classroomId } = {}) {
     })
     .populate('assignedTeachers', 'firstName lastName')
     .populate('assignedStudents', 'firstName lastName email');
-  return { items: sessions.map((session) => sessionResult(session, user)) };
+  return { items: sessions.map((session) => sessionResult(session, user, defaultRate)) };
 }
 
 async function getSession(id) {
   const session = await ClassSession.findById(id).populate({
     path: 'classroom',
-    select: 'name teacher teachers students openAccess',
+    select: 'name teacher teachers students openAccess sessionRate',
     populate: [
       { path: 'teacher', select: 'firstName lastName' },
       { path: 'teachers', select: 'firstName lastName' },
@@ -701,6 +741,9 @@ export async function updateSession(id, changes, user, { ipAddress }) {
     throw new AppError(400, 'This session does not belong to a recurring series');
   }
   const timezone = session.timezone || 'UTC';
+  if (changes.scope === 'occurrence' && changes.startsAt) {
+    assertScheduleDateNotPast(dateInTimezone(changes.startsAt, timezone), timezone);
+  }
   const startClock = changes.startsAt ? localDateAndTime(changes.startsAt, timezone).time : null;
   const endClock = changes.endsAt ? localDateAndTime(changes.endsAt, timezone).time : null;
   for (const occurrence of matches) {
@@ -708,6 +751,8 @@ export async function updateSession(id, changes, user, { ipAddress }) {
     if (changes.attendanceConditionEnabled !== undefined) {
       occurrence.attendanceConditionEnabled = changes.attendanceConditionEnabled;
     }
+    // `null` puts the class back on the school's default rate.
+    if (changes.rate !== undefined) occurrence.rate = changes.rate;
     if (changes.scope === 'occurrence') {
       if (changes.startsAt) occurrence.startsAt = changes.startsAt;
       if (changes.endsAt) occurrence.endsAt = changes.endsAt;
@@ -731,10 +776,11 @@ export async function updateSession(id, changes, user, { ipAddress }) {
     description: `${user.fullName} updated ${matches.length} session occurrence(s)`,
     ipAddress,
   });
+  const defaultRate = await defaultSessionRate();
   const updated = await ClassSession.find({ _id: { $in: matches.map((item) => item._id) } })
     .sort({ startsAt: 1 })
-    .populate('classroom', 'name');
-  return { items: updated.map((item) => sessionResult(item, user)) };
+    .populate('classroom', 'name sessionRate');
+  return { items: updated.map((item) => sessionResult(item, user, defaultRate)) };
 }
 
 export async function cancelSession(id, scope, user, { ipAddress }) {
@@ -759,8 +805,9 @@ export async function cancelSession(id, scope, user, { ipAddress }) {
     description: `${user.fullName} cancelled ${scope === 'series' ? 'a session series' : 'a session occurrence'}`,
     ipAddress,
   });
+  const defaultRate = await defaultSessionRate();
   const cancelled = await ClassSession.find({ ...filter, status: 'cancelled' })
     .sort({ startsAt: 1 })
-    .populate('classroom', 'name');
-  return { items: cancelled.map((occurrence) => sessionResult(occurrence, user)) };
+    .populate('classroom', 'name sessionRate');
+  return { items: cancelled.map((occurrence) => sessionResult(occurrence, user, defaultRate)) };
 }

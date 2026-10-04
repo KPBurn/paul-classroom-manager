@@ -41,4 +41,6 @@ export const registerSchema = z.object({
   password: passwordSchema,
   role: z.enum(USER_ROLES).default('teacher'),
   status: z.enum(USER_STATUSES).default('active'),
+  // What a teacher is paid per class; only administrators create accounts.
+  sessionRate: z.number().min(0).max(1_000_000).nullable().optional(),
 });

@@ -8,12 +8,16 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
 });
 const time = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
 const instant = z.string().datetime({ offset: true }).transform((value) => new Date(value));
+// What the class pays a teacher for the whole session; `null` uses the school default.
+const rate = z.number().min(0).max(1_000_000).nullable().optional();
 
 const oneTime = z.object({
   classroomId: objectId,
   title,
   startsAt: instant,
   endsAt: instant,
+  timezone: z.string().min(1).max(100).optional(),
+  rate: rate,
 }).strict().refine((data) => data.endsAt > data.startsAt, {
   path: ['endsAt'],
   message: 'End time must be after start time',
@@ -28,6 +32,7 @@ const recurring = z.object({
   endTime: time,
   weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
   timezone: z.string().min(1).max(100),
+  rate: rate,
 }).strict().refine((data) => data.endDate >= data.startDate, {
   path: ['endDate'],
   message: 'End date must be on or after start date',
@@ -61,6 +66,7 @@ export const sessionUpdateSchema = z.object({
   startsAt: instant.optional(),
   endsAt: instant.optional(),
   attendanceConditionEnabled: z.boolean().optional(),
+  rate: rate,
 }).strict().refine((data) => Object.keys(data).some((key) => key !== 'scope'), 'At least one field is required')
   .refine((data) => Boolean(data.startsAt) === Boolean(data.endsAt), {
     path: ['endsAt'],

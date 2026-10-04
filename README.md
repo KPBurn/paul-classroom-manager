@@ -21,7 +21,7 @@ server/   Express REST API — the only thing that talks to MongoDB
 | 2     | Authentication, password hashing, JWT, RBAC, protected routes        | ✅ Done |
 | 3     | Admin dashboard and CRUD (users, students, classrooms, …)        | Users and multiple-teacher classroom assignments done; admin subject management, competencies, activity logs and reporting remain |
 | 4     | Teacher modules (classrooms, subjects, students, schedule, assessments, scores) | Teachers can create subjects for assigned classrooms and share scheduled materials; assessments and scores remain |
-| 5     | Salary configuration and calculation                                  | Not started |
+| 5     | Salary configuration and calculation                                  | ✅ Done (class rate, daily/weekly/monthly earnings, withdrawals) |
 | 6     | Security hardening                                                    | Partly done (see below) |
 | 7     | Testing                                                               | Auth, users, announcements, classrooms, scheduling and attendance covered |
 | 8     | Deployment                                                            | Configured (GitHub Pages + Render) |
@@ -30,7 +30,7 @@ Sidebar links for modules that are not built yet open a "Not built yet" page.
 
 Scheduling a class updates the classroom's ongoing teacher and student assignments. Each scheduled session also stores an assignment snapshot, so later classroom roster changes do not rewrite the participants for existing sessions or attendance history.
 
-Attendance is recorded automatically when teachers and students join a session room during its scheduled time, including arrival status and time attended; assigned people who never join are marked absent after the session ends. Open classrooms also add participant join and leave notices to the room chat.
+Attendance is recorded automatically when teachers and students join a session room during its scheduled time, including arrival status and time attended; assigned people who never join are marked absent after the session ends. Joining starts the record and leaving stops it, so every class on the student dashboard shows when the student joined, when they left and how long they were in class, and the dashboard totals that time for the last 30 days. Open classrooms also add participant join and leave notices to the room chat.
 
 ### Teacher's feedback
 
@@ -128,7 +128,7 @@ After that, every push to `master` that changes `client/` redeploys the site (`.
 
 **Server** (`server/.env`): `PORT`, `NODE_ENV`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN` (default `1d`), `CLIENT_URL` (comma-separated allowed origins), `TRUST_PROXY` (set to `1` behind Render/Railway/Nginx), `WEBRTC_ICE_SERVERS` (optional JSON array with STUN/TURN definitions), `METERED_TURN_HOST` and `METERED_TURN_API_KEY` (configure both with the TURN domain and the API key for an active TURN credential), `SEED_*`. The Metered TURN API key is never sent to the browser; only the ICE server credentials needed by authenticated room participants are returned. When TURN is configured, classroom media uses relay-only ICE to work through restrictive networks; this relays media traffic through the TURN provider and counts against its quota. Without TURN credentials, rooms use normal ICE and show a warning because direct connections can fail on restrictive networks.
 
-**Client** (`client/.env`): `VITE_API_URL` only. Everything in the client bundle is public, so database credentials and JWT secrets must never go there.
+**Client** (`client/.env` or local-only `client/.env.local`): `VITE_API_URL` only. For local development, use `http://localhost:5050/api`. Everything in the client bundle is public, so database credentials and JWT secrets must never go there.
 
 ## API
 
@@ -152,7 +152,7 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | GET    | `/api/users`         | `users:read`   | List users. Query: `page`, `limit` (≤ 100), `search` (name or email), `role`, `status`. Sorted by last name |
 | POST   | `/api/users`         | `users:create` | Create a user `{ firstName, lastName, email, password, role?, status? }` |
 | GET    | `/api/users/:id`     | `users:read`   | One user                                               |
-| PATCH  | `/api/users/:id`     | `users:update` | Change any of `{ firstName, lastName, email, role, status }` |
+| PATCH  | `/api/users/:id`     | `users:update` | Change any of `{ firstName, lastName, email, role, status, sessionRate }`. `sessionRate` is a teacher's individual rate per class; `null` follows the class's rate |
 | PUT    | `/api/users/:id/password` | `users:update` | `{ password }`. Signs the user out of every session |
 | DELETE | `/api/users/:id`     | `users:delete` | Delete a user. Refused for users who created announcements; deactivate them instead |
 | GET    | `/api/announcements` | `announcements:read` | School-wide announcements, newest first. Query: `page`, `limit`, `status` (`active` or `archived`; archived needs `announcements:update`) |
@@ -164,8 +164,8 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | GET    | `/api/classrooms/:id` | Admin; assigned teacher; enrolled student | One classroom, shaped the same way as the list |
 | GET    | `/api/classrooms/:id/announcements` | Admin; assigned teacher; enrolled student | Classroom announcements. Query: `page`, `limit`, `status` (archived for teachers and admins only) |
 | POST   | `/api/classrooms/:id/announcements` | Admin; assigned teacher | Post `{ title, body, type }` to an active classroom |
-| POST   | `/api/classrooms` | Admin | Create `{ name, teacherId, studentIds }` with active assigned users |
-| PATCH  | `/api/classrooms/:id` | Admin | Update classroom name or assignments |
+| POST   | `/api/classrooms` | Admin | Create `{ name, teacherId, studentIds }` with active assigned users, plus optional `sessionRate` (what the class pays for a full session) |
+| PATCH  | `/api/classrooms/:id` | Admin | Update classroom name, assignments or `sessionRate` (`null` follows the school rate) |
 | POST   | `/api/classrooms/:id/archive` | Admin | Archive a classroom without deleting its history |
 | GET    | `/api/sessions` | Teacher | List sessions in teacher-assigned classrooms |
 | GET    | `/api/sessions?view=mine` | Student | List sessions in the student's classrooms |
@@ -181,6 +181,12 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | GET    | `/api/feedback/:id` | Author; lesson teachers; admin | One feedback record |
 | POST   | `/api/feedback` | Lesson teacher | Create `{ sessionId, studentId, ...content, status: "draft" \| "completed" }` |
 | PATCH  | `/api/feedback/:id` | Author | Update content or submit with `status: "completed"` |
+| GET    | `/api/salary/summary` | Teacher (own); admin with `teacherId` | Earnings for one teacher: `totals` (today, week, month, lifetime), `balance`, `buckets` and the period's `classes`. Query: `teacherId` (required for admins), `from`, `to`, `timezone`, `granularity` (`day` \| `week` \| `month`) |
+| GET    | `/api/salary/teachers` | Admin | Every teacher with period totals, lifetime earnings, minutes attended and balance. Query: `page`, `limit`, `search`, `timezone`, `from`, `to` |
+| GET    | `/api/salary/withdrawals` | Teacher (own); admin (all) | Withdrawal requests. Query: `page`, `limit`, `status`, `teacherId` (admin) |
+| POST   | `/api/salary/withdrawals` | Teacher | Request `{ amount, method?, note? }`; refused above the available balance |
+| PATCH  | `/api/salary/withdrawals/:id` | Admin | Decide `{ status: "approved" \| "rejected", reviewNote? }` |
+| DELETE | `/api/salary/withdrawals/:id` | Own request; admin | Cancel a request that is still pending |
 
 Recurring schedule date ranges are inclusive; `weekdays` uses JavaScript day numbers (`0` Sunday through `6` Saturday) and `timezone` is an IANA timezone. Editing an occurrence replaces its date and times; editing a series applies the selected occurrence's local start/end clock times and title while retaining each occurrence's date. Each session's attendance condition is on by default: check-ins through the first five minutes are present, later in-session check-ins are late, and students who never check in are absent after the session ends. Teachers can turn conditions off for an occurrence; check-ins are still limited to the scheduled session, but all students who check in during it are present regardless of arrival time. Check-in is idempotent. Ended sessions are marked absent when sessions or attendance are read.
 
@@ -189,6 +195,23 @@ Recurring schedule date ranges are inclusive; `weekdays` uses JavaScript day num
 Teachers and assigned students can open a session room for persistent group chat, participant presence, microphone mute/unmute, camera video, screen sharing, and file sharing. Standard rooms are capped at 12 participants. Administrators can designate an **open classroom**, whose rooms allow any signed-in active account and are capped at 20 participants. The assigned teacher can independently enable or disable screen sharing and file uploads; the server enforces both settings for every participant. Room files are limited to 8 MB and are removed when the session ends or is cancelled. Chat and temporary file data are stored in MongoDB; live media is sent directly between browsers over a peer-to-peer WebRTC mesh, while the Express server authenticates participants and relays signaling over Socket.IO. The room defaults to a public STUN server; configure Metered Open Relay or `WEBRTC_ICE_SERVERS` with TURN server definitions to support restrictive school/firewall networks. The Metered API key stays server-side and provider-issued ICE credentials are returned only to authenticated room participants. Larger meshes can use significant device/network resources. Microphone, camera, and screen sharing require browser permission and HTTPS (localhost is allowed for development). The Render API must allow the GitHub Pages origin in `CLIENT_URL`; `render.yaml` includes the deployed Pages origin.
 
 Teachers of a session (and admins) can moderate its room from the People tab: mute a student or everyone, remove a participant (who cannot rejoin that session until a teacher allows them back), and, from the Leave button, end the class for everyone. An ended class stays closed to students until a teacher reopens it from the room. Removals and ended classes are stored on the session, so they survive server restarts. Teachers and admins cannot be moderated.
+
+### Salary and withdrawals
+
+A class pays its teacher a rate. The rate is resolved for the teacher being paid, from the most specific down:
+
+1. the teacher's **individual rate** (`sessionRate` on the user), assigned by an administrator on the teacher's account in **Users**;
+2. the **rate on that scheduled class**, set while scheduling or editing it;
+3. the **classroom's rate** (`sessionRate` on the classroom), assigned by an administrator when creating or editing the class;
+4. the **school default** (`defaultSessionRate` in **System Settings**, `100`).
+
+Two teachers on the same class can therefore earn different amounts, and changing the school default never rewrites what an already-scheduled class pays. The schedule shows the rate that applies to whoever is looking at it: a teacher sees their own rate, an administrator sees the class's. Students always get `null`.
+
+A class pays its whole rate when the teacher is in the room for the full scheduled duration. Joining the session room starts the clock and leaving stops it, so a shorter visit earns the same rate pro rata, a visit still in progress earns time as it passes, and a class nobody attended pays nothing. Cancelled classes pay nothing.
+
+Earnings are grouped on the browser's calendar (the `timezone` query parameter, default `UTC`), so an evening class belongs to that day instead of to the next one in UTC. **Salary** (teacher) shows today, this week, this month and what is available to take out, with a daily/weekly/monthly breakdown of the classes behind those numbers. **Salaries** (admin) shows the same totals for every teacher and lets an administrator approve or reject a withdrawal request with a note. A request holds its amount back from the moment it is made: `available = earned − withdrawn − pending`. Teachers can cancel a request while it is waiting for approval.
+
+While a class is being presented, the feeds are docked in a row along the **bottom** of the shared screen rather than in a column beside it, so the presentation keeps the whole width of a wide screen and no feed covers the content. A floating **Feeds** menu in the corner of the stage shows or hides that row and switches between small and large tiles; it changes only your own view. The row lists students first, then other teachers, then yourself.
 
 ### Authentication and authorization (RBAC)
 
@@ -226,17 +249,17 @@ server/src/
   config/        environment.js (validated env), database.js, permissions.js (RBAC map)
   controllers/   thin HTTP handlers
   middleware/    auth, role/permission, validation, sanitize, rate limit, error
-  models/        Mongoose schemas (User, Announcement, ActivityLog, Classroom, Subject, SubjectMaterial, ClassSession, SessionMessage)
+  models/        Mongoose schemas (User, Announcement, ActivityLog, Classroom, Subject, SubjectMaterial, ClassSession, SessionMessage, SalaryWithdrawal)
   realtime/      authenticated Socket.IO room presence, chat, and WebRTC signaling
   routes/        route definitions, mounted under /api
-  services/      business logic (auth, user, announcement, subject materials)
-  utils/         jwt, password, AppError, apiResponse, activityLogger
+  services/      business logic (auth, user, announcement, subject materials, salary)
+  utils/         jwt, password, AppError, apiResponse, activityLogger, salary, timezone, search
   validators/    Zod request schemas
   scripts/       seed.js
 server/tests/    node:test + supertest suites
 
 client/src/
-  components/    common (Button, TextField, Alert…), navigation (Sidebar, Topbar, DashboardLayout), dashboard
+  components/    common (Button, TextField, Alert…), navigation (Sidebar, Topbar, DashboardLayout), dashboard, room (ParticipantTile, ClassMonitor, PresentFeed), salary (EarningsBreakdown, WithdrawalList)
   config/        navigation.js — sidebar structure per portal
   context/       AuthContext (session state)
   hooks/         useAuth

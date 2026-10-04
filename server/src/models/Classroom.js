@@ -6,6 +6,9 @@ const classroomSchema = new mongoose.Schema(
     teacher: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     teachers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     students: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    // What this class pays a teacher who is in the room for the whole session.
+    // Administrators assign it; a teacher's individual rate is used instead when set.
+    sessionRate: { type: Number, default: null, min: 0 },
     openAccess: { type: Boolean, default: false, required: true },
     status: { type: String, enum: ['active', 'archived'], default: 'active', required: true },
   },

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, ChevronDown, Pencil, Plus, School } from 'lucide-react';
+import { Archive, Banknote, ChevronDown, Pencil, Plus, School } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Alert, { ErrorState } from '../../components/common/Alert.jsx';
 import Badge from '../../components/common/Badge.jsx';
@@ -11,22 +11,26 @@ import { FilterSelect, ListToolbar, matchesSearch, SearchInput } from '../../com
 import Modal, { ModalActions } from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import PeoplePicker from '../../components/common/PeoplePicker.jsx';
-import TextField from '../../components/common/TextField.jsx';
+import TextField, { SelectField } from '../../components/common/TextField.jsx';
 import { classroomService } from '../../services/classroom.service.js';
 import { userService } from '../../services/user.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { formatAmount } from '../../utils/format.js';
 
 const STATUS_OPTIONS = [
   { value: 'active', label: 'Active classrooms' },
   { value: 'archived', label: 'Archived' },
   { value: 'all', label: 'All statuses' },
 ];
+const CLASSROOM_TYPE_OPTIONS = [
+  { value: 'standard', label: 'Standard Classroom' },
+  { value: 'open', label: 'Open Classroom' },
+];
 const TYPE_OPTIONS = [
   { value: '', label: 'All types' },
-  { value: 'standard', label: 'Standard' },
-  { value: 'open', label: 'Open classrooms' },
+  ...CLASSROOM_TYPE_OPTIONS,
 ];
-const NEW_CLASSROOM = { name: '', teacherIds: [], studentIds: [], openAccess: false };
+const NEW_CLASSROOM = { name: '', teacherIds: [], studentIds: [], type: 'standard', sessionRate: '' };
 
 const personName = (person) => person.name ?? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim();
 const teachersOf = (classroom) => (classroom.teachers?.length
@@ -77,7 +81,9 @@ export default function Classrooms() {
         name: values.name.trim(),
         teacherIds: values.teacherIds,
         studentIds: values.studentIds,
-        openAccess: values.openAccess,
+        openAccess: values.type === 'open',
+        // Empty means "whatever the school rate is"; a number is this class's rate.
+        sessionRate: values.sessionRate === '' ? null : Number(values.sessionRate),
       };
       if (form.id) await classroomService.update(form.id, changes);
       else await classroomService.create(changes);
@@ -106,7 +112,8 @@ export default function Classrooms() {
     name: classroom.name,
     teacherIds: teachersOf(classroom).map((teacher) => teacher.id ?? teacher),
     studentIds: classroom.students?.map((student) => student.id ?? student) ?? [],
-    openAccess: classroom.openAccess ?? false,
+    type: classroom.openAccess ? 'open' : 'standard',
+    sessionRate: classroom.sessionRate ?? '',
   });
 
   const shown = classrooms.filter((classroom) => (
@@ -202,6 +209,14 @@ export default function Classrooms() {
                       <span className={`truncate font-medium ${archived ? 'text-ink-500' : 'text-ink-900'}`}>{classroom.name}</span>
                       {classroom.openAccess && <Badge tone="warning">Open</Badge>}
                       {archived && <Badge>Archived</Badge>}
+                      {classroom.sessionRate != null && (
+                        <span
+                          className="inline-flex items-center gap-1 text-xs tabular-nums text-ink-500"
+                          title="What this class pays a teacher for the whole session"
+                        >
+                          <Banknote className="size-3" aria-hidden="true" /> {formatAmount(classroom.sessionRate)}
+                        </span>
+                      )}
                     </div>
                     <p className="truncate text-sm text-ink-600" title={teachersOf(classroom).map(personName).join(', ')}>
                       <span className="text-ink-500 md:hidden">Teachers: </span>
@@ -283,7 +298,9 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
   const [name, setName] = useState(initial.name);
   const [teacherIds, setTeacherIds] = useState(initial.teacherIds || (initial.teacherId ? [initial.teacherId] : []));
   const [studentIds, setStudentIds] = useState(initial.studentIds || []);
-  const [openAccess, setOpenAccess] = useState(initial.openAccess ?? false);
+  const [type, setType] = useState(initial.type ?? (initial.openAccess ? 'open' : 'standard'));
+  // Empty means "whatever the school rate is"; a number is this class's rate.
+  const [sessionRate, setSessionRate] = useState(initial.sessionRate ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
@@ -294,19 +311,24 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
     const problems = {};
     if (!name.trim()) problems.name = 'Enter a classroom name.';
     if (teacherIds.length === 0) problems.teachers = 'Assign at least one teacher.';
+    if (sessionRate !== '' && (!Number.isFinite(Number(sessionRate)) || Number(sessionRate) < 0)) {
+      problems.sessionRate = 'Enter a rate of zero or more, or leave it empty.';
+    }
     setFieldErrors(problems);
     if (Object.keys(problems).length > 0) {
       // Move focus to the first field that needs attention.
       const target = problems.name
         ? formRef.current?.querySelector('#classroom-name')
-        : formRef.current?.querySelector('[data-picker="teachers"] input');
+        : problems.sessionRate
+          ? formRef.current?.querySelector('#classroom-rate')
+          : formRef.current?.querySelector('[data-picker="teachers"] input');
       target?.focus();
       return;
     }
     setSaving(true);
     setError('');
     try {
-      await onSave({ name, teacherIds, studentIds, openAccess });
+      await onSave({ name, teacherIds, studentIds, type, sessionRate });
     } catch (saveError) {
       setError(getErrorMessage(saveError, 'Unable to save classroom.'));
     } finally {
@@ -333,22 +355,38 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
             setFieldErrors((current) => ({ ...current, name: undefined }));
           }}
         />
-        <label
-          className={`flex h-10.5 items-center gap-2.5 rounded-lg border px-3 text-sm font-medium transition sm:mt-6.5 ${openAccess ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-ink-300 bg-white text-ink-700 hover:border-ink-400'}`}
-          title="Any signed-in active account can join its session rooms (up to 20 participants)."
-        >
-          <input
-            type="checkbox"
-            checked={openAccess}
-            onChange={(event) => setOpenAccess(event.target.checked)}
-            className="size-4"
-          />
-          Open classroom
-        </label>
+        <SelectField
+          id="classroom-type"
+          label="Classroom type"
+          value={type}
+          onChange={(event) => setType(event.target.value)}
+          options={CLASSROOM_TYPE_OPTIONS}
+          className="sm:mt-6.5"
+        />
       </div>
-      {openAccess && (
+      {type === 'open' && (
         <p className="-mt-2 text-xs text-amber-800">Any signed-in active account can join this classroom’s session rooms. Open rooms support up to 20 participants.</p>
       )}
+      <div className="max-w-xs">
+        <TextField
+          id="classroom-rate"
+          label="Rate per class (optional)"
+          type="number"
+          min="0"
+          step="0.01"
+          value={sessionRate}
+          placeholder="School rate"
+          title="What a teacher is paid for teaching this class for the whole session. Leave empty to use the school rate."
+          error={fieldErrors.sessionRate}
+          onChange={(event) => {
+            setSessionRate(event.target.value);
+            setFieldErrors((current) => ({ ...current, sessionRate: undefined }));
+          }}
+        />
+        <p className="mt-1.5 text-xs text-ink-500">
+          Paid for the whole session; a shorter visit earns it pro rata. A teacher’s individual rate is used instead when they have one.
+        </p>
+      </div>
       <div className="grid gap-4 md:grid-cols-2">
         <PeoplePicker
           label="Teachers"

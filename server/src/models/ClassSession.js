@@ -20,6 +20,9 @@ const classSessionSchema = new mongoose.Schema(
     assignedTeachers: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], default: undefined },
     assignedStudents: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], default: undefined },
     title: { type: String, required: true, trim: true, maxlength: 120 },
+    // What this class pays its teachers for the whole session; taken from the school
+    // default when it is scheduled. `null` means "pay whatever the default is now".
+    rate: { type: Number, default: null, min: 0 },
     startsAt: { type: Date, required: true },
     endsAt: { type: Date, required: true },
     attendanceConditionEnabled: { type: Boolean, default: true, required: true },

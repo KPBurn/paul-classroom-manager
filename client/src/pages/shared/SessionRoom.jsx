@@ -34,6 +34,8 @@ import AudioOutput from '../../components/room/AudioOutput.jsx';
 import ClassMonitor from '../../components/room/ClassMonitor.jsx';
 import MicMeter from '../../components/room/MicMeter.jsx';
 import ParticipantTile, { initials } from '../../components/room/ParticipantTile.jsx';
+import PresentFeed from '../../components/room/PresentFeed.jsx';
+import { orderForPresenting } from '../../components/room/presentFeed.js';
 import { useSpeakingDetector } from '../../components/room/useSpeakingDetector.js';
 import VideoStage from '../../components/room/VideoStage.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
@@ -926,8 +928,8 @@ export default function SessionRoom() {
   // The class monitor is about the students: not the teachers, and not yourself.
   const monitorStudents = galleryParticipants.filter((participant) =>
     !participant.moderator && participant.id !== localParticipantId.current);
-  const cameraParticipants = galleryParticipants.filter((participant) =>
-    participant.stream || participant.cameraEnabled);
+  // Watching a presentation: students first, then teachers, then yourself.
+  const presentFeedParticipants = orderForPresenting(galleryParticipants, localParticipantId.current);
   const speakingParticipants = participants.filter((participant) => speakingParticipantIds.has(participant.id));
   const gridColumns = Math.min(
     Math.max(1, galleryParticipants.length),
@@ -1037,7 +1039,7 @@ export default function SessionRoom() {
       <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 md:flex-row">
         <section className="relative flex min-h-56 min-w-0 flex-1 overflow-hidden rounded-xl border border-ink-800 bg-ink-950">
           {screenSharerId ? (
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2 sm:flex-row">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2">
               <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-lg bg-black">
                 {sharedStream ? (
                   <VideoStage stream={sharedStream} label={sharer?.name ?? 'A participant'} />
@@ -1051,21 +1053,7 @@ export default function SessionRoom() {
                   </div>
                 )}
               </div>
-              {cameraParticipants.length > 0 && (
-                <div
-                  className="flex h-20 shrink-0 gap-2 overflow-x-auto sm:h-auto sm:w-40 sm:flex-col sm:overflow-x-visible sm:overflow-y-auto lg:w-48"
-                  aria-label="Participant cameras"
-                >
-                  {cameraParticipants.map((participant) => (
-                    <ParticipantTile
-                      key={participant.id}
-                      participant={participant}
-                      isLocal={participant.id === localParticipantId.current}
-                      size="strip"
-                    />
-                  ))}
-                </div>
-              )}
+              <PresentFeed participants={presentFeedParticipants} isLocalId={localParticipantId.current} />
             </div>
           ) : galleryParticipants.length > 0 ? (
             <div

@@ -71,7 +71,12 @@ export async function getClassroom(id, user) {
 
 export async function createClassroom(data, { actor, ipAddress }) {
   const assigned = await assignments(data);
-  const classroom = await Classroom.create({ name: data.name, openAccess: data.openAccess, ...assigned });
+  const classroom = await Classroom.create({
+    name: data.name,
+    openAccess: data.openAccess,
+    sessionRate: data.sessionRate ?? null,
+    ...assigned,
+  });
   await logActivity({
     actorId: actor._id,
     action: 'classroom.created',
@@ -93,6 +98,8 @@ export async function updateClassroom(id, data, { actor, ipAddress }) {
   const assigned = await assignments(data);
   if (data.name !== undefined) classroom.name = data.name;
   if (data.openAccess !== undefined) classroom.openAccess = data.openAccess;
+  // `null` puts the class back on the school rate.
+  if (data.sessionRate !== undefined) classroom.sessionRate = data.sessionRate;
   if (assigned.teachers) {
     classroom.teacher = assigned.teacher;
     classroom.teachers = assigned.teachers;

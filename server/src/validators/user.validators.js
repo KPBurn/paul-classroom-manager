@@ -26,6 +26,8 @@ export const updateUserSchema = z
     email: emailSchema,
     role: z.enum(USER_ROLES),
     status: z.enum(USER_STATUSES),
+    // What a teacher is paid for a class; only administrators assign it.
+    sessionRate: z.number().min(0).max(1_000_000).nullable(),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, 'Provide at least one field to update');
