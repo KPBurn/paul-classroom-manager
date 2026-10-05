@@ -15,6 +15,7 @@ import TextField from '../../components/common/TextField.jsx';
 import { classroomService } from '../../services/classroom.service.js';
 import { userService } from '../../services/user.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { daysOutsideAvailability, formatSchedule, formatTimeRange, sortSlots, WEEKDAYS } from '../../utils/schedule.js';
 
 const STATUS_OPTIONS = [
   { value: 'active', label: 'Active classrooms' },
@@ -26,7 +27,7 @@ const TYPE_OPTIONS = [
   { value: 'standard', label: 'Standard' },
   { value: 'open', label: 'Open classrooms' },
 ];
-const NEW_CLASSROOM = { name: '', teacherIds: [], studentIds: [], openAccess: false };
+const NEW_CLASSROOM = { name: '', subject: '', schedule: null, teacherIds: [], studentIds: [], openAccess: false };
 
 const personName = (person) => person.name ?? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim();
 const teachersOf = (classroom) => (classroom.teachers?.length
@@ -89,6 +90,8 @@ export default function Classrooms() {
     try {
       const changes = {
         name: values.name.trim(),
+        subject: values.subject.trim(),
+        schedule: values.schedule,
         teacherIds: values.teacherIds,
         studentIds: values.studentIds,
         openAccess: values.openAccess,
@@ -115,6 +118,8 @@ export default function Classrooms() {
   const openEdit = (classroom) => setForm({
     id: classroom.id,
     name: classroom.name,
+    subject: classroom.subject ?? '',
+    schedule: classroom.schedule ?? null,
     teacherIds: teachersOf(classroom).map((teacher) => teacher.id ?? teacher),
     studentIds: classroom.students?.map((student) => student.id ?? student) ?? [],
     openAccess: classroom.openAccess ?? false,
@@ -126,6 +131,7 @@ export default function Classrooms() {
     && matchesSearch(
       query,
       classroom.name,
+      classroom.subject,
       teachersOf(classroom).map(personName),
       (classroom.students ?? []).map(personName),
     )
@@ -141,7 +147,7 @@ export default function Classrooms() {
     <>
       <PageHeader
         title="Classrooms"
-        description="Create classrooms, assign one or more teachers, and manage each student roster."
+        description="Create a class for each subject, assign its teachers, choose its weekly schedule from the teacher’s availability, and manage each student roster."
         actions={
           <Button onClick={() => setForm(NEW_CLASSROOM)}>
             <Plus className="size-4" aria-hidden="true" />
@@ -156,7 +162,7 @@ export default function Classrooms() {
           label="Search classrooms"
           value={query}
           onChange={setQuery}
-          placeholder="Search by classroom, teacher or student"
+          placeholder="Search by classroom, subject, teacher or student"
           className="sm:w-80"
         />
         <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
@@ -209,10 +215,15 @@ export default function Classrooms() {
               return (
                 <li key={classroom.id}>
                   <div className="relative grid gap-1 px-5 py-3 pr-24 text-sm md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_9rem_5rem] md:items-center md:gap-4 md:pr-5">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className={`truncate font-medium ${archived ? 'text-ink-500' : 'text-ink-900'}`}>{classroom.name}</span>
-                      {classroom.openAccess && <Badge tone="warning">Open</Badge>}
-                      {archived && <Badge>Archived</Badge>}
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className={`truncate font-medium ${archived ? 'text-ink-500' : 'text-ink-900'}`}>{classroom.name}</span>
+                        {classroom.openAccess && <Badge tone="warning">Open</Badge>}
+                        {archived && <Badge>Archived</Badge>}
+                      </div>
+                      <p className="truncate text-xs text-ink-500">
+                        {[classroom.subject, formatSchedule(classroom.schedule, 'No schedule yet')].filter(Boolean).join(' · ')}
+                      </p>
                     </div>
                     <p className="truncate text-sm text-ink-600" title={teachersOf(classroom).map(personName).join(', ')}>
                       <span className="text-ink-500 md:hidden">Teachers: </span>
@@ -273,6 +284,7 @@ export default function Classrooms() {
           initial={form}
           teachers={teachers}
           students={students}
+          subjects={[...new Set(classrooms.map((classroom) => classroom.subject).filter(Boolean))].sort()}
           onCancel={() => setForm(null)}
           onSave={save}
         />}
@@ -290,8 +302,12 @@ export default function Classrooms() {
   );
 }
 
-function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
+function ClassroomForm({ initial, teachers, students, subjects, onCancel, onSave }) {
   const [name, setName] = useState(initial.name);
+  const [subject, setSubject] = useState(initial.subject ?? '');
+  const [weekdays, setWeekdays] = useState(initial.schedule?.weekdays ?? []);
+  const [startTime, setStartTime] = useState(initial.schedule?.startTime ?? '');
+  const [endTime, setEndTime] = useState(initial.schedule?.endTime ?? '');
   const [teacherIds, setTeacherIds] = useState(initial.teacherIds || (initial.teacherId ? [initial.teacherId] : []));
   const [studentIds, setStudentIds] = useState(initial.studentIds || []);
   const [openAccess, setOpenAccess] = useState(initial.openAccess ?? false);
@@ -300,24 +316,48 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
   const [fieldErrors, setFieldErrors] = useState({});
   const formRef = useRef(null);
 
+  // The class is scheduled inside the hours of its first teacher, as the server checks.
+  const leadTeacher = teachers.find((teacher) => teacher.id === teacherIds[0]);
+  const availability = sortSlots(leadTeacher?.availability ?? []);
+  const availableDays = new Set(availability.map((slot) => slot.weekday));
+  const schedule = weekdays.length ? { weekdays: [...weekdays].sort((a, b) => a - b), startTime, endTime } : null;
+
+  const scheduleProblem = () => {
+    if (!schedule) return undefined;
+    if (!startTime || !endTime || endTime <= startTime) return 'Enter a start time and a later end time.';
+    const outside = daysOutsideAvailability(schedule, availability);
+    return outside.length
+      ? `${leadTeacher ? personName(leadTeacher) : 'The teacher'} is not available on ${outside.map((day) => WEEKDAYS[day].label).join(', ')} at that time.`
+      : undefined;
+  };
+  const clearScheduleError = () => setFieldErrors((current) => ({ ...current, schedule: undefined }));
+  const toggleDay = (day) => {
+    setWeekdays((current) => (current.includes(day) ? current.filter((item) => item !== day) : [...current, day]));
+    clearScheduleError();
+  };
+
   const submit = async (event) => {
     event.preventDefault();
     const problems = {};
     if (!name.trim()) problems.name = 'Enter a classroom name.';
     if (teacherIds.length === 0) problems.teachers = 'Assign at least one teacher.';
+    const scheduleError = scheduleProblem();
+    if (scheduleError) problems.schedule = scheduleError;
     setFieldErrors(problems);
     if (Object.keys(problems).length > 0) {
       // Move focus to the first field that needs attention.
       const target = problems.name
         ? formRef.current?.querySelector('#classroom-name')
-        : formRef.current?.querySelector('[data-picker="teachers"] input');
+        : problems.teachers
+          ? formRef.current?.querySelector('[data-picker="teachers"] input')
+          : formRef.current?.querySelector('#classroom-start-time');
       target?.focus();
       return;
     }
     setSaving(true);
     setError('');
     try {
-      await onSave({ name, teacherIds, studentIds, openAccess });
+      await onSave({ name, subject, schedule, teacherIds, studentIds, openAccess });
     } catch (saveError) {
       setError(getErrorMessage(saveError, 'Unable to save classroom.'));
     } finally {
@@ -360,6 +400,22 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
       {openAccess && (
         <p className="-mt-2 text-xs text-amber-800">Any signed-in active account can join this classroom’s session rooms. Open rooms support up to 20 participants.</p>
       )}
+      <div>
+        <TextField
+          id="classroom-subject"
+          label="Subject"
+          value={subject}
+          maxLength={80}
+          placeholder="For example, English"
+          autoComplete="off"
+          list="classroom-subjects"
+          onChange={(event) => setSubject(event.target.value)}
+        />
+        <datalist id="classroom-subjects">
+          {subjects.map((item) => <option key={item} value={item} />)}
+        </datalist>
+        <p className="mt-1 text-xs text-ink-500">Students applying for a class see the classes grouped by subject.</p>
+      </div>
       <div className="grid gap-4 md:grid-cols-2">
         <PeoplePicker
           label="Teachers"
@@ -373,7 +429,7 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
           required
           error={fieldErrors.teachers}
           emptyMessage="No active teacher accounts."
-          hint="Every assigned teacher can manage this classroom’s sessions."
+          hint="Every assigned teacher can manage this classroom’s sessions. The schedule follows the first teacher’s availability."
         />
         <PeoplePicker
           label="Students"
@@ -384,6 +440,79 @@ function ClassroomForm({ initial, teachers, students, onCancel, onSave }) {
           hint="Optional. You can add students later."
         />
       </div>
+      <fieldset aria-describedby={fieldErrors.schedule ? 'classroom-schedule-error' : undefined}>
+        <legend className="mb-1.5 text-sm font-medium text-ink-700">Weekly schedule</legend>
+        {!leadTeacher ? (
+          <p className="rounded-lg border border-dashed border-ink-300 px-3 py-3 text-sm text-ink-500">
+            Assign a teacher first. The schedule is chosen from that teacher’s availability.
+          </p>
+        ) : availability.length === 0 ? (
+          <Alert tone="warning">
+            {personName(leadTeacher)} has not set any teaching availability yet, so this class cannot be given a schedule.
+            Set it from the Teachers page, or ask the teacher to add it in their profile. You can save the class now and
+            add the schedule later.
+          </Alert>
+        ) : (
+          <div className="space-y-3 rounded-lg border border-ink-300 p-3">
+            <p className="text-xs text-ink-600">
+              <span className="font-medium text-ink-900">{personName(leadTeacher)} is available: </span>
+              {availability.map((slot) => `${WEEKDAYS[slot.weekday].short} ${formatTimeRange(slot)}`).join('; ')}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {WEEKDAYS.map((day) => {
+                const selected = weekdays.includes(day.value);
+                const unavailable = !availableDays.has(day.value) && !selected;
+                return (
+                  <label
+                    key={day.value}
+                    title={unavailable ? `${personName(leadTeacher)} is not available on ${day.label}` : undefined}
+                    className={`flex min-h-9 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition ${selected ? 'border-ink-900 bg-ink-50 font-medium text-ink-900' : unavailable ? 'border-ink-200 text-ink-400' : 'cursor-pointer border-ink-300 text-ink-700 hover:border-ink-400'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      disabled={unavailable}
+                      onChange={() => toggleDay(day.value)}
+                      className="size-4"
+                    />
+                    {day.short}
+                  </label>
+                );
+              })}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextField
+                id="classroom-start-time"
+                label="Start time"
+                type="time"
+                value={startTime}
+                disabled={weekdays.length === 0}
+                onChange={(event) => {
+                  setStartTime(event.target.value);
+                  clearScheduleError();
+                }}
+              />
+              <TextField
+                id="classroom-end-time"
+                label="End time"
+                type="time"
+                value={endTime}
+                disabled={weekdays.length === 0}
+                onChange={(event) => {
+                  setEndTime(event.target.value);
+                  clearScheduleError();
+                }}
+              />
+            </div>
+            <p className="text-xs text-ink-500">
+              {weekdays.length === 0
+                ? 'Choose the days to set a schedule, or leave them empty to announce it later.'
+                : 'This is the class time students see when they apply. Book the dated sessions from Schedules.'}
+            </p>
+          </div>
+        )}
+        {fieldErrors.schedule && <p id="classroom-schedule-error" className="mt-1.5 text-sm text-red-700">{fieldErrors.schedule}</p>}
+      </fieldset>
       <ModalActions>
         <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
         <Button type="submit" isLoading={saving}>{initial.id ? 'Save changes' : 'Create classroom'}</Button>

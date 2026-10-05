@@ -8,6 +8,7 @@ import Alert from '../../components/common/Alert.jsx';
 import Button, { IconButton } from '../../components/common/Button.jsx';
 import Card, { CardHeader } from '../../components/common/Card.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
+import AvailabilityEditor from '../../components/schedule/AvailabilityEditor.jsx';
 import TextField from '../../components/common/TextField.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -118,6 +119,29 @@ function ChangePassword() {
   );
 }
 
+/** A teacher's weekly teaching times. Administrators schedule this teacher's classes inside them. */
+function Availability() {
+  const { user, setAvailability } = useAuth();
+
+  return (
+    <Card as="section" aria-labelledby="availability-heading">
+      <CardHeader title="Teaching availability" titleId="availability-heading" />
+      <div className="space-y-4 p-5">
+        <p className="text-sm text-ink-500">
+          The days and hours you can teach each week. Your administrator schedules your classes inside these times.
+        </p>
+        <AvailabilityEditor
+          initial={user.availability ?? []}
+          onSave={async (slots) => {
+            await setAvailability(slots);
+            toast.success('Availability saved.');
+          }}
+        />
+      </div>
+    </Card>
+  );
+}
+
 export default function Profile() {
   const { user } = useAuth();
 
@@ -150,6 +174,8 @@ export default function Profile() {
             ))}
           </dl>
         </Card>
+
+        {user.role === 'teacher' && <Availability />}
 
         <ChangePassword />
       </div>

@@ -66,6 +66,10 @@ export function AuthProvider({ children }) {
     return saveLogin(await authService.changePassword(passwords));
   }, [saveLogin]);
 
+  const setAvailability = useCallback(async (availability) => {
+    setUser(await authService.setAvailability(availability));
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await authService.logout();
@@ -77,8 +81,10 @@ export function AuthProvider({ children }) {
   }, [clearSession]);
 
   const value = useMemo(
-    () => ({ user, isAuthenticated: Boolean(user), isLoading, login, loginWithTestRole, changePassword, logout }),
-    [user, isLoading, login, loginWithTestRole, changePassword, logout],
+    () => ({
+      user, isAuthenticated: Boolean(user), isLoading, login, loginWithTestRole, changePassword, setAvailability, logout,
+    }),
+    [user, isLoading, login, loginWithTestRole, changePassword, setAvailability, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

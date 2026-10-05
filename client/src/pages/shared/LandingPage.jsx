@@ -68,7 +68,8 @@ const ROLES = [
     summary: 'Set up the school and keep it organized.',
     points: [
       'Create teacher and student accounts',
-      'Build classrooms and assign people to them',
+      'Build classes for each subject and schedule them from teacher availability',
+      'Review enrollment requests and place students in classes',
       'Schedule sessions across every classroom',
       'Publish announcements and review teacher feedback',
     ],
@@ -89,6 +90,7 @@ const ROLES = [
     title: 'Students',
     summary: 'One place to show up and keep up.',
     points: [
+      'Apply online for the classes they want',
       'Join scheduled lessons from any device',
       'Have attendance recorded automatically',
       'Read class announcements',
@@ -114,7 +116,7 @@ const STEPS = [
 
 const ASSURANCES = [
   { icon: ShieldCheck, title: 'Access by role', description: 'Each person only sees the tools and classes for their role.' },
-  { icon: UsersRound, title: 'Accounts from your school', description: 'There is no public sign-up. Administrators create every account.' },
+  { icon: UsersRound, title: 'Accounts from your school', description: 'Students apply for enrollment and get an account once the school approves them. Administrators create every other account.' },
   { icon: MonitorSmartphone, title: 'Works in the browser', description: 'Use it on a computer, tablet or phone without installing anything.' },
 ];
 
@@ -226,7 +228,10 @@ export default function LandingPage() {
                 {link.label}
               </a>
             ))}
-            <ButtonLink to="/login" size="sm" className="ml-2">
+            <ButtonLink to="/enroll" variant="secondary" size="sm" className="ml-2">
+              Enroll
+            </ButtonLink>
+            <ButtonLink to="/login" size="sm">
               Sign in
             </ButtonLink>
           </nav>
@@ -256,7 +261,10 @@ export default function LandingPage() {
                 </a>
               </div>
               <p className="mt-4 text-sm text-ink-500">
-                Accounts are created by your school’s administrator.
+                New student?{' '}
+                <Link to="/enroll" className="font-medium text-ink-700 underline underline-offset-4 hover:text-ink-900">Apply for enrollment</Link>
+                {' '}or{' '}
+                <Link to="/enroll/status" className="font-medium text-ink-700 underline underline-offset-4 hover:text-ink-900">check your application</Link>.
               </p>
             </div>
             <PortalPreview />

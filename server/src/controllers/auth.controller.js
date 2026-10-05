@@ -29,6 +29,11 @@ export async function changePassword(req, res) {
   sendSuccess(res, { message: 'Password changed. Other devices have been signed out.', data });
 }
 
+export async function setAvailability(req, res) {
+  const user = await authService.setOwnAvailability(req.user, req.body.availability, { ipAddress: req.ip });
+  sendSuccess(res, { message: 'Availability saved', data: { user } });
+}
+
 export function me(req, res) {
   sendSuccess(res, { data: { user: authService.toAuthUser(req.user) } });
 }

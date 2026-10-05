@@ -5,6 +5,7 @@ import { sendSuccess } from '../utils/apiResponse.js';
 import announcementRoutes from './announcement.routes.js';
 import authRoutes from './auth.routes.js';
 import classroomRoutes from './classroom.routes.js';
+import enrollmentRoutes from './enrollment.routes.js';
 import feedbackRoutes from './feedback.routes.js';
 import sessionRoutes from './session.routes.js';
 import systemSettingsRoutes from './systemSettings.routes.js';
@@ -34,6 +35,7 @@ router.get('/health', (_req, res, next) => {
 router.use('/auth', authRoutes);
 router.use('/announcements', announcementRoutes);
 router.use('/classrooms', classroomRoutes);
+router.use('/enrollment', enrollmentRoutes);
 router.use('/feedback', feedbackRoutes);
 router.use('/subjects', subjectRoutes);
 router.use('/sessions', sessionRoutes);

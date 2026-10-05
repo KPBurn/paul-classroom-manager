@@ -154,7 +154,8 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | GET    | `/api/users`         | `users:read`   | List users. Query: `page`, `limit` (≤ 100), `search` (name or email), `role`, `status`. Sorted by last name |
 | POST   | `/api/users`         | `users:create` | Create a user `{ firstName, lastName, email, password, role?, status? }` |
 | GET    | `/api/users/:id`     | `users:read`   | One user                                               |
-| PATCH  | `/api/users/:id`     | `users:update` | Change any of `{ firstName, lastName, email, role, status }` |
+| PATCH  | `/api/users/:id`     | `users:update` | Change any of `{ firstName, lastName, email, role, status, availability }` (`availability` for teachers only) |
+| PUT    | `/api/auth/availability` | Teacher | Set your own weekly teaching times `{ availability: [{ weekday, startTime, endTime }] }` |
 | PUT    | `/api/users/:id/password` | `users:update` | `{ password }`. Signs the user out of every session |
 | DELETE | `/api/users/:id`     | `users:delete` | Delete a user. Refused for users who created announcements; deactivate them instead |
 | GET    | `/api/announcements` | `announcements:read` | School-wide announcements, newest first. Query: `page`, `limit`, `status` (`active` or `archived`; archived needs `announcements:update`) |
@@ -166,9 +167,19 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | GET    | `/api/classrooms/:id` | Admin; assigned teacher; enrolled student | One classroom, shaped the same way as the list |
 | GET    | `/api/classrooms/:id/announcements` | Admin; assigned teacher; enrolled student | Classroom announcements. Query: `page`, `limit`, `status` (archived for teachers and admins only) |
 | POST   | `/api/classrooms/:id/announcements` | Admin; assigned teacher | Post `{ title, body, type }` to an active classroom |
-| POST   | `/api/classrooms` | Admin | Create `{ name, teacherId, studentIds }` with active assigned users |
-| PATCH  | `/api/classrooms/:id` | Admin | Update classroom name or assignments |
+| POST   | `/api/classrooms` | Admin | Create `{ name, subject?, schedule?, teacherId, studentIds }` with active assigned users. `schedule` is `{ weekdays, startTime, endTime }` and must fit inside the first teacher's availability |
+| PATCH  | `/api/classrooms/:id` | Admin | Update classroom name, subject, schedule (`null` clears it) or assignments |
 | POST   | `/api/classrooms/:id/archive` | Admin | Archive a classroom without deleting its history |
+| GET    | `/api/enrollment/classes` | Public | The classes that can be applied for: name, subject, schedule and teachers of every active classroom, never its roster |
+| POST   | `/api/enrollment/applications` | Public | Apply with `{ student, guardian, classroomIds, note?, agreed: true }` → `{ referenceNumber, status }`. Rate limited to 20 / 15 min |
+| POST   | `/api/enrollment/applications/:referenceNumber/photo` | Public | Add the optional 2x2 photo (raw JPEG, PNG or WebP body, ≤ 2 MB) to a pending application |
+| POST   | `/api/enrollment/status` | Public | `{ referenceNumber, birthday }` → the application's status and the decision on each class. Rate limited to 10 failed attempts / 15 min |
+| POST   | `/api/enrollment/account` | Public | `{ referenceNumber, birthday, email, password }`: an approved applicant creates their account and joins the approved classes. Same rate limit |
+| GET    | `/api/enrollment/requests` | Student | The signed-in student's own class requests |
+| POST   | `/api/enrollment/requests` | Student | Ask to join more classes `{ classroomIds, note? }` |
+| GET    | `/api/enrollment/applications` | Admin | List applications. Query: `page`, `limit`, `search` (name, email or reference number), `status`, `classroomId`. Also returns `pendingCount` |
+| GET    | `/api/enrollment/applications/:id` | Admin | One application; `/photo` returns its image |
+| PATCH  | `/api/enrollment/applications/:id/requests/:requestId` | Admin | Decide one class: `{ status: "approved" \| "rejected", classroomId?, adminNote? }`. `classroomId` approves into a different class |
 | GET    | `/api/sessions` | Teacher | List sessions in teacher-assigned classrooms. Optional: `from`, `to`, `classroomId`, `status`, `search` (title, classroom or teacher), `order` (`asc`/`desc`). With `limit` (1–100) the answer is one page, `{ items, total, nextCursor }`; send `nextCursor` back as `cursor` for the next. Items name their teachers and give students by id |
 | GET    | `/api/sessions?view=mine` | Student | List sessions in the student's classrooms |
 | POST   | `/api/sessions` | Assigned teacher | Create `{ classroomId, title, startsAt, endsAt }` or a weekly schedule with `{ classroomId, title, startDate, endDate, startTime, endTime, weekdays, timezone }` |
@@ -185,6 +196,14 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | PATCH  | `/api/feedback/:id` | Author | Update content or submit with `status: "completed"` |
 
 Recurring schedule date ranges are inclusive; `weekdays` uses JavaScript day numbers (`0` Sunday through `6` Saturday) and `timezone` is an IANA timezone. Editing an occurrence replaces its date and times; editing a series applies the selected occurrence's local start/end clock times and title while retaining each occurrence's date. Each session's attendance condition is on by default: check-ins through the first five minutes are present, later in-session check-ins are late, and students who never check in are absent after the session ends. Teachers can turn conditions off for an occurrence; check-ins are still limited to the scheduled session, but all students who check in during it are present regardless of arrival time. Check-in is idempotent. Ended sessions are marked absent when sessions or attendance are read.
+
+### Enrollment
+
+An administrator first creates a class (a classroom) with a subject such as "English" and a teacher. Teachers set their weekly availability in their profile (an administrator can set it for them from the Teachers page), and a class's weekly schedule has to fit inside the availability of its first teacher. The schedule is the class time shown to applicants; dated sessions are still booked from Schedules.
+
+Anyone can open `/enroll`, see the active classes grouped by subject with their teacher and schedule, and apply for one or more of them without an account. The form asks for the student's name, birthday, contact number and email, one parent or guardian, and the classes; middle name, gender, address, guardian email, a note and a 2x2 photo are optional. Age is worked out from the birthday. Submitting returns a reference number (`ENR-XXXX-XXXX`), which is shown once and not emailed.
+
+The administrator reviews applications on the Enrollment page and approves or rejects each requested class, optionally into a different class. With the reference number and birthday the applicant checks the status at `/enroll/status`; once a class is approved they also give the application's email to create their own account, which is then added to the approved classes and their unfinished sessions. If the application's email already belongs to a student account, approval enrolls that account directly. A signed-in student asks for another class from My Classrooms without filling in the form again.
 
 ### Session rooms (prototype)
 
@@ -227,7 +246,7 @@ Who is in a room is held in the memory of the one API process. Running more than
 - Administrators cannot change their own role or status, or delete their own account, so they cannot lock themselves out.
 - Login returns the same error for an unknown email and a wrong password, and takes the same time for both.
 - Active students, teachers, and admins can sign in. Students have no administrative or teacher permissions.
-- There is no public sign-up. Administrators create accounts.
+- There is no open sign-up. Administrators create accounts, and an applicant can create a student account only for an enrollment application that an administrator approved.
 
 ### Security already in place
 

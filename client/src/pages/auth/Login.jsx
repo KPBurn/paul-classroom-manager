@@ -3,7 +3,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import Alert from '../../components/common/Alert.jsx';
 import Button, { IconButton } from '../../components/common/Button.jsx';
@@ -170,7 +170,10 @@ export default function Login({ onClose }) {
         </Button>
       </form>
       <p className="mt-5 text-center text-xs text-ink-500">
-        Accounts are created by your administrator.
+        New student?{' '}
+        <Link to="/enroll" className="font-medium text-ink-700 underline underline-offset-4 hover:text-ink-900">Apply for enrollment</Link>
+        {' '}or{' '}
+        <Link to="/enroll/status" className="font-medium text-ink-700 underline underline-offset-4 hover:text-ink-900">check your application</Link>.
       </p>
     </Modal>
   );

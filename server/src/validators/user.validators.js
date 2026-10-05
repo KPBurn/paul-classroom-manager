@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { USER_ROLES, USER_STATUSES } from '../models/User.js';
 import { emailSchema, nameSchema, passwordSchema, registerSchema } from './auth.validators.js';
+import { availabilitySchema } from './schedule.validators.js';
 
 // An empty filter in the query string (`?role=`) means "no filter".
 const optionalFilter = (schema) => z.preprocess((value) => (value === '' ? undefined : value), schema.optional());
@@ -26,6 +27,7 @@ export const updateUserSchema = z
     email: emailSchema,
     role: z.enum(USER_ROLES),
     status: z.enum(USER_STATUSES),
+    availability: availabilitySchema,
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, 'Provide at least one field to update');

@@ -25,7 +25,23 @@ export function toAuthUser(user) {
     role: user.role,
     status: user.status,
     permissions: permissionsFor(user.role),
+    ...(user.role === 'teacher' && { availability: user.availability ?? [] }),
   };
+}
+
+/** Lets a teacher say which weekly times they can teach; class schedules are chosen from them. */
+export async function setOwnAvailability(user, availability, { ipAddress } = {}) {
+  user.availability = availability;
+  await user.save();
+  await logActivity({
+    actorId: user._id,
+    action: 'user.availability_updated',
+    entityType: 'User',
+    entityId: user._id,
+    description: `${user.fullName} updated their teaching availability`,
+    ipAddress,
+  });
+  return toAuthUser(user);
 }
 
 export async function login({ email, password }, { ipAddress } = {}) {

@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Eye, EyeOff, KeyRound, Lock, Pencil, Plus, Trash2, Users as UsersIcon } from 'lucide-react';
+import { CalendarClock, Eye, EyeOff, KeyRound, Lock, Pencil, Plus, Trash2, Users as UsersIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
@@ -14,6 +14,7 @@ import { FilterSelect, ListToolbar, SearchInput } from '../../components/common/
 import Modal, { ModalActions } from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import Pagination from '../../components/common/Pagination.jsx';
+import AvailabilityEditor from '../../components/schedule/AvailabilityEditor.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import TextField, { SelectField } from '../../components/common/TextField.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
@@ -86,6 +87,7 @@ export default function Users({ role: fixedRole }) {
   // `null` = closed, `{}` = create, `{ user }` = edit.
   const [form, setForm] = useState(null);
   const [passwordUser, setPasswordUser] = useState(null);
+  const [availabilityUser, setAvailabilityUser] = useState(null);
   const [deletingUser, setDeletingUser] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -173,6 +175,7 @@ export default function Users({ role: fixedRole }) {
         hasFilters={hasFilters}
         can={can}
         onEdit={(user) => setForm({ user })}
+        onAvailability={setAvailabilityUser}
         onResetPassword={setPasswordUser}
         onDelete={setDeletingUser}
       />
@@ -191,6 +194,28 @@ export default function Users({ role: fixedRole }) {
             isSelf={form.user?.id === currentUser.id}
             onCancel={() => setForm(null)}
             onSaved={onSaved}
+          />
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(availabilityUser)}
+        onClose={() => setAvailabilityUser(null)}
+        title="Teaching Availability"
+        description={availabilityUser
+          && `${availabilityUser.firstName} ${availabilityUser.lastName} · Classes are scheduled inside these weekly times.`}
+        size="max-w-2xl"
+      >
+        {availabilityUser && (
+          <AvailabilityEditor
+            initial={availabilityUser.availability ?? []}
+            onCancel={() => setAvailabilityUser(null)}
+            onSave={async (availability) => {
+              await userService.update(availabilityUser.id, { availability });
+              toast.success(`Availability saved for ${availabilityUser.firstName}.`);
+              setAvailabilityUser(null);
+              list.reload();
+            }}
           />
         )}
       </Modal>
@@ -240,7 +265,7 @@ export default function Users({ role: fixedRole }) {
   );
 }
 
-function UserTable({ list, currentUserId, hasFilters, can, onEdit, onResetPassword, onDelete }) {
+function UserTable({ list, currentUserId, hasFilters, can, onEdit, onAvailability, onResetPassword, onDelete }) {
   const { status, items, pagination, error } = list;
   const showActions = can.update || can.remove;
 
@@ -305,6 +330,13 @@ function UserTable({ list, currentUserId, hasFilters, can, onEdit, onResetPasswo
                         {can.update && (
                           <>
                             <IconButton label={`Edit ${fullName}`} icon={Pencil} onClick={() => onEdit(user)} />
+                            {user.role === 'teacher' && (
+                              <IconButton
+                                label={`Set teaching availability for ${fullName}`}
+                                icon={CalendarClock}
+                                onClick={() => onAvailability(user)}
+                              />
+                            )}
                             <IconButton
                               label={`Reset password for ${fullName}`}
                               icon={KeyRound}

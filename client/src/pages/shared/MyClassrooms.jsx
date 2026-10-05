@@ -10,7 +10,9 @@ import PageHeader from '../../components/common/PageHeader.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { classroomService } from '../../services/classroom.service.js';
+import ClassRequests from '../../components/enrollment/ClassRequests.jsx';
 import { getErrorMessage } from '../../utils/errors.js';
+import { formatSchedule } from '../../utils/schedule.js';
 
 export const personName = (person) => person.name ?? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim();
 export const classroomTeachers = (classroom) => (classroom.teachers?.length
@@ -66,7 +68,7 @@ export default function MyClassrooms() {
           icon={School}
           title={isStudent ? 'You are not enrolled in a class yet' : 'No classrooms assigned yet'}
           message={isStudent
-            ? 'Your classes will appear here once your school enrolls you.'
+            ? 'Your classes will appear here once your school approves a class request.'
             : 'Ask your administrator to assign your teacher account to a classroom.'}
         />
       ) : (
@@ -82,10 +84,19 @@ export default function MyClassrooms() {
                   className={`group flex h-full flex-col p-5 transition hover:border-ink-400 ${cardClass}`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <h2 className="text-base font-semibold text-ink-900">{classroom.name}</h2>
+                    <div className="min-w-0">
+                      {classroom.subject && <p className="text-xs font-medium uppercase tracking-wider text-ink-500">{classroom.subject}</p>}
+                      <h2 className="text-base font-semibold text-ink-900">{classroom.name}</h2>
+                    </div>
                     {classroom.openAccess && <Badge tone="warning">Open classroom</Badge>}
                   </div>
                   <div className="mt-4 flex-1 space-y-3 text-sm text-ink-700">
+                    {classroom.schedule && (
+                      <div className="flex items-start gap-2">
+                        <CalendarDays className="mt-0.5 size-4 shrink-0 text-ink-400" aria-hidden="true" />
+                        <span>{formatSchedule(classroom.schedule)}</span>
+                      </div>
+                    )}
                     <div className="flex items-start gap-2">
                       <UsersRound className="mt-0.5 size-4 shrink-0 text-ink-400" aria-hidden="true" />
                       <span>
@@ -115,6 +126,8 @@ export default function MyClassrooms() {
           })}
         </ul>
       )}
+
+      {isStudent && !loading && !error && <ClassRequests enrolledIds={classrooms.map((classroom) => classroom.id)} />}
     </>
   );
 }

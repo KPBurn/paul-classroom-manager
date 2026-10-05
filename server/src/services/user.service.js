@@ -78,6 +78,9 @@ export async function updateUser(id, changes, { actor, ipAddress }) {
       throw new AppError(403, 'You cannot change your own status');
     }
   }
+  if (changes.availability && (changes.role ?? user.role) !== 'teacher') {
+    throw new AppError(400, 'Only teachers have availability');
+  }
   if (changes.email && changes.email !== user.email) {
     await assertEmailAvailable(changes.email, 'Unable to update user');
   }

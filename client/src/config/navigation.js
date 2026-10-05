@@ -4,6 +4,7 @@ import {
   ChartColumn,
   CircleUser,
   ClipboardCheck,
+  ClipboardList,
   GraduationCap,
   History,
   LayoutDashboard,
@@ -37,6 +38,7 @@ export const adminNavigation = [
     heading: 'Academic Management',
     items: [
       { label: 'Classrooms', to: '/admin/classrooms', icon: School },
+      { label: 'Enrollment', to: '/admin/enrollment', icon: ClipboardList },
       { label: 'Competencies', to: '/admin/competencies', icon: Target, phase: 3 },
     ],
   },

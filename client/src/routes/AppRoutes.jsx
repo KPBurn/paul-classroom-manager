@@ -29,6 +29,9 @@ const TeacherFeedback = lazy(() => import('../pages/teacher/Feedback.jsx'));
 const FeedbackForm = lazy(() => import('../pages/teacher/FeedbackForm.jsx'));
 const FeedbackDetail = lazy(() => import('../pages/shared/FeedbackDetail.jsx'));
 const AdminFeedback = lazy(() => import('../pages/admin/Feedback.jsx'));
+const AdminEnrollment = lazy(() => import('../pages/admin/Enrollment.jsx'));
+const Enroll = lazy(() => import('../pages/enrollment/Enroll.jsx'));
+const EnrollmentStatus = lazy(() => import('../pages/enrollment/EnrollmentStatus.jsx'));
 const suspense = (element) => <Suspense fallback={<FullPageSpinner />}>{element}</Suspense>;
 
 /** Placeholder routes for sidebar modules that have not been built yet. */
@@ -44,6 +47,9 @@ export default function AppRoutes() {
     <Routes>
       <Route path="/" element={<GuestRoute><LandingPage /></GuestRoute>} />
       <Route path="/login" element={<GuestRoute><LandingPage /></GuestRoute>} />
+      {/* Applying needs no account; signed-in students ask for a class from My Classrooms instead. */}
+      <Route path="/enroll" element={<GuestRoute>{suspense(<Enroll />)}</GuestRoute>} />
+      <Route path="/enroll/status" element={<GuestRoute>{suspense(<EnrollmentStatus />)}</GuestRoute>} />
 
       <Route
         path="/sessions/:id/room"
@@ -65,6 +71,7 @@ export default function AppRoutes() {
         <Route index element={<AdminDashboard />} />
         <Route path="announcements" element={<Announcements />} />
         <Route path="classrooms" element={suspense(<Classrooms />)} />
+        <Route path="enrollment" element={suspense(<AdminEnrollment />)} />
         <Route path="schedules" element={suspense(<TeacherSchedule />)} />
         <Route path="feedback" element={suspense(<AdminFeedback />)} />
         <Route path="feedback/:id" element={suspense(<FeedbackDetail />)} />

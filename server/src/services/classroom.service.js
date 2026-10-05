@@ -1,10 +1,13 @@
 import { LIST_BATCH_SIZE } from '../config/database.js';
 import { Classroom } from '../models/Classroom.js';
+import { ClassSession } from '../models/ClassSession.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
+import { daysOutsideAvailability, WEEKDAY_NAMES } from '../utils/schedule.js';
 import { canReadClassroom, classroomsTaughtBy } from '../authz/policies.js';
 import { classroomPeopleChanged } from '../realtime/connections.js';
+import { publishToClassroom, SESSION_EVENTS } from '../realtime/sessionEvents.js';
 
 async function activeUsersWithRole(ids, role, label) {
   const uniqueIds = [...new Set(ids)];
@@ -26,6 +29,17 @@ async function assignments(data) {
     result.students = await activeUsersWithRole(data.studentIds, 'student', 'Students');
   }
   return result;
+}
+
+/** A class is scheduled inside the hours its teacher (the first one assigned) said they can teach. */
+async function assertScheduleFits(schedule, teacherId) {
+  if (!schedule) return;
+  const teacher = await User.findById(teacherId).select('firstName lastName availability');
+  const days = daysOutsideAvailability(schedule, teacher?.availability);
+  if (days.length) {
+    const message = `${teacher?.fullName ?? 'The teacher'} is not available on ${days.map((day) => WEEKDAY_NAMES[day]).join(', ')} from ${schedule.startTime} to ${schedule.endTime}. Choose a time inside the teacher’s availability.`;
+    throw new AppError(400, message, { details: [{ field: 'schedule', message }] });
+  }
 }
 
 /** Students see who teaches a class and how big it is, but not their classmates' details. */
@@ -74,7 +88,14 @@ export async function getClassroom(id, user) {
 
 export async function createClassroom(data, { actor, ipAddress }) {
   const assigned = await assignments(data);
-  const classroom = await Classroom.create({ name: data.name, openAccess: data.openAccess, ...assigned });
+  await assertScheduleFits(data.schedule, assigned.teacher);
+  const classroom = await Classroom.create({
+    name: data.name,
+    subject: data.subject,
+    schedule: data.schedule,
+    openAccess: data.openAccess,
+    ...assigned,
+  });
   classroomPeopleChanged(classroom);
   await logActivity({
     actorId: actor._id,
@@ -96,12 +117,15 @@ export async function updateClassroom(id, data, { actor, ipAddress }) {
   if (classroom.status === 'archived') throw new AppError(409, 'Archived classrooms cannot be changed');
   const assigned = await assignments(data);
   if (data.name !== undefined) classroom.name = data.name;
+  if (data.subject !== undefined) classroom.subject = data.subject;
+  if (data.schedule !== undefined) classroom.schedule = data.schedule;
   if (data.openAccess !== undefined) classroom.openAccess = data.openAccess;
   if (assigned.teachers) {
     classroom.teacher = assigned.teacher;
     classroom.teachers = assigned.teachers;
   }
   if (assigned.students) classroom.students = assigned.students;
+  if (data.schedule !== undefined || assigned.teachers) await assertScheduleFits(classroom.schedule, classroom.teacher);
   await classroom.save();
   classroomPeopleChanged(classroom);
   await logActivity({
@@ -139,4 +163,22 @@ export async function archiveClassroom(id, { actor, ipAddress }) {
     { path: 'teachers', select: 'firstName lastName email status' },
     { path: 'students', select: 'firstName lastName email status' },
   ]);
+}
+
+/**
+ * Adds a student to active classrooms and to their sessions that have not
+ * finished, which keep their own list of people. Used when an enrollment
+ * request is approved.
+ */
+export async function enrollStudent(studentId, classroomIds) {
+  const ids = await Classroom.find({ _id: { $in: classroomIds }, status: 'active' }).distinct('_id');
+  await Classroom.updateMany({ _id: { $in: ids } }, { $addToSet: { students: studentId } });
+  await ClassSession.updateMany(
+    { classroom: { $in: ids }, status: 'scheduled', endsAt: { $gt: new Date() }, assignedStudents: { $exists: true } },
+    { $addToSet: { assignedStudents: studentId } },
+  );
+  for (const classroom of await Classroom.find({ _id: { $in: ids } })) {
+    classroomPeopleChanged(classroom);
+    publishToClassroom(classroom._id, SESSION_EVENTS.scheduleChanged, { classroomId: String(classroom._id) });
+  }
 }

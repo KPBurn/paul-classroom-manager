@@ -39,6 +39,7 @@ describe('POST /api/auth/login', () => {
       role: 'teacher',
       status: 'active',
       permissions: ['announcements:read'],
+      availability: [],
     });
     assert.ok(await ActivityLog.exists({ action: 'auth.login', actorId: user._id }));
   });

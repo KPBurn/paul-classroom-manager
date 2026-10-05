@@ -22,6 +22,12 @@ export const authService = {
     return data.data;
   },
 
+  /** A teacher's own weekly teaching times. Returns the updated user. */
+  async setAvailability(availability) {
+    const { data } = await api.put('/auth/availability', { availability });
+    return data.data.user;
+  },
+
   async me() {
     const { data } = await api.get('/auth/me');
     return data.data.user;

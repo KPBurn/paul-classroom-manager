@@ -1,8 +1,21 @@
 import mongoose from 'mongoose';
 
+const scheduleSchema = new mongoose.Schema(
+  {
+    weekdays: { type: [Number], required: true },
+    startTime: { type: String, required: true },
+    endTime: { type: String, required: true },
+  },
+  { _id: false },
+);
+
 const classroomSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true, maxlength: 120 },
+    // What the class teaches, such as "English". Applicants see classes grouped by it.
+    subject: { type: String, trim: true, maxlength: 80, default: '' },
+    // The weekly class time, chosen from the teacher's availability. Empty until it is decided.
+    schedule: { type: scheduleSchema, default: null },
     teacher: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     teachers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     students: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
