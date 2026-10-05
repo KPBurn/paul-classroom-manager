@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Alert from '../../components/common/Alert.jsx';
 import Badge from '../../components/common/Badge.jsx';
@@ -12,8 +12,10 @@ import { getErrorMessage } from '../../utils/errors.js';
 import { formatDateTime } from '../../utils/format.js';
 import { formatSchedule } from '../../utils/schedule.js';
 
+const STATUS_REFRESH_MS = 15_000;
 const SUMMARY = {
-  pending: 'Your school is still reviewing your application. Check back later.',
+  withdrawn: 'This application was withdrawn.',
+  pending: 'Your school is still reviewing your application. This page updates on its own when there is a decision.',
   approved: 'You have been approved. Create your account below, then sign in and open My Classrooms to choose your classes and finish enrolling.',
   rejected: 'Your school did not approve this application.',
 };
@@ -29,6 +31,73 @@ function passwordProblem(password) {
 function StatusBadge({ status }) {
   const { label, tone, icon } = ENROLLMENT_STATUS[status];
   return <Badge tone={tone} icon={icon}>{label}</Badge>;
+}
+
+/** For someone who lost their reference number: it is emailed to the address they applied with. */
+function LostReference() {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const [sentTo, setSentTo] = useState('');
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError('Enter the email address you applied with.');
+      return;
+    }
+    setSending(true);
+    setError('');
+    try {
+      await enrollmentService.remindReference(email.trim());
+      setSentTo(email.trim());
+    } catch (sendError) {
+      setError(getErrorMessage(sendError, 'Unable to send your reference number.'));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <p className="text-sm text-ink-500">
+        Lost your reference number?{' '}
+        <button type="button" onClick={() => setOpen(true)} className="font-medium text-ink-700 underline underline-offset-4 hover:text-ink-900">
+          Email it to me
+        </button>
+      </p>
+    );
+  }
+  return (
+    <Card as="section" aria-labelledby="lost-heading">
+      <CardHeader title="Email my reference number" titleId="lost-heading" />
+      {sentTo ? (
+        <div className="p-5">
+          <Alert tone="success">
+            If an application was made with {sentTo}, its reference number is on its way. Check your spam folder if it
+            does not arrive.
+          </Alert>
+        </div>
+      ) : (
+        <form onSubmit={submit} noValidate className="space-y-4 p-5">
+          {error && <Alert tone="error">{error}</Alert>}
+          <TextField
+            id="lost-email"
+            label="Email address on your application"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+          <div className="flex justify-end border-t border-ink-200 pt-4">
+            <Button type="submit" isLoading={sending}>Send it</Button>
+          </div>
+        </form>
+      )}
+    </Card>
+  );
 }
 
 /** The last step of enrolling: an approved applicant proves who they are and chooses a password. */
@@ -120,6 +189,16 @@ export default function EnrollmentStatus() {
   const [application, setApplication] = useState(null);
   const [account, setAccount] = useState(null);
 
+  // There is no account to notify yet, so an application on screen is checked again regularly:
+  // a decision shows up without the page being refreshed.
+  useEffect(() => {
+    if (!lookup || account) return undefined;
+    const timer = window.setInterval(() => {
+      enrollmentService.status(lookup).then(setApplication).catch(() => {});
+    }, STATUS_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [lookup, account]);
+
   const check = async (event) => {
     event.preventDefault();
     const details = { referenceNumber: referenceNumber.trim().toUpperCase(), birthday };
@@ -179,6 +258,8 @@ export default function EnrollmentStatus() {
             </div>
           </form>
         </Card>
+
+        {!application && <LostReference />}
 
         {application && (
           <Card as="section" aria-labelledby="result-heading" aria-live="polite">

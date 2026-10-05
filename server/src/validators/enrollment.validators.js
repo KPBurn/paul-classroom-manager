@@ -43,7 +43,13 @@ export const submitApplicationSchema = z.object({
   classroomIds: uniqueClassroomIds.default([]),
   note: optionalText(500),
   agreed: z.literal(true, 'You must agree before submitting'),
+  // Checked by the service to keep scripts out: a field people never see, and the token the form was given.
+  website: z.string().max(200).optional(),
+  formToken: z.string().max(1000).optional(),
 }).strict();
+
+export const remindReferenceSchema = z.object({ email: emailSchema }).strict();
+export const userIdParamsSchema = z.object({ userId: objectId });
 
 export const referenceParamsSchema = z.object({ referenceNumber });
 

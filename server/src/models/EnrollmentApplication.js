@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
-export const ENROLLMENT_STATUSES = ['pending', 'approved', 'rejected'];
+// `withdrawn` is the student taking a request back before it was decided.
+export const ENROLLMENT_STATUSES = ['pending', 'approved', 'rejected', 'withdrawn'];
 export const GENDERS = ['male', 'female', 'other', 'prefer_not_to_say'];
 
 /** One class the student asked for. The administrator decides each one, and may move it to another class. */

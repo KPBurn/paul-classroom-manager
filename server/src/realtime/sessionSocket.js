@@ -10,6 +10,7 @@ import * as sessionService from '../services/session.service.js';
 import { AppError } from '../utils/AppError.js';
 import { verifyToken } from '../utils/jwt.js';
 import { registerSocketServer } from './connections.js';
+import { roleRoom, userRoom } from './dataEvents.js';
 import {
   ALL_CLASSROOMS_ROOM,
   classroomRoom,
@@ -225,6 +226,8 @@ export function attachSessionSocket(httpServer) {
   });
 
   io.on('connection', (socket) => {
+    // Lets the server tell this account, or everyone with its role, that a list changed (see dataEvents.js).
+    socket.join([userRoom(String(socket.data.user._id)), roleRoom(socket.data.user.role)]);
     if (socket.data.tokenExpiresAt) {
       const expiryDelay = socket.data.tokenExpiresAt - Date.now();
       if (expiryDelay <= 0) {

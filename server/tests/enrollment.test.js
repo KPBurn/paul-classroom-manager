@@ -7,6 +7,7 @@ import { Classroom } from '../src/models/Classroom.js';
 import { ClassSession } from '../src/models/ClassSession.js';
 import { EnrollmentApplication } from '../src/models/EnrollmentApplication.js';
 import { User } from '../src/models/User.js';
+import { testOutbox } from '../src/services/mail.service.js';
 
 const app = createApp();
 const login = async (user, password = TEST_PASSWORD) => {
@@ -15,6 +16,12 @@ const login = async (user, password = TEST_PASSWORD) => {
   return response.body.data.token;
 };
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
+
+/** Submits the public form the way the page does: with the token the class list came with. */
+async function apply(body) {
+  const classes = await request(app).get('/api/enrollment/classes');
+  return request(app).post('/api/enrollment/applications').send({ formToken: classes.body.data.formToken, ...body });
+}
 
 const MONDAY_MORNING = { weekday: 1, startTime: '08:00', endTime: '12:00' };
 const applicationFor = (classroomIds, overrides = {}) => ({
@@ -94,6 +101,76 @@ describe('teacher availability and class schedules', () => {
   });
 });
 
+describe('scheduling a class', () => {
+  it('books the sessions of a new class and refuses to double-book its teacher', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const teacher = await createUser({ role: 'teacher', availability: [MONDAY_MORNING] });
+    const adminToken = await login(admin);
+    const start = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const end = new Date(Date.now() + 22 * 86_400_000).toISOString().slice(0, 10);
+
+    const created = await request(app).post('/api/classrooms').set(auth(adminToken)).send({
+      name: 'ClassEng1',
+      subject: 'English',
+      teacherId: teacher.id,
+      schedule: { weekdays: [1], startTime: '09:00', endTime: '10:00' },
+      sessions: { startDate: start, endDate: end, timezone: 'UTC' },
+      capacity: 20,
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.data.classroom.capacity, 20);
+    const sessions = await ClassSession.find({ classroom: created.body.data.classroom.id });
+    assert.equal(sessions.length, 3);
+    assert.ok(sessions.every((session) => session.title === 'ClassEng1' && session.seriesId));
+
+    const clash = await request(app).post('/api/classrooms').set(auth(adminToken)).send({
+      name: 'ClassEng2',
+      teacherId: teacher.id,
+      schedule: { weekdays: [1], startTime: '09:30', endTime: '10:30' },
+    });
+    assert.equal(clash.status, 409);
+    assert.match(clash.body.message, /already teaches "ClassEng1"/);
+    const after = await request(app).post('/api/classrooms').set(auth(adminToken)).send({
+      name: 'ClassEng2',
+      teacherId: teacher.id,
+      schedule: { weekdays: [1], startTime: '10:00', endTime: '11:00' },
+    });
+    assert.equal(after.status, 201);
+
+    // Availability cannot shrink under a class that is already scheduled.
+    const shrunk = await request(app)
+      .patch(`/api/users/${teacher.id}`)
+      .set(auth(adminToken))
+      .send({ availability: [{ weekday: 1, startTime: '10:00', endTime: '12:00' }] });
+    assert.equal(shrunk.status, 409);
+    assert.match(shrunk.body.message, /"ClassEng1" is scheduled outside these times/);
+  });
+});
+
+describe('forgotten passwords', () => {
+  it('emails a link that sets a new password once', async () => {
+    const user = await createUser({ role: 'student' });
+    testOutbox.length = 0;
+
+    const asked = await request(app).post('/api/auth/forgot-password').send({ email: user.email });
+    const unknown = await request(app).post('/api/auth/forgot-password').send({ email: 'nobody@example.com' });
+    assert.equal(asked.status, 200);
+    assert.deepEqual(unknown.body, asked.body);
+    assert.equal(testOutbox.length, 1);
+    const [, token] = testOutbox[0].text.match(/token=(\S+)/);
+
+    // The link is not a way to sign in.
+    const asSession = await request(app).get('/api/auth/me').set(auth(token));
+    assert.equal(asSession.status, 401);
+
+    const reset = await request(app).post('/api/auth/reset-password').send({ token, password: 'Brandnew123' });
+    assert.equal(reset.status, 200);
+    await login(user, 'Brandnew123');
+    const reused = await request(app).post('/api/auth/reset-password').send({ token, password: 'Another123' });
+    assert.equal(reused.status, 400);
+  });
+});
+
 describe('enrollment applications', () => {
   let admin;
   let adminToken;
@@ -140,16 +217,16 @@ describe('enrollment applications', () => {
       endsAt: new Date(Date.now() + 7_200_000),
     });
 
-    const invalid = await request(app).post('/api/enrollment/applications').send({ ...applicationFor([english.id]), agreed: false });
+    const invalid = await apply({ ...applicationFor([english.id]), agreed: false });
     assert.equal(invalid.status, 400);
 
-    const submitted = await request(app).post('/api/enrollment/applications').send(applicationFor([english.id, math.id]));
+    const submitted = await apply(applicationFor([english.id, math.id]));
     assert.equal(submitted.status, 201);
     const { referenceNumber } = submitted.body.data.application;
     assert.match(referenceNumber, /^ENR-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
     assert.equal(submitted.body.data.application.status, 'pending');
 
-    const duplicate = await request(app).post('/api/enrollment/applications').send(applicationFor([english.id]));
+    const duplicate = await apply(applicationFor([english.id]));
     assert.equal(duplicate.status, 409);
 
     // The applicant checks the status with the reference number and birthday.
@@ -219,7 +296,7 @@ describe('enrollment applications', () => {
   });
 
   it('approves an applicant who chose no class, who then picks classes from their account', async () => {
-    const submitted = await request(app).post('/api/enrollment/applications').send(applicationFor([]));
+    const submitted = await apply(applicationFor([]));
     assert.equal(submitted.status, 201);
     const { referenceNumber } = submitted.body.data.application;
     const application = await EnrollmentApplication.findOne({ referenceNumber });
@@ -260,7 +337,7 @@ describe('enrollment applications', () => {
   });
 
   it('decides an application that names classes one class at a time', async () => {
-    const submitted = await request(app).post('/api/enrollment/applications').send(applicationFor([english.id]));
+    const submitted = await apply(applicationFor([english.id]));
     const application = await EnrollmentApplication.findOne({ referenceNumber: submitted.body.data.application.referenceNumber });
     const whole = await request(app)
       .patch(`/api/enrollment/applications/${application.id}`)
@@ -269,8 +346,120 @@ describe('enrollment applications', () => {
     assert.equal(whole.status, 409);
   });
 
+  it('turns away submissions that did not come from the form', async () => {
+    const noToken = await request(app).post('/api/enrollment/applications').send(applicationFor([english.id]));
+    assert.equal(noToken.status, 400);
+    const filledTrap = await apply({ ...applicationFor([english.id]), website: 'https://spam.example' });
+    assert.equal(filledTrap.status, 400);
+    assert.equal(await EnrollmentApplication.countDocuments(), 0);
+  });
+
+  it('emails the reference number, the decision and a reminder on request', async () => {
+    testOutbox.length = 0;
+    const submitted = await apply(applicationFor([]));
+    const { referenceNumber } = submitted.body.data.application;
+    assert.equal(testOutbox.length, 1);
+    assert.equal(testOutbox[0].to, 'ana@example.com');
+    assert.match(testOutbox[0].text, new RegExp(referenceNumber));
+
+    const reminded = await request(app).post('/api/enrollment/reference').send({ email: 'ana@example.com' });
+    const unknown = await request(app).post('/api/enrollment/reference').send({ email: 'nobody@example.com' });
+    assert.equal(reminded.status, 200);
+    assert.deepEqual(unknown.body, reminded.body);
+    assert.equal(testOutbox.length, 2);
+    assert.match(testOutbox[1].text, new RegExp(referenceNumber));
+
+    const application = await EnrollmentApplication.findOne({ referenceNumber });
+    await request(app).patch(`/api/enrollment/applications/${application.id}`).set(auth(adminToken)).send({ status: 'approved' });
+    assert.equal(testOutbox.length, 3);
+    assert.match(testOutbox[2].text, /You have been approved/);
+  });
+
+  it('hides closed classes, refuses full ones and counts seats held by approved applicants', async () => {
+    english.capacity = 1;
+    await english.save();
+    math.enrollmentOpen = false;
+    await math.save();
+
+    const open = await request(app).get('/api/enrollment/classes');
+    assert.deepEqual(open.body.data.items.map((item) => item.name), ['ClassEng1']);
+    assert.equal(open.body.data.items[0].seatsLeft, 1);
+    assert.equal((await apply(applicationFor([math.id]))).status, 400);
+
+    const first = await apply(applicationFor([english.id]));
+    const application = await EnrollmentApplication.findOne({ referenceNumber: first.body.data.application.referenceNumber });
+    const approved = await request(app)
+      .patch(`/api/enrollment/applications/${application.id}/requests/${application.requests[0].id}`)
+      .set(auth(adminToken))
+      .send({ status: 'approved' });
+    assert.equal(approved.status, 200);
+
+    // The approved applicant has no account yet, but the only seat is theirs.
+    const afterwards = await request(app).get('/api/enrollment/classes');
+    assert.equal(afterwards.body.data.items[0].full, true);
+    const second = await apply(applicationFor([english.id], { student: { email: 'ben@example.com' } }));
+    assert.equal(second.status, 409);
+  });
+
+  it('lets a student withdraw a pending request and an administrator undo a decision', async () => {
+    const student = await createUser({ role: 'student' });
+    const studentToken = await login(student);
+    const asked = await request(app)
+      .post('/api/enrollment/requests')
+      .set(auth(studentToken))
+      .send({ classroomIds: [english.id, math.id] });
+    const { id, requests } = asked.body.data.application;
+    const byClass = Object.fromEntries(requests.map((entry) => [entry.classroom.name, entry.id]));
+
+    const withdrawn = await request(app).delete(`/api/enrollment/requests/${id}/${byClass.ClassMath1}`).set(auth(studentToken));
+    assert.equal(withdrawn.status, 200);
+    assert.equal(withdrawn.body.data.application.status, 'pending');
+    const someoneElse = await login(await createUser({ role: 'student' }));
+    const notTheirs = await request(app).delete(`/api/enrollment/requests/${id}/${byClass.ClassEng1}`).set(auth(someoneElse));
+    assert.equal(notTheirs.status, 404);
+
+    const decide = (status) => request(app)
+      .patch(`/api/enrollment/applications/${id}/requests/${byClass.ClassEng1}`)
+      .set(auth(adminToken))
+      .send({ status });
+    assert.equal((await decide('approved')).status, 200);
+    assert.deepEqual((await Classroom.findById(english.id)).students.map(String), [student.id]);
+    const tooLate = await request(app).delete(`/api/enrollment/requests/${id}/${byClass.ClassEng1}`).set(auth(studentToken));
+    assert.equal(tooLate.status, 409);
+
+    const reopened = await request(app)
+      .post(`/api/enrollment/applications/${id}/requests/${byClass.ClassEng1}/reopen`)
+      .set(auth(adminToken));
+    assert.equal(reopened.status, 200);
+    assert.equal(reopened.body.data.application.status, 'pending');
+    assert.equal((await Classroom.findById(english.id)).students.length, 0);
+    assert.equal((await decide('rejected')).status, 200);
+  });
+
+  it('keeps what the student gave when applying with their account', async () => {
+    const submitted = await apply(applicationFor([]));
+    const { referenceNumber } = submitted.body.data.application;
+    const application = await EnrollmentApplication.findOne({ referenceNumber });
+    await request(app).patch(`/api/enrollment/applications/${application.id}`).set(auth(adminToken)).send({ status: 'approved' });
+    await request(app)
+      .post('/api/enrollment/account')
+      .send({ referenceNumber, birthday: '2012-03-04', email: 'ana@example.com', password: 'Welcome123' });
+    const student = await User.findOne({ email: 'ana@example.com' });
+    const studentToken = await login(student, 'Welcome123');
+
+    const own = await request(app).get('/api/enrollment/record').set(auth(studentToken));
+    assert.equal(own.body.data.record.student.birthday, '2012-03-04');
+    assert.equal(own.body.data.record.guardian.name, 'Maria Reyes');
+    const forAdmin = await request(app).get(`/api/enrollment/users/${student.id}/record`).set(auth(adminToken));
+    assert.equal(forAdmin.body.data.record.referenceNumber, referenceNumber);
+    const handMade = await request(app).get(`/api/enrollment/users/${admin.id}/record`).set(auth(adminToken));
+    assert.equal(handMade.body.data.record, null);
+    const notForStudents = await request(app).get(`/api/enrollment/users/${student.id}/record`).set(auth(studentToken));
+    assert.equal(notForStudents.status, 403);
+  });
+
   it('lets the administrator approve into a different class', async () => {
-    const submitted = await request(app).post('/api/enrollment/applications').send(applicationFor([english.id]));
+    const submitted = await apply(applicationFor([english.id]));
     const application = await EnrollmentApplication.findOne({ referenceNumber: submitted.body.data.application.referenceNumber });
 
     const moved = await request(app)
@@ -284,7 +473,7 @@ describe('enrollment applications', () => {
 
   it('enrolls a returning student straight into the approved class', async () => {
     const student = await createUser({ role: 'student', email: 'ana@example.com' });
-    const submitted = await request(app).post('/api/enrollment/applications').send(applicationFor([english.id]));
+    const submitted = await apply(applicationFor([english.id]));
     assert.equal(submitted.status, 201);
 
     const list = await request(app).get('/api/enrollment/applications').set(auth(adminToken));
@@ -301,7 +490,7 @@ describe('enrollment applications', () => {
   });
 
   it('stores an optional photo and only shows it to administrators', async () => {
-    const submitted = await request(app).post('/api/enrollment/applications').send(applicationFor([english.id]));
+    const submitted = await apply(applicationFor([english.id]));
     const { referenceNumber } = submitted.body.data.application;
     const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64, 1)]);
 

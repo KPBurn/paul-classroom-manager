@@ -12,7 +12,8 @@ import PageHeader from '../../components/common/PageHeader.jsx';
 import Pagination from '../../components/common/Pagination.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import { inputClass, TextAreaField } from '../../components/common/TextField.jsx';
-import { ageFrom, ENROLLMENT_CHANGED_EVENT, ENROLLMENT_STATUS, formatCalendarDate, GENDER_LABELS } from '../../components/enrollment/enrollmentMeta.js';
+import { ageFrom, ENROLLMENT_STATUS, formatCalendarDate, GENDER_LABELS, seatsLabel } from '../../components/enrollment/enrollmentMeta.js';
+import { useLiveData } from '../../context/LiveSessionsContext.jsx';
 import { classroomService } from '../../services/classroom.service.js';
 import { enrollmentService } from '../../services/enrollment.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -27,6 +28,7 @@ const STATUS_OPTIONS = [
   { value: 'pending', label: 'Pending' },
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Not approved' },
+  { value: 'withdrawn', label: 'Withdrawn' },
   { value: '', label: 'All statuses' },
 ];
 
@@ -149,6 +151,21 @@ function ReviewApplication({ application, classrooms, onDecided }) {
     }
   };
 
+  // Puts a decision back to pending so it can be made again; an enrolled student is taken out of the class.
+  const reopen = async (request) => {
+    setDeciding(`${request?.id ?? 'application'}:reopen`);
+    setError('');
+    try {
+      const updated = await enrollmentService.reopen(application.id, request?.id);
+      toast.success('Decision reopened.');
+      onDecided(updated);
+    } catch (reopenError) {
+      setError(getErrorMessage(reopenError, 'Unable to reopen the decision.'));
+    } finally {
+      setDeciding(null);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex items-start gap-4">
@@ -177,6 +194,19 @@ function ReviewApplication({ application, classrooms, onDecided }) {
                 ? 'This application was not approved.'
                 : 'Once approved, the student creates their account and requests their classes inside the portal; each request comes back here for your decision.'}
             </p>
+            {application.status !== 'pending' && !application.account?.linked && (
+              <div className="mt-3 flex justify-end border-t border-ink-200 pt-3">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  isLoading={deciding === 'application:reopen'}
+                  disabled={Boolean(deciding)}
+                  onClick={() => reopen(null)}
+                >
+                  Undo decision
+                </Button>
+              </div>
+            )}
             {application.status === 'pending' && (
               <div className="mt-3 flex justify-end gap-2 border-t border-ink-200 pt-3">
                 <Button
@@ -214,10 +244,29 @@ function ReviewApplication({ application, classrooms, onDecided }) {
                     <p className="text-xs text-ink-500">
                       {formatSchedule(request.classroom?.schedule)}
                       {request.classroom?.teachers?.length > 0 && ` · ${request.classroom.teachers.map((teacher) => teacher.name).join(', ')}`}
+                      {seatsLabel(request.classroom) && ` · ${seatsLabel(request.classroom)}`}
                     </p>
                   </div>
                   <StatusBadge status={request.status} />
                 </div>
+                {['approved', 'rejected'].includes(request.status) && (
+                  <div className="mt-3 flex flex-col gap-2 border-t border-ink-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-ink-500">
+                      {request.status === 'approved' && application.account?.linked
+                        ? 'Undoing this takes the student out of the class and its upcoming sessions.'
+                        : 'Undoing this puts the request back to pending.'}
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      isLoading={deciding === `${request.id}:reopen`}
+                      disabled={Boolean(deciding)}
+                      onClick={() => reopen(request)}
+                    >
+                      Undo decision
+                    </Button>
+                  </div>
+                )}
                 {pending && (
                   <div className="mt-3 flex flex-col gap-2 border-t border-ink-200 pt-3 sm:flex-row sm:items-end">
                     <div className="min-w-0 flex-1">
@@ -231,7 +280,9 @@ function ReviewApplication({ application, classrooms, onDecided }) {
                         {!options.some((classroom) => classroom.id === target) && <option value="">Choose a class</option>}
                         {options.map((classroom) => (
                           <option key={classroom.id} value={classroom.id}>
-                            {classLabel(classroom)}{classroom.id === request.classroom?.id ? ' (requested)' : ''}
+                            {classLabel(classroom)}
+                            {classroom.id === request.classroom?.id ? ' (requested)' : ''}
+                            {classroom.capacity ? ` · ${classroom.students?.length ?? 0}/${classroom.capacity}` : ''}
                           </option>
                         ))}
                       </select>
@@ -310,12 +361,18 @@ export default function Enrollment() {
   const [page, setPage] = useState(1);
   const [list, setList] = useState({ state: 'loading', items: [], pagination: null, error: '' });
   const [classrooms, setClassrooms] = useState([]);
-  const [reviewingId, setReviewingId] = useState(null);
+  const [reviewing, setReviewing] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  useEffect(() => {
+  const loadClassrooms = useCallback(() => {
     classroomService.list().then(setClassrooms).catch(() => {});
   }, []);
+  useEffect(() => {
+    loadClassrooms();
+  }, [loadClassrooms]);
+  // New applications, withdrawals and other administrators' decisions show without a refresh.
+  useLiveData(['enrollment'], () => setReloadKey((key) => key + 1));
+  useLiveData(['classrooms'], loadClassrooms);
 
   useEffect(() => {
     let cancelled = false;
@@ -344,14 +401,11 @@ export default function Enrollment() {
     return () => clearTimeout(timer);
   }, [searchText, filters.search, updateFilters]);
 
-  const reviewing = list.items.find((item) => item.id === reviewingId);
-  const onDecided = (updated) => {
-    // Keep the open application on screen with its new state; the list is brought up to date when it closes.
-    setList((current) => ({ ...current, items: current.items.map((item) => (item.id === updated.id ? updated : item)) }));
-    window.dispatchEvent(new Event(ENROLLMENT_CHANGED_EVENT));
-  };
+  // The application being reviewed is held on its own, so it stays open when a decision
+  // (or a live update) takes it out of the filtered list behind it.
+  const onDecided = setReviewing;
   const closeReview = () => {
-    setReviewingId(null);
+    setReviewing(null);
     setReloadKey((key) => key + 1);
   };
   const hasFilters = Boolean(filters.search || filters.classroomId || filters.status !== 'pending');
@@ -432,7 +486,7 @@ export default function Enrollment() {
                   variant={application.status === 'pending' ? 'primary' : 'secondary'}
                   size="sm"
                   className="shrink-0"
-                  onClick={() => setReviewingId(application.id)}
+                  onClick={() => setReviewing(application)}
                 >
                   {application.status === 'pending' ? 'Review' : 'View'}
                 </Button>

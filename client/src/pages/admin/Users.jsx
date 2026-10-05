@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { CalendarClock, Eye, EyeOff, KeyRound, Lock, Pencil, Plus, Trash2, Users as UsersIcon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { CalendarClock, Eye, EyeOff, IdCard, KeyRound, Lock, Pencil, Plus, Trash2, Users as UsersIcon } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { z } from 'zod';
@@ -14,8 +14,10 @@ import { FilterSelect, ListToolbar, SearchInput } from '../../components/common/
 import Modal, { ModalActions } from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import Pagination from '../../components/common/Pagination.jsx';
+import StudentRecord from '../../components/enrollment/StudentRecord.jsx';
 import AvailabilityEditor from '../../components/schedule/AvailabilityEditor.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
+import { enrollmentService } from '../../services/enrollment.service.js';
 import TextField, { SelectField } from '../../components/common/TextField.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { useUsers } from '../../hooks/useUsers.js';
@@ -88,6 +90,7 @@ export default function Users({ role: fixedRole }) {
   const [form, setForm] = useState(null);
   const [passwordUser, setPasswordUser] = useState(null);
   const [availabilityUser, setAvailabilityUser] = useState(null);
+  const [recordUser, setRecordUser] = useState(null);
   const [deletingUser, setDeletingUser] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -176,6 +179,7 @@ export default function Users({ role: fixedRole }) {
         can={can}
         onEdit={(user) => setForm({ user })}
         onAvailability={setAvailabilityUser}
+        onRecord={setRecordUser}
         onResetPassword={setPasswordUser}
         onDelete={setDeletingUser}
       />
@@ -218,6 +222,16 @@ export default function Users({ role: fixedRole }) {
             }}
           />
         )}
+      </Modal>
+
+      <Modal
+        open={Boolean(recordUser)}
+        onClose={() => setRecordUser(null)}
+        title="Enrollment Record"
+        description={recordUser && `${recordUser.firstName} ${recordUser.lastName} · ${recordUser.email}`}
+        size="max-w-2xl"
+      >
+        {recordUser && <RecordOf key={recordUser.id} user={recordUser} />}
       </Modal>
 
       <Modal
@@ -265,7 +279,7 @@ export default function Users({ role: fixedRole }) {
   );
 }
 
-function UserTable({ list, currentUserId, hasFilters, can, onEdit, onAvailability, onResetPassword, onDelete }) {
+function UserTable({ list, currentUserId, hasFilters, can, onEdit, onAvailability, onRecord, onResetPassword, onDelete }) {
   const { status, items, pagination, error } = list;
   const showActions = can.update || can.remove;
 
@@ -330,6 +344,13 @@ function UserTable({ list, currentUserId, hasFilters, can, onEdit, onAvailabilit
                         {can.update && (
                           <>
                             <IconButton label={`Edit ${fullName}`} icon={Pencil} onClick={() => onEdit(user)} />
+                            {user.role === 'student' && (
+                              <IconButton
+                                label={`Enrollment record of ${fullName}`}
+                                icon={IdCard}
+                                onClick={() => onRecord(user)}
+                              />
+                            )}
                             {user.role === 'teacher' && (
                               <IconButton
                                 label={`Set teaching availability for ${fullName}`}
@@ -371,6 +392,35 @@ function UserTable({ list, currentUserId, hasFilters, can, onEdit, onAvailabilit
       />
     </Card>
   );
+}
+
+/** The details a student gave when they applied, for accounts that came from an enrollment application. */
+function RecordOf({ user }) {
+  const [state, setState] = useState({ status: 'loading', record: null, error: '' });
+
+  useEffect(() => {
+    let cancelled = false;
+    enrollmentService.recordOf(user.id)
+      .then((record) => {
+        if (!cancelled) setState({ status: 'ready', record, error: '' });
+      })
+      .catch((error) => {
+        if (!cancelled) setState({ status: 'error', record: null, error: getErrorMessage(error, 'Unable to load the record.') });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user.id]);
+
+  const applicationId = state.record?.id;
+  const loadPhoto = useCallback(() => enrollmentService.photoUrl(applicationId), [applicationId]);
+
+  if (state.status === 'loading') return <PageLoader label="Loading record…" className="py-8" />;
+  if (state.status === 'error') return <Alert tone="error">{state.error}</Alert>;
+  if (!state.record) {
+    return <Alert>This account was created by an administrator, so it has no enrollment application on file.</Alert>;
+  }
+  return <StudentRecord record={state.record} loadPhoto={loadPhoto} />;
 }
 
 function PasswordField({ id, label, error, registration }) {

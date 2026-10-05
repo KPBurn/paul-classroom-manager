@@ -168,6 +168,11 @@ export default function Login({ onClose }) {
         <Button type="submit" isLoading={isSubmitting} className="w-full">
           {isSubmitting ? 'Signing in…' : 'Sign in'}
         </Button>
+        <p className="text-center text-sm">
+          <Link to="/forgot-password" className="font-medium text-ink-600 underline underline-offset-4 hover:text-ink-900">
+            Forgot your password?
+          </Link>
+        </p>
       </form>
       <p className="mt-5 text-center text-xs text-ink-500">
         New student?{' '}

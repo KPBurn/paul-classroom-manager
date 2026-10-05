@@ -7,7 +7,9 @@ import { logActivity } from '../utils/activityLogger.js';
 import { daysOutsideAvailability, WEEKDAY_NAMES } from '../utils/schedule.js';
 import { canReadClassroom, classroomsTaughtBy } from '../authz/policies.js';
 import { classroomPeopleChanged } from '../realtime/connections.js';
+import { DATA_RESOURCES, publishDataChanged } from '../realtime/dataEvents.js';
 import { publishToClassroom, SESSION_EVENTS } from '../realtime/sessionEvents.js';
+import { createSessions } from './session.service.js';
 
 async function activeUsersWithRole(ids, role, label) {
   const uniqueIds = [...new Set(ids)];
@@ -32,13 +34,67 @@ async function assignments(data) {
 }
 
 /** A class is scheduled inside the hours its teacher (the first one assigned) said they can teach. */
-async function assertScheduleFits(schedule, teacherId) {
+async function assertScheduleFits(schedule, teacherId, exceptClassroomId) {
   if (!schedule) return;
   const teacher = await User.findById(teacherId).select('firstName lastName availability');
   const days = daysOutsideAvailability(schedule, teacher?.availability);
   if (days.length) {
     const message = `${teacher?.fullName ?? 'The teacher'} is not available on ${days.map((day) => WEEKDAY_NAMES[day]).join(', ')} from ${schedule.startTime} to ${schedule.endTime}. Choose a time inside the teacher’s availability.`;
     throw new AppError(400, message, { details: [{ field: 'schedule', message }] });
+  }
+  if (teacher) await assertTeacherFree(schedule, teacher, exceptClassroomId);
+}
+
+const timesOverlap = (a, b) => a.startTime < b.endTime && b.startTime < a.endTime
+  && a.weekdays.some((day) => b.weekdays.includes(day));
+
+/** A teacher cannot be in two classes at once: no other active class of theirs may share a day and time. */
+async function assertTeacherFree(schedule, teacher, exceptClassroomId) {
+  const others = await Classroom.find({
+    status: 'active',
+    schedule: { $ne: null },
+    ...classroomsTaughtBy(teacher),
+    ...(exceptClassroomId && { _id: { $ne: exceptClassroomId } }),
+  }).select('name schedule');
+  const clash = others.find((other) => timesOverlap(schedule, other.schedule));
+  if (clash) {
+    const days = schedule.weekdays.filter((day) => clash.schedule.weekdays.includes(day)).map((day) => WEEKDAY_NAMES[day]).join(', ');
+    const message = `${teacher.fullName} already teaches "${clash.name}" on ${days} from ${clash.schedule.startTime} to ${clash.schedule.endTime}. Choose a time that does not overlap.`;
+    throw new AppError(409, message, { details: [{ field: 'schedule', message }] });
+  }
+}
+
+/**
+ * Refuses a change of availability that would leave one of the teacher's
+ * classes outside it. The class has to be rescheduled first.
+ */
+export async function assertAvailabilityCoversClasses(teacher, availability) {
+  const classrooms = await Classroom.find({ status: 'active', teacher: teacher._id, schedule: { $ne: null } }).select('name schedule');
+  const stranded = classrooms.filter((classroom) => daysOutsideAvailability(classroom.schedule, availability).length);
+  if (stranded.length) {
+    throw new AppError(409, `${stranded.map(({ name }) => `"${name}"`).join(', ')} ${stranded.length === 1 ? 'is' : 'are'} scheduled outside these times. Change the class schedule first, then the availability.`);
+  }
+}
+
+/** Books the class's sessions on its weekly schedule between two dates. */
+async function bookSessions(classroom, sessions, context) {
+  if (!sessions) return;
+  if (!classroom.schedule) throw new AppError(400, 'Set the weekly schedule before booking its sessions.');
+  try {
+    await createSessions({
+      classroomId: String(classroom._id),
+      title: classroom.name,
+      weekdays: [...classroom.schedule.weekdays],
+      startTime: classroom.schedule.startTime,
+      endTime: classroom.schedule.endTime,
+      ...sessions,
+    }, context);
+  } catch (error) {
+    // The class itself is saved by now, so say that the sessions are what failed.
+    if (error instanceof AppError) {
+      throw new AppError(error.statusCode, `The class was saved, but its sessions were not booked: ${error.message}`);
+    }
+    throw error;
   }
 }
 
@@ -93,6 +149,8 @@ export async function createClassroom(data, { actor, ipAddress }) {
     name: data.name,
     subject: data.subject,
     schedule: data.schedule,
+    capacity: data.capacity,
+    enrollmentOpen: data.enrollmentOpen,
     openAccess: data.openAccess,
     ...assigned,
   });
@@ -105,6 +163,7 @@ export async function createClassroom(data, { actor, ipAddress }) {
     description: `${actor.fullName} created classroom "${classroom.name}"`,
     ipAddress,
   });
+  await bookSessions(classroom, data.sessions, { actor, ipAddress });
   return Classroom.findById(classroom._id)
     .populate('teacher', 'firstName lastName email status')
     .populate('teachers', 'firstName lastName email status')
@@ -119,13 +178,17 @@ export async function updateClassroom(id, data, { actor, ipAddress }) {
   if (data.name !== undefined) classroom.name = data.name;
   if (data.subject !== undefined) classroom.subject = data.subject;
   if (data.schedule !== undefined) classroom.schedule = data.schedule;
+  if (data.capacity !== undefined) classroom.capacity = data.capacity;
+  if (data.enrollmentOpen !== undefined) classroom.enrollmentOpen = data.enrollmentOpen;
   if (data.openAccess !== undefined) classroom.openAccess = data.openAccess;
   if (assigned.teachers) {
     classroom.teacher = assigned.teacher;
     classroom.teachers = assigned.teachers;
   }
   if (assigned.students) classroom.students = assigned.students;
-  if (data.schedule !== undefined || assigned.teachers) await assertScheduleFits(classroom.schedule, classroom.teacher);
+  if (data.schedule !== undefined || assigned.teachers) {
+    await assertScheduleFits(classroom.schedule, classroom.teacher, classroom._id);
+  }
   await classroom.save();
   classroomPeopleChanged(classroom);
   await logActivity({
@@ -136,6 +199,7 @@ export async function updateClassroom(id, data, { actor, ipAddress }) {
     description: `${actor.fullName} updated classroom "${classroom.name}"`,
     ipAddress,
   });
+  await bookSessions(classroom, data.sessions, { actor, ipAddress });
   return classroom.populate([
     { path: 'teacher', select: 'firstName lastName email status' },
     { path: 'teachers', select: 'firstName lastName email status' },
@@ -177,8 +241,24 @@ export async function enrollStudent(studentId, classroomIds) {
     { classroom: { $in: ids }, status: 'scheduled', endsAt: { $gt: new Date() }, assignedStudents: { $exists: true } },
     { $addToSet: { assignedStudents: studentId } },
   );
-  for (const classroom of await Classroom.find({ _id: { $in: ids } })) {
+  await rosterChanged(ids);
+}
+
+/** Takes a student back out of a classroom and its unfinished sessions, when an approval is undone. */
+export async function unenrollStudent(studentId, classroomId) {
+  await Classroom.updateOne({ _id: classroomId }, { $pull: { students: studentId } });
+  await ClassSession.updateMany(
+    { classroom: classroomId, status: 'scheduled', endsAt: { $gt: new Date() } },
+    { $pull: { assignedStudents: studentId } },
+  );
+  await rosterChanged([classroomId]);
+}
+
+/** Connected pages follow, or stop following, the classrooms whose students changed. */
+async function rosterChanged(classroomIds) {
+  for (const classroom of await Classroom.find({ _id: { $in: classroomIds } })) {
     classroomPeopleChanged(classroom);
     publishToClassroom(classroom._id, SESSION_EVENTS.scheduleChanged, { classroomId: String(classroom._id) });
   }
+  publishDataChanged(DATA_RESOURCES.classrooms);
 }

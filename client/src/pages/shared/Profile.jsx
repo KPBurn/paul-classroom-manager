@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Eye, EyeOff } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { z } from 'zod';
@@ -8,7 +8,9 @@ import Alert from '../../components/common/Alert.jsx';
 import Button, { IconButton } from '../../components/common/Button.jsx';
 import Card, { CardHeader } from '../../components/common/Card.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
+import StudentRecord from '../../components/enrollment/StudentRecord.jsx';
 import AvailabilityEditor from '../../components/schedule/AvailabilityEditor.jsx';
+import { enrollmentService } from '../../services/enrollment.service.js';
 import TextField from '../../components/common/TextField.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -142,6 +144,35 @@ function Availability() {
   );
 }
 
+/** What the student gave when they applied. Accounts an administrator made by hand have none, and show nothing. */
+function EnrollmentRecord() {
+  const [record, setRecord] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    // The record is extra detail: the profile is complete without it.
+    enrollmentService.ownRecord()
+      .then((loaded) => {
+        if (!cancelled) setRecord(loaded);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!record) return null;
+  return (
+    <Card as="section" aria-labelledby="record-heading">
+      <CardHeader title="Enrollment record" titleId="record-heading" />
+      <div className="space-y-3 p-5">
+        <StudentRecord record={record} loadPhoto={enrollmentService.ownPhotoUrl} />
+        <p className="text-xs text-ink-500">These are the details from your enrollment application. Contact your school to correct them.</p>
+      </div>
+    </Card>
+  );
+}
+
 export default function Profile() {
   const { user } = useAuth();
 
@@ -176,6 +207,7 @@ export default function Profile() {
         </Card>
 
         {user.role === 'teacher' && <Availability />}
+        {user.role === 'student' && <EnrollmentRecord />}
 
         <ChangePassword />
       </div>

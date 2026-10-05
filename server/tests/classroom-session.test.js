@@ -15,6 +15,12 @@ const login = async (user) => {
   return response.body.data.token;
 };
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
+/** The date ("YYYY-MM-DD", UTC) of the next Monday after today, plus a number of weeks. */
+function mondayFromNow(weeks) {
+  const day = new Date();
+  day.setUTCDate(day.getUTCDate() + ((8 - day.getUTCDay()) % 7 || 7) + weeks * 7);
+  return day.toISOString().slice(0, 10);
+}
 
 before(startDatabase);
 after(stopDatabase);
@@ -274,8 +280,9 @@ describe('class sessions and attendance', () => {
       .send({
         classroomId: classroom.id,
         title: 'Weekly',
-        startDate: '2026-10-05',
-        endDate: '2026-10-19',
+        // Three Mondays that are always still to come, whenever the test runs.
+        startDate: mondayFromNow(0),
+        endDate: mondayFromNow(2),
         startTime: '09:00',
         endTime: '10:00',
         weekdays: [1],

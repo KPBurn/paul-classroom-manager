@@ -2,6 +2,7 @@ import { User } from '../models/User.js';
 import { disconnectUser } from '../realtime/connections.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { AppError } from '../utils/AppError.js';
+import { assertAvailabilityCoversClasses } from './classroom.service.js';
 import { assertDeletable, leaveClassrooms } from './userLinks.service.js';
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -78,8 +79,9 @@ export async function updateUser(id, changes, { actor, ipAddress }) {
       throw new AppError(403, 'You cannot change your own status');
     }
   }
-  if (changes.availability && (changes.role ?? user.role) !== 'teacher') {
-    throw new AppError(400, 'Only teachers have availability');
+  if (changes.availability) {
+    if ((changes.role ?? user.role) !== 'teacher') throw new AppError(400, 'Only teachers have availability');
+    await assertAvailabilityCoversClasses(user, changes.availability);
   }
   if (changes.email && changes.email !== user.email) {
     await assertEmailAvailable(changes.email, 'Unable to update user');

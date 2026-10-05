@@ -32,6 +32,8 @@ const AdminFeedback = lazy(() => import('../pages/admin/Feedback.jsx'));
 const AdminEnrollment = lazy(() => import('../pages/admin/Enrollment.jsx'));
 const Enroll = lazy(() => import('../pages/enrollment/Enroll.jsx'));
 const EnrollmentStatus = lazy(() => import('../pages/enrollment/EnrollmentStatus.jsx'));
+const ForgotPassword = lazy(() => import('../pages/auth/ForgotPassword.jsx'));
+const ResetPassword = lazy(() => import('../pages/auth/ResetPassword.jsx'));
 const suspense = (element) => <Suspense fallback={<FullPageSpinner />}>{element}</Suspense>;
 
 /** Placeholder routes for sidebar modules that have not been built yet. */
@@ -50,6 +52,9 @@ export default function AppRoutes() {
       {/* Applying needs no account; signed-in students ask for a class from My Classrooms instead. */}
       <Route path="/enroll" element={<GuestRoute>{suspense(<Enroll />)}</GuestRoute>} />
       <Route path="/enroll/status" element={<GuestRoute>{suspense(<EnrollmentStatus />)}</GuestRoute>} />
+      <Route path="/forgot-password" element={<GuestRoute>{suspense(<ForgotPassword />)}</GuestRoute>} />
+      {/* Open to everyone: someone signed in on this device may be resetting another account's password. */}
+      <Route path="/reset-password" element={suspense(<ResetPassword />)} />
 
       <Route
         path="/sessions/:id/room"

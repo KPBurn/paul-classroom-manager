@@ -23,6 +23,15 @@ services:
         value: https://kpburn.github.io
       - key: JWT_SECRET
         generateValue: true
+      # Where the web app is opened, for the links in emails (password reset, enrollment status).
+      - key: APP_URL
+        value: https://kpburn.github.io/paul-classroom-manager
       # Entered in the Render dashboard, never committed.
       - key: MONGODB_URI
+        sync: false
+      # A Resend API key (resend.com). Without it no email is sent: the server logs each one it skipped.
+      - key: RESEND_API_KEY
+        sync: false
+      # The sender, on a domain verified in Resend, such as "School Name <enrollment@school.edu>".
+      - key: MAIL_FROM
         sync: false

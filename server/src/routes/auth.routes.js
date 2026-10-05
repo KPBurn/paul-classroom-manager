@@ -3,20 +3,29 @@ import { z } from 'zod';
 import { PERMISSIONS } from '../config/permissions.js';
 import {
   changePassword,
+  forgotPassword,
   login,
   loginWithTestRole,
   logout,
   me,
   register,
+  resetPassword,
   roleTestingStatus,
   setAvailability,
 } from '../controllers/auth.controller.js';
 import { authenticateUser } from '../middleware/auth.middleware.js';
-import { loginLimiter } from '../middleware/rateLimit.middleware.js';
+import { emailLimiter, loginLimiter, verificationLimiter } from '../middleware/rateLimit.middleware.js';
 import { requirePermission, requireRole } from '../middleware/role.middleware.js';
 import { validate } from '../middleware/validation.middleware.js';
 import { availabilitySchema } from '../validators/schedule.validators.js';
-import { changePasswordSchema, loginSchema, registerSchema, roleTestLoginSchema } from '../validators/auth.validators.js';
+import {
+  changePasswordSchema,
+  emailSchema,
+  loginSchema,
+  passwordSchema,
+  registerSchema,
+  roleTestLoginSchema,
+} from '../validators/auth.validators.js';
 
 const router = Router();
 
@@ -31,6 +40,14 @@ router.post(
   requirePermission(PERMISSIONS.USERS_CREATE),
   validate({ body: registerSchema }),
   register,
+);
+
+router.post('/forgot-password', emailLimiter, validate({ body: z.object({ email: emailSchema }).strict() }), forgotPassword);
+router.post(
+  '/reset-password',
+  verificationLimiter,
+  validate({ body: z.object({ token: z.string().min(1).max(1000), password: passwordSchema }).strict() }),
+  resetPassword,
 );
 
 router.get('/me', authenticateUser, me);

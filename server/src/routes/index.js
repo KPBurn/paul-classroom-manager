@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
+import { announceChanges } from '../middleware/live.middleware.js';
+import { DATA_RESOURCES as LIVE } from '../realtime/dataEvents.js';
 import { AppError } from '../utils/AppError.js';
 import { sendSuccess } from '../utils/apiResponse.js';
 import announcementRoutes from './announcement.routes.js';
@@ -32,14 +34,18 @@ router.get('/health', (_req, res, next) => {
   });
 });
 
+// A change made through these routes is announced to connected pages, so their lists stay current.
+const staff = { roles: ['admin', 'teacher'] };
 router.use('/auth', authRoutes);
-router.use('/announcements', announcementRoutes);
-router.use('/classrooms', classroomRoutes);
+router.use('/announcements', announceChanges(LIVE.announcements), announcementRoutes);
+router.use('/classrooms', announceChanges([LIVE.classrooms, LIVE.announcements]), classroomRoutes);
+// Enrollment tells the people concerned itself: most of its requests are public.
 router.use('/enrollment', enrollmentRoutes);
-router.use('/feedback', feedbackRoutes);
-router.use('/subjects', subjectRoutes);
+router.use('/feedback', announceChanges(LIVE.feedback, staff), feedbackRoutes);
+router.use('/subjects', announceChanges(LIVE.materials), subjectRoutes);
 router.use('/sessions', sessionRoutes);
 router.use('/system-settings', systemSettingsRoutes);
-router.use('/users', userRoutes);
+// Changing a role or status can take someone out of their classrooms.
+router.use('/users', announceChanges(LIVE.users, { roles: ['admin'] }), announceChanges(LIVE.classrooms), userRoutes);
 
 export default router;

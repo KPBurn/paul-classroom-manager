@@ -13,6 +13,7 @@ import { subjectService } from '../../services/subject.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import AddMaterialModal from './AddMaterialModal.jsx';
 import MaterialItem from './MaterialItem.jsx';
+import { useLiveData } from '../../context/LiveSessionsContext.jsx';
 
 /**
  * Learning materials for one classroom, grouped by subject. Teachers can add
@@ -43,6 +44,7 @@ export default function ClassroomMaterials({ classroomId, canManage, archived })
   useEffect(() => {
     load();
   }, [load]);
+  useLiveData(['materials'], load);
 
   const confirmDelete = async () => {
     setIsDeleting(true);

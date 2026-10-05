@@ -16,6 +16,10 @@ const classroomSchema = new mongoose.Schema(
     subject: { type: String, trim: true, maxlength: 80, default: '' },
     // The weekly class time, chosen from the teacher's availability. Empty until it is decided.
     schedule: { type: scheduleSchema, default: null },
+    // The most students the class takes through enrollment. Empty means no limit.
+    capacity: { type: Number, min: 1, default: null },
+    // Whether the class is offered on the enrollment form. Closed classes are filled by administrators only.
+    enrollmentOpen: { type: Boolean, default: true, required: true },
     teacher: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     teachers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     students: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],

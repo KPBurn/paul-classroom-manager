@@ -15,6 +15,7 @@ import { formatSchedule } from '../../utils/schedule.js';
 
 const STEPS = ['Student', 'Guardian', 'Classes', 'Photo', 'Review'];
 const PHOTO_SIDE = 600;
+const CLASS_REFRESH_MS = 20_000;
 const GENDER_OPTIONS = [
   { value: '', label: 'Select (optional)' },
   ...Object.entries(GENDER_LABELS).map(([value, label]) => ({ value, label })),
@@ -118,8 +119,8 @@ function Submitted({ result, photoFailed }) {
           </Button>
         </div>
         <Alert tone="warning">
-          Keep this number. It is not sent by email, and with the student’s birthday it is how you check your status and
-          create your account once you are approved.
+          Keep this number. With the student’s birthday it is how you check your status and create your account once you
+          are approved. We have also emailed it to the address on the application.
         </Alert>
         {photoFailed && (
           <Alert>Your application was received, but the photo could not be uploaded. You can give it to your school later.</Alert>
@@ -144,6 +145,9 @@ function Submitted({ result, photoFailed }) {
 
 export default function Enroll() {
   const [classes, setClasses] = useState(null);
+  // Sent back with the application; the server uses it to tell a person at the form from a script.
+  const formToken = useRef('');
+  const [website, setWebsite] = useState('');
   const [loadError, setLoadError] = useState('');
   const [step, setStep] = useState(0);
   const [student, setStudent] = useState({
@@ -162,17 +166,23 @@ export default function Enroll() {
   const formRef = useRef(null);
   const fileRef = useRef(null);
 
-  const load = useCallback(async () => {
-    setLoadError('');
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setLoadError('');
     try {
-      setClasses(await enrollmentService.classes());
+      const open = await enrollmentService.openClasses();
+      setClasses(open.items);
+      // The first token is kept: it shows how long the form has been open.
+      formToken.current ||= open.formToken;
     } catch (error) {
-      setLoadError(getErrorMessage(error, 'Unable to load the classes.'));
+      if (!quiet) setLoadError(getErrorMessage(error, 'Unable to load the classes.'));
     }
   }, []);
 
   useEffect(() => {
     load();
+    // There is no account to notify yet, so the class list (and how many seats are left) is checked again regularly.
+    const timer = window.setInterval(() => load({ quiet: true }), CLASS_REFRESH_MS);
+    return () => window.clearInterval(timer);
   }, [load]);
 
   // The preview is an object URL, which the browser keeps until it is released.
@@ -231,7 +241,9 @@ export default function Enroll() {
     setSubmitting(true);
     setSubmitError('');
     try {
-      const application = await enrollmentService.submit({ student, guardian, classroomIds, note, agreed });
+      const application = await enrollmentService.submit({
+        student, guardian, classroomIds, note, agreed, website, formToken: formToken.current,
+      });
       if (photo) {
         try {
           await enrollmentService.uploadPhoto(application.referenceNumber, photo.blob);
@@ -257,7 +269,7 @@ export default function Enroll() {
   return (
     <PublicPage
       title="Apply for enrollment"
-      description="Tell us who is applying. You do not need an account yet: your school reviews the application first, and you choose or confirm your classes inside the portal afterwards."
+      description="Tell us who is applying. You do not need an account yet: your school reviews the application first, and you choose or confirm your classes inside the portal afterwards. Your details are used only for this enrollment."
     >
       {loadError ? (
         <ErrorState message={loadError} onRetry={load} />
@@ -268,6 +280,11 @@ export default function Enroll() {
           <StepList current={step} />
           <Card>
             <form ref={formRef} onSubmit={submit} noValidate className="space-y-5 p-5 sm:p-6">
+              {/* People never see or reach this field; a script that fills in every field gives itself away. */}
+              <div className="hidden" aria-hidden="true">
+                <label htmlFor="website">Website</label>
+                <input id="website" name="website" tabIndex={-1} autoComplete="off" value={website} onChange={(event) => setWebsite(event.target.value)} />
+              </div>
               {step === 0 && (
                 <>
                   <h2 tabIndex={-1} className="text-base font-semibold text-ink-900 outline-none">Student information</h2>
@@ -423,8 +440,9 @@ export default function Enroll() {
                         className="mt-0.5 size-4 shrink-0"
                       />
                       <span>
-                        I confirm that the information above is true and correct, and I agree that the school may use it to
-                        process this enrollment and contact the student and guardian.
+                        I confirm that the information above is true and correct, and I agree that the school may store it
+                        and use it to process this enrollment and to contact the student and guardian. For a student under
+                        18, I am their parent or guardian, or I have their permission to apply.
                       </span>
                     </label>
                     {problems.agreed && <p className="mt-1.5 text-sm text-red-700">{problems.agreed}</p>}

@@ -10,6 +10,7 @@ import MaterialItem from '../../components/materials/MaterialItem.jsx';
 import { useNow } from '../../hooks/useNow.js';
 import { subjectService } from '../../services/subject.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { useLiveData } from '../../context/LiveSessionsContext.jsx';
 
 export default function StudentMaterials() {
   const now = useNow();
@@ -19,13 +20,16 @@ export default function StudentMaterials() {
   const [query, setQuery] = useState('');
   const [classroomFilter, setClassroomFilter] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  // A quiet load keeps what is on screen until the new list arrives, and leaves it there if that fails.
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) {
+      setLoading(true);
+      setError('');
+    }
     try {
       setSubjects(await subjectService.list());
     } catch (loadError) {
-      setError(getErrorMessage(loadError, 'Unable to load your materials.'));
+      if (!quiet) setError(getErrorMessage(loadError, 'Unable to load your materials.'));
     } finally {
       setLoading(false);
     }
@@ -34,6 +38,7 @@ export default function StudentMaterials() {
   useEffect(() => {
     load();
   }, [load]);
+  useLiveData(['materials', 'classrooms'], () => load({ quiet: true }));
 
   const classroomOptions = [
     { value: '', label: 'All classes' },

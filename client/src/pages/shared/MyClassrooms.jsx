@@ -10,6 +10,7 @@ import PageHeader from '../../components/common/PageHeader.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { classroomService } from '../../services/classroom.service.js';
+import { useLiveData } from '../../context/LiveSessionsContext.jsx';
 import ClassRequests from '../../components/enrollment/ClassRequests.jsx';
 import { getErrorMessage } from '../../utils/errors.js';
 import { formatSchedule } from '../../utils/schedule.js';
@@ -28,13 +29,16 @@ export default function MyClassrooms() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  // A quiet load keeps what is on screen until the new list arrives, and leaves it there if that fails.
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) {
+      setLoading(true);
+      setError('');
+    }
     try {
       setClassrooms(await classroomService.list());
     } catch (loadError) {
-      setError(getErrorMessage(loadError, 'Unable to load your classrooms.'));
+      if (!quiet) setError(getErrorMessage(loadError, 'Unable to load your classrooms.'));
     } finally {
       setLoading(false);
     }
@@ -43,6 +47,8 @@ export default function MyClassrooms() {
   useEffect(() => {
     load();
   }, [load]);
+  // An approved class appears here the moment it is approved.
+  useLiveData(['classrooms'], () => load({ quiet: true }));
 
   return (
     <>

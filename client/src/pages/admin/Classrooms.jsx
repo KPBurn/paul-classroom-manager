@@ -12,6 +12,7 @@ import Modal, { ModalActions } from '../../components/common/Modal.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import PeoplePicker from '../../components/common/PeoplePicker.jsx';
 import TextField from '../../components/common/TextField.jsx';
+import { useLiveData } from '../../context/LiveSessionsContext.jsx';
 import { classroomService } from '../../services/classroom.service.js';
 import { userService } from '../../services/user.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -27,7 +28,10 @@ const TYPE_OPTIONS = [
   { value: 'standard', label: 'Standard' },
   { value: 'open', label: 'Open classrooms' },
 ];
-const NEW_CLASSROOM = { name: '', subject: '', schedule: null, teacherIds: [], studentIds: [], openAccess: false };
+const NEW_CLASSROOM = {
+  name: '', subject: '', schedule: null, capacity: null, enrollmentOpen: true, teacherIds: [], studentIds: [], openAccess: false,
+};
+const localDate = (date) => date.toLocaleDateString('en-CA');
 
 const personName = (person) => person.name ?? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim();
 const teachersOf = (classroom) => (classroom.teachers?.length
@@ -60,9 +64,12 @@ export default function Classrooms() {
   }, []);
   const peopleLoaded = useRef(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  // A quiet load keeps what is on screen until the new list arrives, and leaves it there if that fails.
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const [classItems] = await Promise.all([
         classroomService.list({ includeArchived }),
@@ -71,7 +78,7 @@ export default function Classrooms() {
       peopleLoaded.current = true;
       setClassrooms(classItems);
     } catch (loadError) {
-      setError(getErrorMessage(loadError, 'Unable to load classrooms.'));
+      if (!quiet) setError(getErrorMessage(loadError, 'Unable to load classrooms.'));
     } finally {
       setLoading(false);
     }
@@ -80,6 +87,12 @@ export default function Classrooms() {
   useEffect(() => {
     load();
   }, [load]);
+  // Rosters filling up through enrollment, and classes changed elsewhere, show without a refresh.
+  useLiveData(['classrooms'], () => load({ quiet: true }));
+  // A teacher changing their availability changes which schedules can be chosen.
+  useLiveData(['users'], () => {
+    loadPeople().catch(() => {});
+  });
 
   // Puts a saved classroom into the list where the server would list it: active first, then by name.
   const showSaved = (saved) => setClassrooms((current) => [...current.filter((classroom) => classroom.id !== saved.id), saved]
@@ -92,6 +105,9 @@ export default function Classrooms() {
         name: values.name.trim(),
         subject: values.subject.trim(),
         schedule: values.schedule,
+        capacity: values.capacity,
+        enrollmentOpen: values.enrollmentOpen,
+        ...(values.sessions && { sessions: values.sessions }),
         teacherIds: values.teacherIds,
         studentIds: values.studentIds,
         openAccess: values.openAccess,
@@ -101,6 +117,8 @@ export default function Classrooms() {
       setForm(null);
     } catch (saveError) {
       toast.error(getErrorMessage(saveError, 'Unable to save classroom.'));
+      // The class may have been saved even though booking its sessions failed: show what is there now.
+      load({ quiet: true });
     }
   };
 
@@ -120,6 +138,8 @@ export default function Classrooms() {
     name: classroom.name,
     subject: classroom.subject ?? '',
     schedule: classroom.schedule ?? null,
+    capacity: classroom.capacity ?? null,
+    enrollmentOpen: classroom.enrollmentOpen ?? true,
     teacherIds: teachersOf(classroom).map((teacher) => teacher.id ?? teacher),
     studentIds: classroom.students?.map((student) => student.id ?? student) ?? [],
     openAccess: classroom.openAccess ?? false,
@@ -219,6 +239,8 @@ export default function Classrooms() {
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <span className={`truncate font-medium ${archived ? 'text-ink-500' : 'text-ink-900'}`}>{classroom.name}</span>
                         {classroom.openAccess && <Badge tone="warning">Open</Badge>}
+                        {!archived && classroom.enrollmentOpen === false && <Badge>Enrollment closed</Badge>}
+                        {!archived && classroom.capacity && roster.length >= classroom.capacity && <Badge tone="warning">Full</Badge>}
                         {archived && <Badge>Archived</Badge>}
                       </div>
                       <p className="truncate text-xs text-ink-500">
@@ -239,7 +261,7 @@ export default function Classrooms() {
                         title={roster.length > 0 ? (expanded ? 'Hide students' : 'Show students') : undefined}
                         className="-mx-2 inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-sm tabular-nums text-ink-700 hover:bg-ink-100 hover:text-ink-900 disabled:cursor-default disabled:text-ink-500 disabled:hover:bg-transparent"
                       >
-                        {roster.length} {roster.length === 1 ? 'student' : 'students'}
+                        {roster.length}{classroom.capacity ? `/${classroom.capacity}` : ''} {roster.length === 1 && !classroom.capacity ? 'student' : 'students'}
                         {roster.length > 0 && (
                           <ChevronDown className={`size-4 transition ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
                         )}
@@ -308,6 +330,12 @@ function ClassroomForm({ initial, teachers, students, subjects, onCancel, onSave
   const [weekdays, setWeekdays] = useState(initial.schedule?.weekdays ?? []);
   const [startTime, setStartTime] = useState(initial.schedule?.startTime ?? '');
   const [endTime, setEndTime] = useState(initial.schedule?.endTime ?? '');
+  const [capacity, setCapacity] = useState(initial.capacity ? String(initial.capacity) : '');
+  const [enrollmentOpen, setEnrollmentOpen] = useState(initial.enrollmentOpen ?? true);
+  // Booking the dated sessions is offered for a new class and whenever the schedule is set.
+  const [bookSessions, setBookSessions] = useState(!initial.id);
+  const [startDate, setStartDate] = useState(() => localDate(new Date()));
+  const [endDate, setEndDate] = useState(() => localDate(new Date(Date.now() + 12 * 7 * 24 * 60 * 60 * 1000)));
   const [teacherIds, setTeacherIds] = useState(initial.teacherIds || (initial.teacherId ? [initial.teacherId] : []));
   const [studentIds, setStudentIds] = useState(initial.studentIds || []);
   const [openAccess, setOpenAccess] = useState(initial.openAccess ?? false);
@@ -343,12 +371,20 @@ function ClassroomForm({ initial, teachers, students, subjects, onCancel, onSave
     if (teacherIds.length === 0) problems.teachers = 'Assign at least one teacher.';
     const scheduleError = scheduleProblem();
     if (scheduleError) problems.schedule = scheduleError;
+    else if (schedule && bookSessions && (!startDate || !endDate || endDate < startDate)) {
+      problems.schedule = 'Choose a first and last date for the sessions, with the last date on or after the first.';
+    }
+    if (capacity !== '' && !(Number.isInteger(Number(capacity)) && Number(capacity) >= 1 && Number(capacity) <= 1000)) {
+      problems.capacity = 'Enter a whole number from 1 to 1000, or leave it empty for no limit.';
+    }
     setFieldErrors(problems);
     if (Object.keys(problems).length > 0) {
       // Move focus to the first field that needs attention.
       const target = problems.name
         ? formRef.current?.querySelector('#classroom-name')
-        : problems.teachers
+        : problems.capacity
+          ? formRef.current?.querySelector('#classroom-capacity')
+          : problems.teachers
           ? formRef.current?.querySelector('[data-picker="teachers"] input')
           : formRef.current?.querySelector('#classroom-start-time');
       target?.focus();
@@ -357,7 +393,19 @@ function ClassroomForm({ initial, teachers, students, subjects, onCancel, onSave
     setSaving(true);
     setError('');
     try {
-      await onSave({ name, subject, schedule, teacherIds, studentIds, openAccess });
+      await onSave({
+        name,
+        subject,
+        schedule,
+        capacity: capacity === '' ? null : Number(capacity),
+        enrollmentOpen,
+        sessions: schedule && bookSessions
+          ? { startDate, endDate, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+          : undefined,
+        teacherIds,
+        studentIds,
+        openAccess,
+      });
     } catch (saveError) {
       setError(getErrorMessage(saveError, 'Unable to save classroom.'));
     } finally {
@@ -415,6 +463,38 @@ function ClassroomForm({ initial, teachers, students, subjects, onCancel, onSave
           {subjects.map((item) => <option key={item} value={item} />)}
         </datalist>
         <p className="mt-1 text-xs text-ink-500">Students applying for a class see the classes grouped by subject.</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 sm:items-start">
+        <div>
+          <TextField
+            id="classroom-capacity"
+            label="Capacity (optional)"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={1000}
+            placeholder="No limit"
+            value={capacity}
+            error={fieldErrors.capacity}
+            onChange={(event) => {
+              setCapacity(event.target.value);
+              setFieldErrors((current) => ({ ...current, capacity: undefined }));
+            }}
+          />
+          <p className="mt-1 text-xs text-ink-500">Enrollment stops offering the class once it has this many students.</p>
+        </div>
+        <label className="flex min-h-10.5 items-start gap-2.5 rounded-lg border border-ink-300 bg-white px-3 py-2.5 text-sm text-ink-700 sm:mt-6.5">
+          <input
+            type="checkbox"
+            checked={enrollmentOpen}
+            onChange={(event) => setEnrollmentOpen(event.target.checked)}
+            className="mt-0.5 size-4 shrink-0"
+          />
+          <span>
+            <span className="font-medium text-ink-900">Open for enrollment</span>
+            <span className="block text-xs text-ink-500">Shown on the enrollment form. Turn off to fill the class yourself.</span>
+          </span>
+        </label>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <PeoplePicker
@@ -504,11 +584,56 @@ function ClassroomForm({ initial, teachers, students, subjects, onCancel, onSave
                 }}
               />
             </div>
-            <p className="text-xs text-ink-500">
-              {weekdays.length === 0
-                ? 'Choose the days to set a schedule, or leave them empty to announce it later.'
-                : 'This is the class time students see when they apply. Book the dated sessions from Schedules.'}
-            </p>
+            {weekdays.length === 0 ? (
+              <p className="text-xs text-ink-500">Choose the days to set a schedule, or leave them empty to announce it later.</p>
+            ) : (
+              <div className="space-y-3 border-t border-ink-200 pt-3">
+                <label className="flex items-start gap-2.5 text-sm text-ink-700">
+                  <input
+                    type="checkbox"
+                    checked={bookSessions}
+                    onChange={(event) => {
+                      setBookSessions(event.target.checked);
+                      clearScheduleError();
+                    }}
+                    className="mt-0.5 size-4 shrink-0"
+                  />
+                  <span>
+                    <span className="font-medium text-ink-900">Book the sessions on this schedule</span>
+                    <span className="block text-xs text-ink-500">
+                      {initial.id
+                        ? 'Adds a session on each of these days between the two dates. Sessions already booked are kept, so only use this for dates that have none.'
+                        : 'Adds a session on each of these days between the two dates, so the class appears on everyone’s schedule.'}
+                    </span>
+                  </span>
+                </label>
+                {bookSessions && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <TextField
+                      id="classroom-start-date"
+                      label="First date"
+                      type="date"
+                      value={startDate}
+                      onChange={(event) => {
+                        setStartDate(event.target.value);
+                        clearScheduleError();
+                      }}
+                    />
+                    <TextField
+                      id="classroom-end-date"
+                      label="Last date"
+                      type="date"
+                      value={endDate}
+                      min={startDate}
+                      onChange={(event) => {
+                        setEndDate(event.target.value);
+                        clearScheduleError();
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
         {fieldErrors.schedule && <p id="classroom-schedule-error" className="mt-1.5 text-sm text-red-700">{fieldErrors.schedule}</p>}

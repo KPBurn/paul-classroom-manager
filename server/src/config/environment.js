@@ -55,6 +55,13 @@ export const env = {
   iceServers: parseIceServers(process.env.WEBRTC_ICE_SERVERS),
   meteredTurnHost,
   meteredTurnApiKey,
+  // Where the web app is opened, for links in emails. Defaults to the first allowed origin.
+  appUrl: (process.env.APP_URL || toList(process.env.CLIENT_URL || 'http://localhost:5173')[0]).replace(/\/+$/, ''),
+  // Email is sent through Resend's API. Without a key, emails are skipped and the server says so in its log.
+  resendApiKey: process.env.RESEND_API_KEY?.trim() || null,
+  mailFrom: process.env.MAIL_FROM?.trim() || 'Classroom Manager <onboarding@resend.dev>',
+  // Days to keep applications that were not approved. Unset keeps them until an administrator removes them.
+  enrollmentRetentionDays: toInt(process.env.ENROLLMENT_RETENTION_DAYS, 0),
 };
 
 export const isProduction = env.nodeEnv === 'production';

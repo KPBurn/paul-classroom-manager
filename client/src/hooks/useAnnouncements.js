@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLiveData } from '../context/LiveSessionsContext.jsx';
 import { announcementService } from '../services/announcement.service.js';
 import { getErrorMessage } from '../utils/errors.js';
 
@@ -41,6 +42,8 @@ export function useAnnouncements(pageSize, { status = 'active', loader = announc
   }, [page, pageSize, reloadKey, status, loader]);
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+  // Someone else posting, editing or removing an announcement shows here without a refresh.
+  useLiveData(['announcements'], reload);
 
   return { ...list, page, setPage, reload };
 }

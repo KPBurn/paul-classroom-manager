@@ -1,14 +1,19 @@
-import { CircleCheck, CircleX, Clock } from 'lucide-react';
+import { CircleCheck, CircleX, Clock, Undo2 } from 'lucide-react';
 
 /** How each enrollment status is labelled; the icon means the status never relies on colour alone. */
 export const ENROLLMENT_STATUS = {
   pending: { label: 'Pending', tone: 'warning', icon: Clock },
   approved: { label: 'Approved', tone: 'success', icon: CircleCheck },
   rejected: { label: 'Not approved', tone: 'danger', icon: CircleX },
+  withdrawn: { label: 'Withdrawn', tone: 'neutral', icon: Undo2 },
 };
 
-/** A window event: the number of applications waiting for a decision may have changed. */
-export const ENROLLMENT_CHANGED_EVENT = 'enrollment:changed';
+/** "3 seats left", "Full", or nothing for a class without a limit. */
+export function seatsLabel(classroom) {
+  if (!classroom?.capacity) return '';
+  if (classroom.full) return 'Full';
+  return `${classroom.seatsLeft} ${classroom.seatsLeft === 1 ? 'seat' : 'seats'} left`;
+}
 
 export const GENDER_LABELS = {
   male: 'Male',

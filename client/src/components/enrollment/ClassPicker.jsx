@@ -1,5 +1,6 @@
 import { CalendarDays, UserRound } from 'lucide-react';
 import { formatSchedule } from '../../utils/schedule.js';
+import { seatsLabel } from './enrollmentMeta.js';
 
 const NO_SUBJECT = 'Other classes';
 
@@ -30,7 +31,9 @@ export default function ClassPicker({ classes, selectedIds, onChange, disabledRe
             <div className="grid gap-2 sm:grid-cols-2">
               {items.map((item) => {
                 const selected = selectedIds.includes(item.id);
-                const reason = disabledReason(item);
+                // A class that filled up cannot be chosen, but stays chosen if it was picked before it filled.
+                const reason = disabledReason(item) ?? (item.full && !selected ? 'This class is full' : undefined);
+                const seats = item.full ? '' : seatsLabel(item);
                 return (
                   <label
                     key={item.id}
@@ -55,6 +58,7 @@ export default function ClassPicker({ classes, selectedIds, onChange, disabledRe
                           {item.teachers.map((teacher) => teacher.name).join(', ')}
                         </span>
                       )}
+                      {seats && <span className="mt-1.5 block text-xs text-ink-500">{seats}</span>}
                       {reason && <span className="mt-1.5 block text-xs font-medium text-ink-500">{reason}</span>}
                     </span>
                   </label>

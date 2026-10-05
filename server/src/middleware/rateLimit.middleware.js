@@ -26,6 +26,16 @@ export const enrollmentLimiter = rateLimit({
   handler: limitReached('Too many enrollment requests. Please wait 15 minutes and try again.'),
 });
 
+/** Requests that make the server send an email: every one counts, since each always answers the same way. */
+export const emailLimiter = rateLimit({
+  windowMs: FIFTEEN_MINUTES,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: () => isTest,
+  handler: limitReached('Too many requests. Please wait 15 minutes and try again.'),
+});
+
 /** Slows down guessing of a reference number and birthday, like the login limit does for passwords. */
 export const verificationLimiter = rateLimit({
   windowMs: FIFTEEN_MINUTES,

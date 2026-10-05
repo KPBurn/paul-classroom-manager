@@ -128,7 +128,7 @@ After that, every push to `master` that changes `client/` redeploys the site (`.
 
 ## Environment variables
 
-**Server** (`server/.env`): `PORT`, `NODE_ENV`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN` (default `1d`), `CLIENT_URL` (comma-separated allowed origins), `TRUST_PROXY` (set to `1` behind Render/Railway/Nginx), `WEBRTC_ICE_SERVERS` (optional JSON array with STUN/TURN definitions), `METERED_TURN_HOST` and `METERED_TURN_API_KEY` (configure both with the TURN domain and the API key for an active TURN credential), `SEED_*`. The Metered TURN API key is never sent to the browser; only the ICE server credentials needed by authenticated room participants are returned. When TURN is configured, classroom media uses relay-only ICE to work through restrictive networks; this relays media traffic through the TURN provider and counts against its quota. Without TURN credentials, rooms use normal ICE and show a warning because direct connections can fail on restrictive networks.
+**Server** (`server/.env`): `PORT`, `NODE_ENV`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN` (default `1d`), `CLIENT_URL` (comma-separated allowed origins), `TRUST_PROXY` (set to `1` behind Render/Railway/Nginx), `WEBRTC_ICE_SERVERS` (optional JSON array with STUN/TURN definitions), `METERED_TURN_HOST` and `METERED_TURN_API_KEY` (configure both with the TURN domain and the API key for an active TURN credential), `SEED_*`, `APP_URL`, `RESEND_API_KEY`, `MAIL_FROM` and `ENROLLMENT_RETENTION_DAYS` (see Email and Enrollment below). The Metered TURN API key is never sent to the browser; only the ICE server credentials needed by authenticated room participants are returned. When TURN is configured, classroom media uses relay-only ICE to work through restrictive networks; this relays media traffic through the TURN provider and counts against its quota. Without TURN credentials, rooms use normal ICE and show a warning because direct connections can fail on restrictive networks.
 
 **Client** (`client/.env`): `VITE_API_URL` only. Everything in the client bundle is public, so database credentials and JWT secrets must never go there.
 
@@ -156,6 +156,8 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | GET    | `/api/users/:id`     | `users:read`   | One user                                               |
 | PATCH  | `/api/users/:id`     | `users:update` | Change any of `{ firstName, lastName, email, role, status, availability }` (`availability` for teachers only) |
 | PUT    | `/api/auth/availability` | Teacher | Set your own weekly teaching times `{ availability: [{ weekday, startTime, endTime }] }` |
+| POST   | `/api/auth/forgot-password` | Public | `{ email }`. Emails a link to choose a new password; the answer is the same whether or not the email has an account. Rate limited to 5 / 15 min |
+| POST   | `/api/auth/reset-password` | Public | `{ token, password }` with the token from the emailed link, which works once and for 30 minutes. Signs the account out everywhere |
 | PUT    | `/api/users/:id/password` | `users:update` | `{ password }`. Signs the user out of every session |
 | DELETE | `/api/users/:id`     | `users:delete` | Delete a user. Refused for users who created announcements; deactivate them instead |
 | GET    | `/api/announcements` | `announcements:read` | School-wide announcements, newest first. Query: `page`, `limit`, `status` (`active` or `archived`; archived needs `announcements:update`) |
@@ -167,20 +169,25 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | GET    | `/api/classrooms/:id` | Admin; assigned teacher; enrolled student | One classroom, shaped the same way as the list |
 | GET    | `/api/classrooms/:id/announcements` | Admin; assigned teacher; enrolled student | Classroom announcements. Query: `page`, `limit`, `status` (archived for teachers and admins only) |
 | POST   | `/api/classrooms/:id/announcements` | Admin; assigned teacher | Post `{ title, body, type }` to an active classroom |
-| POST   | `/api/classrooms` | Admin | Create `{ name, subject?, schedule?, teacherId, studentIds }` with active assigned users. `schedule` is `{ weekdays, startTime, endTime }` and must fit inside the first teacher's availability |
-| PATCH  | `/api/classrooms/:id` | Admin | Update classroom name, subject, schedule (`null` clears it) or assignments |
+| POST   | `/api/classrooms` | Admin | Create `{ name, subject?, schedule?, sessions?, capacity?, enrollmentOpen?, teacherId, studentIds }` with active assigned users. `schedule` is `{ weekdays, startTime, endTime }`: it must fit inside the first teacher's availability and not overlap another class they teach. `sessions` (`{ startDate, endDate, timezone }`) books a session on each scheduled day between the two dates |
+| PATCH  | `/api/classrooms/:id` | Admin | Update any of the fields above (`schedule: null` and `capacity: null` clear them) or the assignments |
 | POST   | `/api/classrooms/:id/archive` | Admin | Archive a classroom without deleting its history |
-| GET    | `/api/enrollment/classes` | Public | The classes that can be applied for: name, subject, schedule and teachers of every active classroom, never its roster |
-| POST   | `/api/enrollment/applications` | Public | Apply with `{ student, guardian, classroomIds?, note?, agreed: true }` → `{ referenceNumber, status }`. Rate limited to 20 / 15 min |
+| GET    | `/api/enrollment/classes` | Public | `{ items, formToken }`: the active classrooms left open for enrollment, with name, subject, schedule, teachers and seats left, never the roster. `formToken` has to be sent back with an application |
+| POST   | `/api/enrollment/applications` | Public | Apply with `{ student, guardian, classroomIds?, note?, agreed: true, formToken }` → `{ referenceNumber, status }`, which is also emailed. Rate limited to 20 / 15 min |
 | POST   | `/api/enrollment/applications/:referenceNumber/photo` | Public | Add the optional 2x2 photo (raw JPEG, PNG or WebP body, ≤ 2 MB) to a pending application |
+| POST   | `/api/enrollment/reference` | Public | `{ email }`. Emails the reference numbers of applications made with that address; the answer is the same either way. Rate limited to 5 / 15 min |
 | POST   | `/api/enrollment/status` | Public | `{ referenceNumber, birthday }` → the application's status and the decision on each class. Rate limited to 10 failed attempts / 15 min |
 | POST   | `/api/enrollment/account` | Public | `{ referenceNumber, birthday, email, password }`: an approved applicant creates their account and joins the approved classes. Same rate limit |
 | GET    | `/api/enrollment/requests` | Student | The signed-in student's own class requests |
 | POST   | `/api/enrollment/requests` | Student | Ask to join more classes `{ classroomIds, note? }` |
+| DELETE | `/api/enrollment/requests/:id/:requestId` | Student | Withdraw a class request that has not been decided |
+| GET    | `/api/enrollment/record` | Student | What the student gave when they applied (`null` for accounts made by an administrator); `/photo` returns their image |
+| GET    | `/api/enrollment/users/:userId/record` | Admin | The same record for a student's account |
 | GET    | `/api/enrollment/applications` | Admin | List applications. Query: `page`, `limit`, `search` (name, email or reference number), `status`, `classroomId`. Also returns `pendingCount` |
 | GET    | `/api/enrollment/applications/:id` | Admin | One application; `/photo` returns its image |
 | PATCH  | `/api/enrollment/applications/:id` | Admin | Decide an applicant who chose no class: `{ status: "approved" \| "rejected", adminNote? }` |
 | PATCH  | `/api/enrollment/applications/:id/requests/:requestId` | Admin | Decide one class: `{ status: "approved" \| "rejected", classroomId?, adminNote? }`. `classroomId` approves into a different class |
+| POST   | `/api/enrollment/applications/:id/requests/:requestId/reopen` | Admin | Undo a decision so it can be made again; a student who had joined the class is taken out of it. `/applications/:id/reopen` does the same for an applicant who chose no class and has not made their account |
 | GET    | `/api/sessions` | Teacher | List sessions in teacher-assigned classrooms. Optional: `from`, `to`, `classroomId`, `status`, `search` (title, classroom or teacher), `order` (`asc`/`desc`). With `limit` (1–100) the answer is one page, `{ items, total, nextCursor }`; send `nextCursor` back as `cursor` for the next. Items name their teachers and give students by id |
 | GET    | `/api/sessions?view=mine` | Student | List sessions in the student's classrooms |
 | POST   | `/api/sessions` | Assigned teacher | Create `{ classroomId, title, startsAt, endsAt }` or a weekly schedule with `{ classroomId, title, startDate, endDate, startTime, endTime, weekdays, timezone }` |
@@ -200,11 +207,21 @@ Recurring schedule date ranges are inclusive; `weekdays` uses JavaScript day num
 
 ### Enrollment
 
-An administrator first creates a class (a classroom) with a subject such as "English" and a teacher. Teachers set their weekly availability in their profile (an administrator can set it for them from the Teachers page), and a class's weekly schedule has to fit inside the availability of its first teacher. The schedule is the class time shown to applicants; dated sessions are still booked from Schedules.
+An administrator first creates a class (a classroom) with a subject such as "English" and a teacher. Teachers set their weekly availability in their profile (an administrator can set it for them from the Teachers page). A class's weekly schedule has to fit inside the availability of its first teacher and cannot overlap another class that teacher has, and availability cannot be reduced below a class that is already scheduled. Creating or editing a class can book its sessions on that schedule between two dates. A class can have a capacity, and can be closed to enrollment so that only administrators fill it.
 
-Anyone can open `/enroll` and apply without an account. The form asks for the student's name, birthday, contact number and email, and one parent or guardian; middle name, gender, address, guardian email, a note and a 2x2 photo are optional. Choosing classes on the form is optional too: the active classes are shown grouped by subject with their teacher and schedule, and an applicant who skips them is approved as a person first and finishes enrolling by requesting classes from My Classrooms inside the portal. Age is worked out from the birthday. Submitting returns a reference number (`ENR-XXXX-XXXX`), which is shown once and not emailed.
+Anyone can open `/enroll` and apply without an account. The form asks for the student's name, birthday, contact number and email, and one parent or guardian; middle name, gender, address, guardian email, a note and a 2x2 photo are optional. Choosing classes on the form is optional too: the open classes are shown grouped by subject with their teacher, schedule and seats left, and an applicant who skips them is approved as a person first and finishes enrolling by requesting classes from My Classrooms inside the portal. Age is worked out from the birthday. Submitting returns a reference number (`ENR-XXXX-XXXX`), which is shown on screen and emailed; someone who loses it can have it emailed again from `/enroll/status`.
 
-The administrator reviews applications on the Enrollment page and approves or rejects each requested class, optionally into a different class. With the reference number and birthday the applicant checks the status at `/enroll/status`; once a class is approved they also give the application's email to create their own account, which is then added to the approved classes and their unfinished sessions. If the application's email already belongs to a student account, approval enrolls that account directly. A signed-in student asks for another class from My Classrooms without filling in the form again.
+The administrator reviews applications on the Enrollment page and approves or rejects each requested class, optionally into a different class. A full class cannot be approved into; seats held by approved applicants who have not made their account yet count as taken. A decision can be undone, and a student can withdraw a request that is still waiting. Once nothing on an application is waiting, the student gets one email with the outcome. With the reference number and birthday the applicant checks the status at `/enroll/status`; once approved they also give the application's email to create their own account, which is then added to the approved classes and their unfinished sessions. If the application's email already belongs to a student account, approval enrolls that account directly. What the student gave when applying stays with their account: they see it on their profile and administrators see it from the Students page.
+
+The public form is protected from scripts without a captcha: it sends back a token it was given when it loaded, must have been open for a few seconds, and has a field people never see that must stay empty. Setting `ENROLLMENT_RETENTION_DAYS` deletes applications that were not approved, or were withdrawn, once they are that old.
+
+### Email
+
+Email is sent through [Resend](https://resend.com) over HTTPS, which works on hosts that block SMTP. Set `RESEND_API_KEY`, `MAIL_FROM` (a sender on a domain verified in Resend) and `APP_URL` (where the web app is opened, used for links). Without a key nothing is sent and the server logs each email it skipped; everything else keeps working, but applicants then only have the reference number shown on screen and nobody can reset a forgotten password themselves. Emails go out for: an application received (with its reference number), an application decided, a reference number reminder, and a password reset link.
+
+### Live updates
+
+Every signed-in page keeps one Socket.IO connection. Besides the session events described below, the server sends `data:changed` with the name of a list that changed (`classrooms`, `enrollment`, `users`, `announcements`, `materials`, `feedback`), and pages showing that list load it again quietly, so a new application, an approval, a new announcement or a changed roster appears without a refresh. Only the name is sent, never the data, and only to the accounts concerned (for example `users` to administrators, a decision to the student it is about). The public enrollment pages have no account to notify, so they check again every 15 to 20 seconds instead.
 
 ### Session rooms (prototype)
 

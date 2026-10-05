@@ -8,7 +8,7 @@ import Button, { ButtonLink } from '../../components/common/Button.jsx';
 import Card, { CardHeader, textLinkClass } from '../../components/common/Card.jsx';
 import PageHeader from '../../components/common/PageHeader.jsx';
 import NextUp from '../../components/sessions/NextUp.jsx';
-import { useLiveSessionList } from '../../context/LiveSessionsContext.jsx';
+import { useLiveData, useLiveSessionList } from '../../context/LiveSessionsContext.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import StatStrip from '../../components/common/StatStrip.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
@@ -55,9 +55,12 @@ export default function TeacherDashboard() {
     await sessionService.list(periodParams(startOfDay(), addDays(startOfDay(), DAYS_AHEAD)))
   ).filter(isMine), [isMine]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  // A quiet load keeps what is on screen until the new data arrives, and leaves it there if that fails.
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const [sessions, classrooms, announcements] = await Promise.all([
         loadSessions(),
@@ -66,7 +69,7 @@ export default function TeacherDashboard() {
       ]);
       setData({ sessions, classrooms, announcements: announcements.items });
     } catch (loadError) {
-      setError(getErrorMessage(loadError, 'Unable to load your dashboard.'));
+      if (!quiet) setError(getErrorMessage(loadError, 'Unable to load your dashboard.'));
     } finally {
       setLoading(false);
     }
@@ -87,6 +90,7 @@ export default function TeacherDashboard() {
     loadSessions().then(setSessions).catch(() => {});
   }, [loadSessions, setSessions]);
   useLiveSessionList({ setSessions, reload: reloadSessions, accept: isMine });
+  useLiveData(['classrooms', 'announcements'], () => load({ quiet: true }));
 
   const join = (session) => navigate(`/sessions/${session.id}/room`);
 

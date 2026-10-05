@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth.js';
 import { refreshNow } from '../hooks/useNow.js';
-import { connectToSessionRoom, SESSION_EVENTS } from '../services/sessionRoom.service.js';
+import { connectToSessionRoom, DATA_CHANGED_EVENT, SESSION_EVENTS } from '../services/sessionRoom.service.js';
 import { applySessionEvent } from '../utils/liveSessions.js';
 
 const WATCH_RETRY_MS = 3_000;
@@ -83,6 +83,7 @@ export function LiveSessionsProvider({ children }) {
     });
     socket.on(SESSION_EVENTS.reopened, (payload) => notify('reopened', payload));
     socket.on(SESSION_EVENTS.scheduleChanged, (payload) => notify('schedule-changed', payload));
+    socket.on(DATA_CHANGED_EVENT, (payload) => notify('data-changed', payload));
     socket.connect();
 
     return () => {
@@ -99,7 +100,26 @@ export function LiveSessionsProvider({ children }) {
 /** `{ status, presence }`: the state of the live connection and who is in each room, by session id. */
 export const useLiveSessions = () => useContext(LiveSessionsContext);
 
-/** Calls `handler(type, payload)` for each live event: 'started', 'ended', 'reopened', 'schedule-changed', 'presence', 'resync'. */
+/**
+ * Keeps a page's data current. `reload` is called (it should load quietly,
+ * without a spinner) whenever the server says one of `resources` changed, such
+ * as 'classrooms' or 'enrollment', and after the connection was lost for a while.
+ * Several changes close together cause one reload.
+ */
+export function useLiveData(resources, reload) {
+  const timer = useRef(null);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useSessionEvents((type, payload) => {
+    if (type !== 'resync' && !(type === 'data-changed' && resources.includes(payload.resource))) return;
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => reload(), 150);
+  });
+}
+
+/**
+ * Calls `handler(type, payload)` for each live event: 'started', 'ended', 'reopened',
+ * 'schedule-changed', 'presence', 'data-changed' and 'resync'.
+ */
 export function useSessionEvents(handler) {
   const { subscribe } = useContext(LiveSessionsContext);
   const latest = useRef(handler);

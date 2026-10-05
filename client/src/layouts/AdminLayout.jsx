@@ -1,36 +1,26 @@
-import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { ENROLLMENT_CHANGED_EVENT } from '../components/enrollment/enrollmentMeta.js';
+import { useCallback, useEffect, useState } from 'react';
 import DashboardLayout from '../components/navigation/DashboardLayout.jsx';
 import { adminNavigation } from '../config/navigation.js';
+import { useLiveData } from '../context/LiveSessionsContext.jsx';
 import { enrollmentService } from '../services/enrollment.service.js';
 
-/** How many enrollment applications are waiting, checked on each page change and after a decision. */
-function usePendingEnrollments() {
-  const { pathname } = useLocation();
-  const [count, setCount] = useState(0);
+/** A count on the Enrollment link of the applications waiting for a decision, kept current as they arrive. */
+function useEnrollmentBadges() {
+  const [pending, setPending] = useState(0);
+
+  const check = useCallback(() => {
+    // The badge is a convenience: if it cannot load, the page itself still shows what is waiting.
+    enrollmentService.list({ limit: 1, status: 'pending' })
+      .then(({ pendingCount }) => setPending(pendingCount))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    const check = () => enrollmentService.list({ limit: 1, status: 'pending' })
-      .then(({ pendingCount }) => {
-        if (!cancelled) setCount(pendingCount);
-      })
-      .catch(() => {});
     check();
-    window.addEventListener(ENROLLMENT_CHANGED_EVENT, check);
-    return () => {
-      cancelled = true;
-      window.removeEventListener(ENROLLMENT_CHANGED_EVENT, check);
-    };
-  }, [pathname]);
+  }, [check]);
+  useLiveData(['enrollment'], check);
 
-  return count;
-}
-
-export default function AdminLayout() {
-  const pending = usePendingEnrollments();
-  const badges = pending
+  return pending
     ? {
         '/admin/enrollment': {
           count: pending,
@@ -39,5 +29,8 @@ export default function AdminLayout() {
         },
       }
     : undefined;
-  return <DashboardLayout navigation={adminNavigation} portalName="Admin Portal" badges={badges} />;
+}
+
+export default function AdminLayout() {
+  return <DashboardLayout navigation={adminNavigation} portalName="Admin Portal" useBadges={useEnrollmentBadges} />;
 }

@@ -4,11 +4,16 @@ import { disconnectUser } from '../realtime/connections.js';
 import { SystemSettings } from '../models/SystemSettings.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { AppError } from '../utils/AppError.js';
-import { signToken } from '../utils/jwt.js';
+import { signActionToken, signToken, verifyActionToken } from '../utils/jwt.js';
 import { comparePassword, hashPassword } from '../utils/password.js';
+import { DATA_RESOURCES, publishDataChanged } from '../realtime/dataEvents.js';
+import { assertAvailabilityCoversClasses } from './classroom.service.js';
+import { sendPasswordReset } from './mail.service.js';
 import { createUser } from './user.service.js';
 
 const INVALID_CREDENTIALS = 'Invalid email or password';
+const PASSWORD_RESET = 'password-reset';
+const RESET_MINUTES = 30;
 
 // Comparing against a real hash when the email is unknown keeps response times
 // similar, so attackers cannot use timing to discover which emails exist.
@@ -31,6 +36,7 @@ export function toAuthUser(user) {
 
 /** Lets a teacher say which weekly times they can teach; class schedules are chosen from them. */
 export async function setOwnAvailability(user, availability, { ipAddress } = {}) {
+  await assertAvailabilityCoversClasses(user, availability);
   user.availability = availability;
   await user.save();
   await logActivity({
@@ -41,6 +47,7 @@ export async function setOwnAvailability(user, availability, { ipAddress } = {})
     description: `${user.fullName} updated their teaching availability`,
     ipAddress,
   });
+  publishDataChanged(DATA_RESOURCES.users, { roles: ['admin'] });
   return toAuthUser(user);
 }
 
@@ -125,6 +132,48 @@ export async function changeOwnPassword(userId, { currentPassword, newPassword }
   await disconnectUser(user._id, 'Your password was changed. Sign in again with the new password.');
 
   return { user: toAuthUser(user), token: signToken(user) };
+}
+
+/**
+ * Emails a link for choosing a new password. Nothing in the answer says
+ * whether the email has an account, and the email is sent without waiting so
+ * the time taken does not say it either.
+ */
+export async function requestPasswordReset(email, { ipAddress } = {}) {
+  const user = await User.findOne({ email });
+  if (!user || user.status !== 'active') return;
+  // The token carries the account's token version, so it stops working once the password changes.
+  const token = signActionToken(PASSWORD_RESET, user.id, { ver: user.tokenVersion ?? 0 }, `${RESET_MINUTES}m`);
+  void sendPasswordReset({ to: user.email, firstName: user.firstName, token, minutes: RESET_MINUTES });
+  await logActivity({
+    actorId: user._id,
+    action: 'user.password_reset_requested',
+    entityType: 'User',
+    entityId: user._id,
+    description: `A password reset link was requested for ${user.fullName}`,
+    ipAddress,
+  });
+}
+
+/** Sets a new password from an emailed link and signs the account out everywhere. */
+export async function resetPasswordWithToken({ token, password }, { ipAddress } = {}) {
+  const payload = verifyActionToken(PASSWORD_RESET, token);
+  const user = payload ? await User.findById(payload.sub) : null;
+  if (!user || user.status !== 'active' || payload.ver !== (user.tokenVersion ?? 0)) {
+    throw new AppError(400, 'This reset link is no longer valid. Ask for a new one.');
+  }
+  user.password = password;
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+  await user.save();
+  await logActivity({
+    actorId: user._id,
+    action: 'user.password_reset',
+    entityType: 'User',
+    entityId: user._id,
+    description: `${user.fullName} reset their password from an emailed link`,
+    ipAddress,
+  });
+  await disconnectUser(user._id, 'Your password was reset. Sign in again with the new password.');
 }
 
 export async function register(data, context) {

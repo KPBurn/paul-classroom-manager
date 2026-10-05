@@ -29,6 +29,17 @@ export async function changePassword(req, res) {
   sendSuccess(res, { message: 'Password changed. Other devices have been signed out.', data });
 }
 
+export async function forgotPassword(req, res) {
+  await authService.requestPasswordReset(req.body.email, { ipAddress: req.ip });
+  // The same answer for every email, so this cannot be used to find out who has an account.
+  sendSuccess(res, { message: 'If that email has an account, a reset link is on its way.' });
+}
+
+export async function resetPassword(req, res) {
+  await authService.resetPasswordWithToken(req.body, { ipAddress: req.ip });
+  sendSuccess(res, { message: 'Password changed. Sign in with your new password.' });
+}
+
 export async function setAvailability(req, res) {
   const user = await authService.setOwnAvailability(req.user, req.body.availability, { ipAddress: req.ip });
   sendSuccess(res, { message: 'Availability saved', data: { user } });

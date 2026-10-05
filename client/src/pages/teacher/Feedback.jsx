@@ -35,6 +35,7 @@ import { sessionService } from '../../services/session.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { addDays, periodParams, startOfDay } from '../../utils/period.js';
 import { isSameLocalDay } from '../../utils/sessionTiming.js';
+import { useLiveData } from '../../context/LiveSessionsContext.jsx';
 
 const LESSONS_SHOWN = 12;
 // How far back lessons are offered for feedback.
@@ -58,9 +59,12 @@ export default function TeacherFeedback() {
   const [error, setError] = useState('');
   const { pending, refreshIfStale: refreshReminder } = useFeedbackReminder();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  // A quiet load keeps what is on screen until the new data arrives, and leaves it there if that fails.
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const [classrooms, sessions, recent, drafts] = await Promise.all([
         classroomService.list(),
@@ -72,7 +76,7 @@ export default function TeacherFeedback() {
       ]);
       setData({ classrooms, sessions, recent: recent.items, draftCount: drafts.pagination?.total ?? 0 });
     } catch (loadError) {
-      setError(getErrorMessage(loadError, 'Unable to load your classes.'));
+      if (!quiet) setError(getErrorMessage(loadError, 'Unable to load your classes.'));
     } finally {
       setLoading(false);
     }
@@ -82,6 +86,7 @@ export default function TeacherFeedback() {
     load();
     refreshReminder();
   }, [load, refreshReminder]);
+  useLiveData(['feedback', 'classrooms'], () => load({ quiet: true }));
 
   const go = (next) => {
     const nextParams = new URLSearchParams();

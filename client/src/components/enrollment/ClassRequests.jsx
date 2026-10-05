@@ -5,9 +5,11 @@ import Alert from '../common/Alert.jsx';
 import Badge from '../common/Badge.jsx';
 import Button from '../common/Button.jsx';
 import Card, { CardHeader } from '../common/Card.jsx';
+import ConfirmDialog from '../common/ConfirmDialog.jsx';
 import Modal, { ModalActions } from '../common/Modal.jsx';
 import { PageLoader } from '../common/Spinner.jsx';
 import { TextAreaField } from '../common/TextField.jsx';
+import { useLiveData } from '../../context/LiveSessionsContext.jsx';
 import { enrollmentService } from '../../services/enrollment.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { formatDateTime } from '../../utils/format.js';
@@ -77,6 +79,8 @@ export default function ClassRequests({ enrolledIds }) {
   const [classes, setClasses] = useState(null);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');
+  const [withdrawing, setWithdrawing] = useState(null);
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -90,11 +94,27 @@ export default function ClassRequests({ enrolledIds }) {
   useEffect(() => {
     load();
   }, [load]);
+  // A decision on a request shows here the moment the school makes it.
+  useLiveData(['enrollment'], load);
+
+  const confirmWithdraw = async () => {
+    setIsWithdrawing(true);
+    try {
+      await enrollmentService.withdraw(withdrawing.application.id, withdrawing.id);
+      toast.success('Request withdrawn.');
+      await load();
+    } catch (withdrawError) {
+      toast.error(getErrorMessage(withdrawError, 'Unable to withdraw the request.'));
+    } finally {
+      setIsWithdrawing(false);
+      setWithdrawing(null);
+    }
+  };
 
   const openForm = async () => {
     setOpen(true);
     try {
-      setClasses(await enrollmentService.classes());
+      setClasses((await enrollmentService.openClasses()).items);
     } catch (loadError) {
       setOpen(false);
       toast.error(getErrorMessage(loadError, 'Unable to load the classes.'));
@@ -139,12 +159,33 @@ export default function ClassRequests({ enrolledIds }) {
                     <p className="mt-1 text-xs text-ink-600">Note from your school: {row.application.adminNote}</p>
                   )}
                 </div>
-                <Badge tone={tone} icon={icon}>{label}</Badge>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <Badge tone={tone} icon={icon}>{label}</Badge>
+                  {row.status === 'pending' && (
+                    <button
+                      type="button"
+                      onClick={() => setWithdrawing(row)}
+                      className="rounded-sm text-xs font-medium text-ink-600 underline underline-offset-4 hover:text-ink-900"
+                    >
+                      Withdraw
+                    </button>
+                  )}
+                </div>
               </li>
             );
           })}
         </ul>
       )}
+
+      <ConfirmDialog
+        open={Boolean(withdrawing)}
+        title="Withdraw this request?"
+        message={`Your school will no longer review your request to join ${withdrawing?.classroom?.name ?? 'this class'}. You can ask again later.`}
+        confirmLabel="Withdraw"
+        isLoading={isWithdrawing}
+        onConfirm={confirmWithdraw}
+        onCancel={() => setWithdrawing(null)}
+      />
 
       <Modal
         open={open}

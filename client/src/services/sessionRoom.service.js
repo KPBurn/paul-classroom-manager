@@ -11,6 +11,9 @@ export const SESSION_EVENTS = {
   presence: 'session:presence',
 };
 
+/** A list changed and pages showing it should load it again: `{ resource }` (server: realtime/dataEvents.js). */
+export const DATA_CHANGED_EVENT = 'data:changed';
+
 /**
  * A connection to the live server. It keeps trying to reconnect for as long as
  * the page is open, and signs in with the token stored at that moment, so it

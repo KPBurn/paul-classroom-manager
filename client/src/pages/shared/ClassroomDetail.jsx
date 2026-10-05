@@ -14,7 +14,7 @@ import PageHeader, { BackLink } from '../../components/common/PageHeader.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import Tabs from '../../components/common/Tabs.jsx';
 import RoomPresence, { LiveStatusNote } from '../../components/sessions/RoomPresence.jsx';
-import { useLiveSessionList, useSessionEvents } from '../../context/LiveSessionsContext.jsx';
+import { useLiveData, useLiveSessionList, useSessionEvents } from '../../context/LiveSessionsContext.jsx';
 import { useAuth } from '../../hooks/useAuth.js';
 import { useAnnouncements } from '../../hooks/useAnnouncements.js';
 import { useNow } from '../../hooks/useNow.js';
@@ -93,6 +93,10 @@ export default function ClassroomDetail() {
     loadSessions().then(setSessions).catch(() => {});
   }, [id, loadSessions]);
   useLiveSessionList({ setSessions, reload: reloadSessions, accept: inThisClass });
+  // A changed roster, teacher or schedule shows here as it happens.
+  useLiveData(['classrooms'], () => {
+    classroomService.get(id).then(setClassroom).catch(() => {});
+  });
   // Teachers are told who comes and goes while they are on their class page.
   useSessionEvents((type, payload) => {
     const change = type === 'presence' && payload.classroomId === id ? payload.change : null;

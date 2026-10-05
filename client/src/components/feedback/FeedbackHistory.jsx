@@ -11,6 +11,7 @@ import StatusPill from './StatusPill.jsx';
 import { feedbackService } from '../../services/feedback.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { formatShortDate, formatTime } from './feedbackMeta.js';
+import { useLiveData } from '../../context/LiveSessionsContext.jsx';
 
 const PAGE_SIZE = 20;
 const STATUS_OPTIONS = [
@@ -53,6 +54,8 @@ export default function FeedbackHistory({ classrooms, teachers, basePath, initia
       cancelled = true;
     };
   }, [filters, page, reloadKey]);
+
+  useLiveData(['feedback'], () => setReloadKey((key) => key + 1));
 
   const update = (changes) => {
     setFilters((current) => ({ ...current, ...changes }));

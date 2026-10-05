@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLiveData } from '../context/LiveSessionsContext.jsx';
 import { userService } from '../services/user.service.js';
 import { getErrorMessage } from '../utils/errors.js';
 
@@ -43,6 +44,8 @@ export function useUsers(pageSize, initialFilters = {}) {
   }, []);
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+  // An account added or changed elsewhere, such as an applicant creating theirs, shows without a refresh.
+  useLiveData(['users'], reload);
 
   return { ...list, page, setPage, filters, updateFilters, reload };
 }

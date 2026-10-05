@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useLiveData } from './LiveSessionsContext.jsx';
 import { feedbackService } from '../services/feedback.service.js';
 
 const EMPTY = { items: [], summary: { lessons: 0, students: 0, overdueLessons: 0, overdueStudents: 0 } };
@@ -36,6 +37,8 @@ export function FeedbackReminderProvider({ children }) {
   useEffect(() => {
     refreshIfStale();
   }, [refreshIfStale]);
+  // Feedback written on another device, or a lesson that just ended, changes what is waiting.
+  useLiveData(['feedback'], refresh);
 
   const value = useMemo(() => ({ pending, refresh, refreshIfStale }), [pending, refresh, refreshIfStale]);
   return <FeedbackReminderContext.Provider value={value}>{children}</FeedbackReminderContext.Provider>;
