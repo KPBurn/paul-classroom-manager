@@ -92,8 +92,8 @@ function AccountNotice({ application }) {
   if (!account) {
     return (
       <Alert>
-        No account yet. After you approve a class, the applicant creates their own account with the reference number,
-        birthday and email, and is then added to the approved classes.
+        No account yet. After you approve, the applicant creates their own account with the reference number, birthday
+        and email. They are added to any classes you approved and choose the rest inside the portal.
       </Alert>
     );
   }
@@ -124,17 +124,23 @@ function ReviewApplication({ application, classrooms, onDecided }) {
   const age = ageFrom(student.birthday);
   const blocked = application.account && application.account.role !== 'student';
 
+  // `request` is one class of the application, or nothing for an applicant who has not chosen a class.
   const decide = async (request, status) => {
-    setDeciding(`${request.id}:${status}`);
+    setDeciding(`${request?.id ?? 'application'}:${status}`);
     setError('');
     try {
-      const target = targets[request.id];
-      const updated = await enrollmentService.decide(application.id, request.id, {
-        status,
-        ...(status === 'approved' && target && target !== request.classroom?.id && { classroomId: target }),
-        ...(adminNote.trim() !== application.adminNote && { adminNote: adminNote.trim() }),
-      });
-      toast.success(status === 'approved' ? 'Class approved.' : 'Class request rejected.');
+      const note = adminNote.trim() !== application.adminNote && { adminNote: adminNote.trim() };
+      const target = request && targets[request.id];
+      const updated = request
+        ? await enrollmentService.decide(application.id, request.id, {
+            status,
+            ...(status === 'approved' && target && target !== request.classroom?.id && { classroomId: target }),
+            ...note,
+          })
+        : await enrollmentService.decideApplication(application.id, { status, ...note });
+      toast.success(request
+        ? (status === 'approved' ? 'Class approved.' : 'Class request rejected.')
+        : (status === 'approved' ? 'Applicant approved.' : 'Application rejected.'));
       onDecided(updated);
     } catch (decideError) {
       setError(getErrorMessage(decideError, 'Unable to save the decision.'));
@@ -164,6 +170,34 @@ function ReviewApplication({ application, classrooms, onDecided }) {
 
       <section>
         <SectionLabel as="h3">Classes requested</SectionLabel>
+        {application.requests.length === 0 && (
+          <div className="mt-2 rounded-lg border border-ink-200 p-3">
+            <p className="text-sm text-ink-700">
+              No class chosen. {application.status === 'rejected'
+                ? 'This application was not approved.'
+                : 'Once approved, the student creates their account and requests their classes inside the portal; each request comes back here for your decision.'}
+            </p>
+            {application.status === 'pending' && (
+              <div className="mt-3 flex justify-end gap-2 border-t border-ink-200 pt-3">
+                <Button
+                  variant="secondary"
+                  isLoading={deciding === 'application:rejected'}
+                  disabled={Boolean(deciding)}
+                  onClick={() => decide(null, 'rejected')}
+                >
+                  Reject
+                </Button>
+                <Button
+                  isLoading={deciding === 'application:approved'}
+                  disabled={Boolean(deciding) || blocked}
+                  onClick={() => decide(null, 'approved')}
+                >
+                  Approve applicant
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
         <ul className="mt-2 space-y-2">
           {application.requests.map((request) => {
             const pending = request.status === 'pending';
@@ -379,6 +413,9 @@ export default function Enrollment() {
                     {application.student.email} · {formatDateTime(application.submittedAt)}
                   </p>
                   <ul className="mt-2 flex flex-wrap gap-1.5">
+                    {application.requests.length === 0 && (
+                      <li className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-500">No class chosen yet</li>
+                    )}
                     {application.requests.map((request) => {
                       const { icon: Icon, label } = ENROLLMENT_STATUS[request.status];
                       return (

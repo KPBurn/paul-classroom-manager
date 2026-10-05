@@ -171,7 +171,7 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | PATCH  | `/api/classrooms/:id` | Admin | Update classroom name, subject, schedule (`null` clears it) or assignments |
 | POST   | `/api/classrooms/:id/archive` | Admin | Archive a classroom without deleting its history |
 | GET    | `/api/enrollment/classes` | Public | The classes that can be applied for: name, subject, schedule and teachers of every active classroom, never its roster |
-| POST   | `/api/enrollment/applications` | Public | Apply with `{ student, guardian, classroomIds, note?, agreed: true }` → `{ referenceNumber, status }`. Rate limited to 20 / 15 min |
+| POST   | `/api/enrollment/applications` | Public | Apply with `{ student, guardian, classroomIds?, note?, agreed: true }` → `{ referenceNumber, status }`. Rate limited to 20 / 15 min |
 | POST   | `/api/enrollment/applications/:referenceNumber/photo` | Public | Add the optional 2x2 photo (raw JPEG, PNG or WebP body, ≤ 2 MB) to a pending application |
 | POST   | `/api/enrollment/status` | Public | `{ referenceNumber, birthday }` → the application's status and the decision on each class. Rate limited to 10 failed attempts / 15 min |
 | POST   | `/api/enrollment/account` | Public | `{ referenceNumber, birthday, email, password }`: an approved applicant creates their account and joins the approved classes. Same rate limit |
@@ -179,6 +179,7 @@ Authenticated requests send `Authorization: Bearer <token>`.
 | POST   | `/api/enrollment/requests` | Student | Ask to join more classes `{ classroomIds, note? }` |
 | GET    | `/api/enrollment/applications` | Admin | List applications. Query: `page`, `limit`, `search` (name, email or reference number), `status`, `classroomId`. Also returns `pendingCount` |
 | GET    | `/api/enrollment/applications/:id` | Admin | One application; `/photo` returns its image |
+| PATCH  | `/api/enrollment/applications/:id` | Admin | Decide an applicant who chose no class: `{ status: "approved" \| "rejected", adminNote? }` |
 | PATCH  | `/api/enrollment/applications/:id/requests/:requestId` | Admin | Decide one class: `{ status: "approved" \| "rejected", classroomId?, adminNote? }`. `classroomId` approves into a different class |
 | GET    | `/api/sessions` | Teacher | List sessions in teacher-assigned classrooms. Optional: `from`, `to`, `classroomId`, `status`, `search` (title, classroom or teacher), `order` (`asc`/`desc`). With `limit` (1–100) the answer is one page, `{ items, total, nextCursor }`; send `nextCursor` back as `cursor` for the next. Items name their teachers and give students by id |
 | GET    | `/api/sessions?view=mine` | Student | List sessions in the student's classrooms |
@@ -201,7 +202,7 @@ Recurring schedule date ranges are inclusive; `weekdays` uses JavaScript day num
 
 An administrator first creates a class (a classroom) with a subject such as "English" and a teacher. Teachers set their weekly availability in their profile (an administrator can set it for them from the Teachers page), and a class's weekly schedule has to fit inside the availability of its first teacher. The schedule is the class time shown to applicants; dated sessions are still booked from Schedules.
 
-Anyone can open `/enroll`, see the active classes grouped by subject with their teacher and schedule, and apply for one or more of them without an account. The form asks for the student's name, birthday, contact number and email, one parent or guardian, and the classes; middle name, gender, address, guardian email, a note and a 2x2 photo are optional. Age is worked out from the birthday. Submitting returns a reference number (`ENR-XXXX-XXXX`), which is shown once and not emailed.
+Anyone can open `/enroll` and apply without an account. The form asks for the student's name, birthday, contact number and email, and one parent or guardian; middle name, gender, address, guardian email, a note and a 2x2 photo are optional. Choosing classes on the form is optional too: the active classes are shown grouped by subject with their teacher and schedule, and an applicant who skips them is approved as a person first and finishes enrolling by requesting classes from My Classrooms inside the portal. Age is worked out from the birthday. Submitting returns a reference number (`ENR-XXXX-XXXX`), which is shown once and not emailed.
 
 The administrator reviews applications on the Enrollment page and approves or rejects each requested class, optionally into a different class. With the reference number and birthday the applicant checks the status at `/enroll/status`; once a class is approved they also give the application's email to create their own account, which is then added to the approved classes and their unfinished sessions. If the application's email already belongs to a student account, approval enrolls that account directly. A signed-in student asks for another class from My Classrooms without filling in the form again.
 

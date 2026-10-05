@@ -14,7 +14,7 @@ import { formatSchedule } from '../../utils/schedule.js';
 
 const SUMMARY = {
   pending: 'Your school is still reviewing your application. Check back later.',
-  approved: 'You have been approved. Create your account below to sign in and see your classes.',
+  approved: 'You have been approved. Create your account below, then sign in and open My Classrooms to choose your classes and finish enrolling.',
   rejected: 'Your school did not approve this application.',
 };
 
@@ -190,7 +190,7 @@ export default function EnrollmentStatus() {
             <div className="space-y-4 p-5">
               <p className="text-sm text-ink-700">
                 Hello {application.firstName}. {application.accountCreated && application.status === 'approved'
-                  ? 'You have been approved and your account is ready. Sign in to see your classes.'
+                  ? 'You have been approved and your account is ready. Sign in and open My Classrooms to choose your classes.'
                   : SUMMARY[application.status]}
               </p>
               {application.adminNote && (
@@ -199,6 +199,7 @@ export default function EnrollmentStatus() {
                   {application.adminNote}
                 </Alert>
               )}
+              {application.requests.length > 0 && (
               <ul className="divide-y divide-ink-200 rounded-lg border border-ink-200">
                 {application.requests.map((request) => (
                   <li key={request.id} className="flex items-start justify-between gap-3 px-3 py-2.5">
@@ -212,6 +213,7 @@ export default function EnrollmentStatus() {
                   </li>
                 ))}
               </ul>
+              )}
               <p className="text-xs text-ink-500">Submitted {formatDateTime(application.submittedAt)}</p>
               {application.accountCreated && !account && (
                 <div className="flex justify-end border-t border-ink-200 pt-4">
@@ -225,7 +227,10 @@ export default function EnrollmentStatus() {
         {account ? (
           <Alert tone="success">
             <p className="font-medium">Your account is ready.</p>
-            <p className="mt-1">Sign in with {account.email} and the password you just chose.</p>
+            <p className="mt-1">
+              Sign in with {account.email} and the password you just chose, then open My Classrooms to choose your
+              classes and finish enrolling.
+            </p>
             <ButtonLink to="/login" size="sm" className="mt-3">Sign in</ButtonLink>
           </Alert>
         ) : application?.status === 'approved' && !application.accountCreated && (

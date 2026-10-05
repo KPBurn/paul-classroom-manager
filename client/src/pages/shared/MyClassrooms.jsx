@@ -66,9 +66,9 @@ export default function MyClassrooms() {
       ) : classrooms.length === 0 && !error ? (
         <EmptyState
           icon={School}
-          title={isStudent ? 'You are not enrolled in a class yet' : 'No classrooms assigned yet'}
+          title={isStudent ? 'Finish your enrollment' : 'No classrooms assigned yet'}
           message={isStudent
-            ? 'Your classes will appear here once your school approves a class request.'
+            ? 'You are not in a class yet. Use “Request a class” below to choose the classes you want; each one appears here once your school approves it.'
             : 'Ask your administrator to assign your teacher account to a classroom.'}
         />
       ) : (

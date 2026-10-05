@@ -55,6 +55,12 @@ export const enrollmentService = {
     return URL.createObjectURL(data);
   },
 
+  /** Decides an applicant who has not chosen a class: `{ status, adminNote? }`. */
+  async decideApplication(id, decision) {
+    const { data } = await api.patch(`/enrollment/applications/${id}`, decision);
+    return data.data.application;
+  },
+
   async decide(id, requestId, decision) {
     const { data } = await api.patch(`/enrollment/applications/${id}/requests/${requestId}`, decision);
     return data.data.application;

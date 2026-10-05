@@ -218,6 +218,57 @@ describe('enrollment applications', () => {
     assert.equal(status.body.data.application.adminNote, 'The Math class is full.');
   });
 
+  it('approves an applicant who chose no class, who then picks classes from their account', async () => {
+    const submitted = await request(app).post('/api/enrollment/applications').send(applicationFor([]));
+    assert.equal(submitted.status, 201);
+    const { referenceNumber } = submitted.body.data.application;
+    const application = await EnrollmentApplication.findOne({ referenceNumber });
+    assert.equal(application.status, 'pending');
+    assert.equal(application.requests.length, 0);
+
+    const approved = await request(app)
+      .patch(`/api/enrollment/applications/${application.id}`)
+      .set(auth(adminToken))
+      .send({ status: 'approved' });
+    assert.equal(approved.status, 200);
+    assert.equal(approved.body.data.application.status, 'approved');
+    const again = await request(app)
+      .patch(`/api/enrollment/applications/${application.id}`)
+      .set(auth(adminToken))
+      .send({ status: 'rejected' });
+    assert.equal(again.status, 409);
+
+    const account = await request(app)
+      .post('/api/enrollment/account')
+      .send({ referenceNumber, birthday: '2012-03-04', email: 'ana@example.com', password: 'Welcome123' });
+    assert.equal(account.status, 201);
+    const student = await User.findOne({ email: 'ana@example.com' });
+    const studentToken = await login(student, 'Welcome123');
+    assert.deepEqual((await request(app).get('/api/classrooms').set(auth(studentToken))).body.data.items, []);
+
+    // Inside the portal the student asks for a class, and joins it once it is approved.
+    const asked = await request(app).post('/api/enrollment/requests').set(auth(studentToken)).send({ classroomIds: [english.id] });
+    assert.equal(asked.status, 201);
+    const list = await request(app).get('/api/enrollment/applications?status=pending').set(auth(adminToken));
+    const [item] = list.body.data.items;
+    const decided = await request(app)
+      .patch(`/api/enrollment/applications/${item.id}/requests/${item.requests[0].id}`)
+      .set(auth(adminToken))
+      .send({ status: 'approved' });
+    assert.equal(decided.status, 200);
+    assert.deepEqual((await Classroom.findById(english.id)).students.map(String), [student.id]);
+  });
+
+  it('decides an application that names classes one class at a time', async () => {
+    const submitted = await request(app).post('/api/enrollment/applications').send(applicationFor([english.id]));
+    const application = await EnrollmentApplication.findOne({ referenceNumber: submitted.body.data.application.referenceNumber });
+    const whole = await request(app)
+      .patch(`/api/enrollment/applications/${application.id}`)
+      .set(auth(adminToken))
+      .send({ status: 'approved' });
+    assert.equal(whole.status, 409);
+  });
+
   it('lets the administrator approve into a different class', async () => {
     const submitted = await request(app).post('/api/enrollment/applications').send(applicationFor([english.id]));
     const application = await EnrollmentApplication.findOne({ referenceNumber: submitted.body.data.application.referenceNumber });

@@ -59,6 +59,11 @@ export async function photo(req, res) {
   res.send(image.data);
 }
 
+export async function decideApplication(req, res) {
+  const application = await enrollmentService.decideApplication(req.params.id, req.body, context(req));
+  sendSuccess(res, { message: `Application ${req.body.status}`, data: { application } });
+}
+
 export async function decide(req, res) {
   const application = await enrollmentService.decideRequest(req.params.id, req.params.requestId, req.body, context(req));
   sendSuccess(res, { message: `Request ${req.body.status}`, data: { application } });

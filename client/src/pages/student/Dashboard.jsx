@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CalendarCheck, CalendarDays, Video, X } from 'lucide-react';
 import Alert, { ErrorState } from '../../components/common/Alert.jsx';
 import Badge from '../../components/common/Badge.jsx';
-import Button from '../../components/common/Button.jsx';
+import Button, { ButtonLink } from '../../components/common/Button.jsx';
 import Card, { CardHeader } from '../../components/common/Card.jsx';
 import EmptyState from '../../components/common/EmptyState.jsx';
 import { controlClass } from '../../components/common/ListFilters.jsx';
@@ -193,7 +193,8 @@ export default function StudentDashboard() {
         <EmptyState
           icon={CalendarCheck}
           title="No classes yet"
-          message="Your classes will appear here once your school enrolls you and a teacher schedules a session."
+          message="To finish enrolling, choose your classes in My Classrooms. Lessons appear here once your school approves a class and a teacher schedules a session."
+          action={<ButtonLink to="/student/classrooms">Choose your classes</ButtonLink>}
         />
       ) : (
         <div className="space-y-6">

@@ -161,7 +161,7 @@ export async function submitApplication(data, { ipAddress } = {}) {
     action: 'enrollment.submitted',
     entityType: 'EnrollmentApplication',
     entityId: application._id,
-    description: `${fullName(application.student)} applied for ${classrooms.map(({ name }) => `"${name}"`).join(', ')}`,
+    description: `${fullName(application.student)} applied for ${classrooms.map(({ name }) => `"${name}"`).join(', ') || 'enrollment'}`,
     ipAddress,
   });
   return { referenceNumber: application.referenceNumber, status: application.status };
@@ -333,6 +333,42 @@ export async function getPhoto(id) {
   return application.photo;
 }
 
+/** An applicant whose email already has a student account is a returning student: approval uses that account. */
+async function linkExistingAccount(application) {
+  if (application.user) return;
+  const account = await User.findOne({ email: application.student.email });
+  if (account && account.role !== 'student') {
+    throw new AppError(409, `${application.student.email} belongs to a ${account.role} account, so this applicant cannot be enrolled with it.`);
+  }
+  if (account) application.user = account._id;
+}
+
+/**
+ * Approves or rejects an applicant who has not chosen a class. Once approved
+ * they create their account and ask for their classes from inside the portal.
+ */
+export async function decideApplication(id, { status, adminNote }, { actor, ipAddress }) {
+  const application = await findApplicationOrThrow(id);
+  if (application.requests.length) {
+    throw new AppError(409, 'This application names its classes. Decide each class instead.');
+  }
+  if (application.status !== 'pending') throw new AppError(409, 'This application has already been decided.');
+
+  if (status === 'approved') await linkExistingAccount(application);
+  application.status = status;
+  if (adminNote !== undefined) application.adminNote = adminNote;
+  await application.save();
+  await logActivity({
+    actorId: actor._id,
+    action: `enrollment.${status}`,
+    entityType: 'EnrollmentApplication',
+    entityId: application._id,
+    description: `${actor.fullName} ${status} the enrollment of ${fullName(application.student)}`,
+    ipAddress,
+  });
+  return getApplication(id);
+}
+
 /**
  * Approves or rejects one class of an application. Approving can place the
  * student in a different class than the one asked for. A student who already
@@ -355,14 +391,7 @@ export async function decideRequest(id, requestId, { status, classroomId, adminN
     if (application.requests.some((other) => other !== request && idOf(other.classroom) === targetId)) {
       throw new AppError(409, `This application already has a request for "${classroom.name}".`);
     }
-    // An applicant whose email already has a student account is a returning student: use that account.
-    if (!application.user) {
-      const account = await User.findOne({ email: application.student.email });
-      if (account && account.role !== 'student') {
-        throw new AppError(409, `${application.student.email} belongs to a ${account.role} account, so this applicant cannot be enrolled with it.`);
-      }
-      if (account) application.user = account._id;
-    }
+    await linkExistingAccount(application);
     request.classroom = classroom._id;
   }
   request.status = status;

@@ -18,8 +18,9 @@ const birthday = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a valid birthday
     && parsed.getTime() <= Date.now();
 }, 'Enter a valid birthday');
 
-const classroomIds = z.array(objectId).min(1, 'Choose at least one class').max(10)
+const uniqueClassroomIds = z.array(objectId).max(10)
   .refine((ids) => ids.length === new Set(ids).size, 'Choose each class only once');
+const classroomIds = uniqueClassroomIds.min(1, 'Choose at least one class');
 
 export const submitApplicationSchema = z.object({
   student: z.object({
@@ -38,7 +39,8 @@ export const submitApplicationSchema = z.object({
     contactNumber,
     email: blankable(emailSchema),
   }).strict(),
-  classroomIds,
+  // Optional: an applicant can be approved first and choose their classes inside the portal.
+  classroomIds: uniqueClassroomIds.default([]),
   note: optionalText(500),
   agreed: z.literal(true, 'You must agree before submitting'),
 }).strict();
@@ -66,6 +68,12 @@ export const listApplicationsQuerySchema = z.object({
 
 export const applicationIdParamsSchema = z.object({ id: objectId });
 export const classRequestParamsSchema = z.object({ id: objectId, requestId: objectId });
+
+/** Deciding on an applicant who has not chosen a class yet. */
+export const decideApplicationSchema = z.object({
+  status: z.enum(['approved', 'rejected']),
+  adminNote: z.string().trim().max(500).optional(),
+}).strict();
 
 export const decideRequestSchema = z.object({
   status: z.enum(['approved', 'rejected']),

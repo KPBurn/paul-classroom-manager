@@ -1,10 +1,9 @@
-import { ArrowLeft, ArrowRight, Check, Copy, ImagePlus, School, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Copy, ImagePlus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import Alert, { ErrorState } from '../../components/common/Alert.jsx';
 import Button, { ButtonLink } from '../../components/common/Button.jsx';
 import Card from '../../components/common/Card.jsx';
-import EmptyState from '../../components/common/EmptyState.jsx';
 import { PageLoader } from '../../components/common/Spinner.jsx';
 import TextField, { SelectField, TextAreaField } from '../../components/common/TextField.jsx';
 import ClassPicker from '../../components/enrollment/ClassPicker.jsx';
@@ -27,7 +26,7 @@ const isContactNumber = (value) => /^\+?[\d\s()-]{7,20}$/.test(value.trim());
 const today = () => new Date().toLocaleDateString('en-CA');
 
 /** What is wrong on a step, as `{ fieldId: message }`. An empty object means the step can be left. */
-function problemsOn(step, { student, guardian, classroomIds, agreed }) {
+function problemsOn(step, { student, guardian, agreed }) {
   const problems = {};
   if (step === 0) {
     if (!student.firstName.trim()) problems['student-first-name'] = 'Enter the student’s first name.';
@@ -42,7 +41,6 @@ function problemsOn(step, { student, guardian, classroomIds, agreed }) {
     if (!isContactNumber(guardian.contactNumber)) problems['guardian-contact'] = 'Enter a contact number, such as 0917 123 4567.';
     if (guardian.email.trim() && !isEmail(guardian.email)) problems['guardian-email'] = 'Enter a valid email address, or leave it empty.';
   }
-  if (step === 2 && classroomIds.length === 0) problems.classes = 'Choose at least one class.';
   if (step === 4 && !agreed) problems.agreed = 'Confirm the statement to submit your application.';
   return problems;
 }
@@ -109,7 +107,7 @@ function Submitted({ result, photoFailed }) {
   };
 
   return (
-    <PublicPage title="Application submitted" description="Your school will review it and decide which classes you are placed in.">
+    <PublicPage title="Application submitted" description="Your school will review it. You finish enrolling inside the portal once you are approved.">
       <Card className="space-y-5 p-5 sm:p-6">
         <div className="rounded-xl border border-ink-200 bg-ink-50 p-5 text-center">
           <p className="text-xs font-medium uppercase tracking-wider text-ink-500">Your reference number</p>
@@ -131,7 +129,8 @@ function Submitted({ result, photoFailed }) {
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-ink-600">
             <li>Your application is <span className="font-medium text-ink-900">pending</span> until the school reviews it.</li>
             <li>Check the status any time with your reference number and birthday.</li>
-            <li>Once a class is approved, create your account on the same page and sign in.</li>
+            <li>Once you are approved, create your account on the same page and sign in.</li>
+            <li>Inside the portal, open My Classrooms to choose your classes and finish enrolling.</li>
           </ol>
         </div>
         <div className="flex flex-col gap-2 border-t border-ink-200 pt-4 sm:flex-row sm:justify-end">
@@ -199,7 +198,7 @@ export default function Enroll() {
   const guardianField = (key, id) => field(guardian, setGuardian, key, id);
 
   const next = () => {
-    const found = problemsOn(step, { student, guardian, classroomIds, agreed });
+    const found = problemsOn(step, { student, guardian, agreed });
     setProblems(found);
     const [firstId] = Object.keys(found);
     if (firstId) {
@@ -258,18 +257,12 @@ export default function Enroll() {
   return (
     <PublicPage
       title="Apply for enrollment"
-      description="Tell us who is applying and which classes you would like to join. You do not need an account yet: your school reviews the application first."
+      description="Tell us who is applying. You do not need an account yet: your school reviews the application first, and you choose or confirm your classes inside the portal afterwards."
     >
       {loadError ? (
         <ErrorState message={loadError} onRetry={load} />
       ) : !classes ? (
         <PageLoader label="Loading classes…" />
-      ) : classes.length === 0 ? (
-        <EmptyState
-          icon={School}
-          title="No classes are open yet"
-          message="Your school has not opened any classes for enrollment. Please check back later."
-        />
       ) : (
         <>
           <StepList current={step} />
@@ -316,19 +309,18 @@ export default function Enroll() {
 
               {step === 2 && (
                 <>
-                  <h2 tabIndex={-1} id="classes" className="text-base font-semibold text-ink-900 outline-none">Classes you want to join</h2>
+                  <h2 tabIndex={-1} className="text-base font-semibold text-ink-900 outline-none">Classes you want to join — optional</h2>
                   <p className="-mt-3 text-sm text-ink-500">
-                    Choose one or more. Your school decides each class separately and may place you in a different one.
+                    Choose any classes you already know you want, or skip this step. After you are approved you choose
+                    your classes inside the portal, and your school decides each one.
                   </p>
-                  <ClassPicker
-                    classes={classes}
-                    selectedIds={classroomIds}
-                    onChange={(ids) => {
-                      setClassroomIds(ids);
-                      setProblems((current) => ({ ...current, classes: undefined }));
-                    }}
-                    error={problems.classes}
-                  />
+                  {classes.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-ink-300 px-4 py-6 text-center text-sm text-ink-500">
+                      No classes are open yet. You can still apply and choose your classes later inside the portal.
+                    </p>
+                  ) : (
+                    <ClassPicker classes={classes} selectedIds={classroomIds} onChange={setClassroomIds} />
+                  )}
                   <TextAreaField
                     id="application-note"
                     label="Note to the school (optional)"
@@ -403,7 +395,7 @@ export default function Enroll() {
                   <ReviewList
                     title="Enrollment"
                     rows={[
-                      ['Classes', (
+                      ['Classes', chosen.length === 0 ? 'None chosen yet. You will choose inside the portal after you are approved.' : (
                         <ul key="classes" className="space-y-1">
                           {chosen.map((item) => (
                             <li key={item.id}>
@@ -451,7 +443,7 @@ export default function Enroll() {
                 <Button type="submit" isLoading={submitting}>
                   {step === STEPS.length - 1 ? 'Submit application' : (
                     <>
-                      {step === 3 && !photo ? 'Skip photo' : 'Continue'}
+                      {step === 3 && !photo ? 'Skip photo' : step === 2 && classroomIds.length === 0 ? 'Skip for now' : 'Continue'}
                       <ArrowRight className="size-4" aria-hidden="true" />
                     </>
                   )}

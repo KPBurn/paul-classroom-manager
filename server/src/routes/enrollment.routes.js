@@ -3,6 +3,7 @@ import {
   classes,
   createAccount,
   decide,
+  decideApplication,
   list,
   ownRequests,
   photo,
@@ -21,6 +22,7 @@ import {
   checkStatusSchema,
   classRequestParamsSchema,
   createAccountSchema,
+  decideApplicationSchema,
   decideRequestSchema,
   listApplicationsQuerySchema,
   referenceParamsSchema,
@@ -52,6 +54,11 @@ router.use(requireRole('admin'));
 router.get('/applications', validate({ query: listApplicationsQuerySchema }), list);
 router.get('/applications/:id', validate({ params: applicationIdParamsSchema }), show);
 router.get('/applications/:id/photo', validate({ params: applicationIdParamsSchema }), photo);
+router.patch(
+  '/applications/:id',
+  validate({ params: applicationIdParamsSchema, body: decideApplicationSchema }),
+  decideApplication,
+);
 router.patch(
   '/applications/:id/requests/:requestId',
   validate({ params: classRequestParamsSchema, body: decideRequestSchema }),

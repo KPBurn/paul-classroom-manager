@@ -45,8 +45,9 @@ const enrollmentApplicationSchema = new mongoose.Schema(
       contentType: { type: String },
       size: { type: Number },
     },
-    requests: { type: [classRequestSchema], required: true },
-    // Pending while any class is undecided, then approved if at least one class was.
+    // May be empty: an applicant can be approved first and choose classes from their account.
+    requests: { type: [classRequestSchema], default: [] },
+    // With classes: pending while any is undecided, then approved if at least one was. Without: decided as a whole.
     status: { type: String, enum: ENROLLMENT_STATUSES, default: 'pending', required: true },
     // What the administrator tells the student about the decision.
     adminNote: { type: String, trim: true, maxlength: 500, default: '' },
