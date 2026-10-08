@@ -7,3 +7,5 @@ coverage/
 .env
 .env.local
 .env.*.local
+.vscode/  
+start-server.bat 
