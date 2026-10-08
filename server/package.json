@@ -13,7 +13,7 @@
     "start": "node --env-file-if-exists=.env src/server.js",
     "seed": "node --env-file-if-exists=.env src/scripts/seed.js",
     "test": "node --test",
-    "test:server": "node src/scripts/test-server.js"
+    "test:server": "node src/scripts/dev-server.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

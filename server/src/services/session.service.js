@@ -18,10 +18,9 @@ import { AppError } from '../utils/AppError.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { attendanceStatusForCheckIn } from '../utils/attendancePolicy.js';
 import { LIST_BATCH_SIZE } from '../config/database.js';
-import { env } from '../config/environment.js';
-import { fetchMeteredTurnIceServers } from './meteredTurn.service.js';
 import { sessionTimingChanged } from '../realtime/connections.js';
 import { publishToClassroom, SESSION_EVENTS } from '../realtime/sessionEvents.js';
+import { resolveIceServers } from './systemSettings.service.js';
 
 const MINUTE_MS = 60 * 1000;
 /** How long a class started on the spot runs unless the teacher says otherwise. */
@@ -542,9 +541,7 @@ export function assertCanEnterRoom(session, user) {
 export async function getRoomSession(id, user) {
   const session = await getSessionForParticipant(id, user);
   assertCanEnterRoom(session, user);
-  const iceServers = env.meteredTurnHost
-    ? await fetchMeteredTurnIceServers(env.meteredTurnHost, env.meteredTurnApiKey)
-    : env.iceServers;
+  const iceServers = await resolveIceServers();
   const hasTurnServer = iceServers.some(({ urls }) => (Array.isArray(urls) ? urls : [urls])
     .some((url) => /^(turn|turns):/i.test(url)));
   return {
@@ -553,7 +550,7 @@ export async function getRoomSession(id, user) {
     iceServers,
     iceServersWarning: hasTurnServer
       ? null
-      : 'No TURN relay is configured. Camera and microphone may stay local when direct connections are blocked. An administrator can add Metered TURN credentials in the Render environment settings.',
+      : 'No TURN relay is configured. Camera and microphone may stay local when direct connections are blocked. An administrator can add TURN credentials in System Settings, or in the Render environment settings.',
   };
 }
 
