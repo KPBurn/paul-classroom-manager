@@ -9,6 +9,7 @@ import {
   messages,
   openZoom,
   room,
+  setMeetingProvider,
   startNow,
   downloadFile,
   listFiles,
@@ -25,6 +26,7 @@ import {
   correctAttendanceSchema,
   createSessionSchema,
   listSessionsQuerySchema,
+  meetingProviderSchema,
   sessionIdParamsSchema,
   sessionUpdateSchema,
   startSessionSchema,
@@ -41,7 +43,14 @@ router.get('/', requireRole('admin', 'teacher', 'student'), validate({ query: li
 router.post('/', requireRole('admin', 'teacher'), validate({ body: createSessionSchema }), create);
 router.post('/start', requireRole('admin', 'teacher'), validate({ body: startSessionSchema }), startNow);
 router.get('/:id/room',validate({ params: sessionIdParamsSchema }), room);
-// Zoom, offered beside the class room: teachers add the meeting, everyone allowed in gets its link.
+// Where the class is held, chosen by its teachers: its class room or Zoom.
+router.put(
+  '/:id/meeting-provider',
+  requireRole('admin', 'teacher'),
+  validate({ params: sessionIdParamsSchema, body: meetingProviderSchema }),
+  setMeetingProvider,
+);
+// A class held in Zoom: teachers open the meeting, everyone allowed in gets its link.
 router.post('/:id/zoom', requireRole('admin', 'teacher'), validate({ params: sessionIdParamsSchema }), openZoom);
 router.get('/:id/zoom', validate({ params: sessionIdParamsSchema }), zoomLink);
 router.get('/:id/files', validate({ params: sessionIdParamsSchema }), listFiles);

@@ -22,6 +22,9 @@
  * `session:zoom-added` — a teacher added a Zoom meeting to a session; the link is asked for separately.
  * @typedef {{ sessionId: string, classroomId: string }} ZoomAdded
  *
+ * `session:provider-changed` — a teacher moved a session between its class room and Zoom.
+ * @typedef {{ sessionId: string, classroomId: string, meetingProvider: ('builtin'|'zoom') }} ProviderChanged
+ *
  * `session:presence` — who is in a session's room, sent whenever someone enters or leaves.
  * It is the whole state, not a difference, so a missed event is put right by the next one.
  * @typedef {{
@@ -38,6 +41,7 @@ export const SESSION_EVENTS = {
   reopened: 'session:reopened',
   scheduleChanged: 'session:schedule-changed',
   zoomAdded: 'session:zoom-added',
+  providerChanged: 'session:provider-changed',
   presence: 'session:presence',
 };
 

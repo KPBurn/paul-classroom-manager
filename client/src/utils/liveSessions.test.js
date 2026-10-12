@@ -61,6 +61,18 @@ describe('applySessionEvent', () => {
     const list = [session('a')];
     assert.equal(applySessionEvent(list, 'ended', { sessionId: 'zzz', endedAt: 'x' }), list);
     assert.equal(applySessionEvent(list, 'presence', { sessionId: 'a', count: 3 }), list);
+    assert.equal(applySessionEvent(list, 'provider-changed', { sessionId: 'zzz', meetingProvider: 'zoom' }), list);
+  });
+
+  it('moves a session between its class room and Zoom as the teacher chooses', () => {
+    const list = [session('a', { meetingProvider: 'builtin', zoomMeeting: false }), session('b')];
+    const inZoom = applySessionEvent(list, 'provider-changed', { sessionId: 'a', meetingProvider: 'zoom' });
+    assert.equal(inZoom[0].meetingProvider, 'zoom');
+    assert.equal(inZoom[1], list[1]);
+    const withMeeting = [{ ...inZoom[0], zoomMeeting: true }];
+    const back = applySessionEvent(withMeeting, 'provider-changed', { sessionId: 'a', meetingProvider: 'builtin' });
+    assert.equal(back[0].meetingProvider, 'builtin');
+    assert.equal(back[0].zoomMeeting, false);
   });
 });
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MEETING_PROVIDERS } from '../models/ClassSession.js';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Must be a valid ID');
 const title = z.string().trim().min(1).max(120);
@@ -43,6 +44,10 @@ export const startSessionSchema = z.object({
   classroomId: objectId,
   title: title.optional(),
   durationMinutes: z.number().int().min(15).max(240).optional(),
+}).strict();
+
+export const meetingProviderSchema = z.object({
+  meetingProvider: z.enum(MEETING_PROVIDERS, { message: 'Choose the class room or Zoom' }),
 }).strict();
 
 export const listSessionsQuerySchema = z.object({

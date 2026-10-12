@@ -83,6 +83,7 @@ export function LiveSessionsProvider({ children }) {
     });
     socket.on(SESSION_EVENTS.reopened, (payload) => notify('reopened', payload));
     socket.on(SESSION_EVENTS.scheduleChanged, (payload) => notify('schedule-changed', payload));
+    socket.on(SESSION_EVENTS.providerChanged, (payload) => notify('provider-changed', payload));
     socket.on(DATA_CHANGED_EVENT, (payload) => notify('data-changed', payload));
     socket.connect();
 
@@ -118,7 +119,7 @@ export function useLiveData(resources, reload) {
 
 /**
  * Calls `handler(type, payload)` for each live event: 'started', 'ended', 'reopened',
- * 'schedule-changed', 'presence', 'data-changed' and 'resync'.
+ * 'schedule-changed', 'provider-changed', 'presence', 'data-changed' and 'resync'.
  */
 export function useSessionEvents(handler) {
   const { subscribe } = useContext(LiveSessionsContext);

@@ -9,6 +9,7 @@ export const SESSION_EVENTS = {
   reopened: 'session:reopened',
   scheduleChanged: 'session:schedule-changed',
   zoomAdded: 'session:zoom-added',
+  providerChanged: 'session:provider-changed',
   presence: 'session:presence',
 };
 

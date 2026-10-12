@@ -5,7 +5,7 @@ const systemSettingsSchema = new mongoose.Schema(
     _id: { type: String, default: 'system' },
     roleTestingEnabled: { type: Boolean, default: false },
     // Which integration powers live classrooms. 'webrtc' is the built-in peer-to-peer
-    // room; 'zoom' keeps that room and also offers each class a Zoom meeting from its lobby.
+    // room; 'zoom' also lets teachers hold a class in Zoom instead (ClassSession.meetingProvider).
     classroomIntegration: { type: String, enum: ['webrtc', 'zoom'], default: 'webrtc' },
     // Credentials used to build the WebRTC ICE list (resolved in systemSettings.service).
     // An empty value falls back to the corresponding server environment variable.

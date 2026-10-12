@@ -29,7 +29,16 @@ export const sessionService = {
   },
 
   /**
-   * For the session's teachers: adds a Zoom meeting to the session, or finds
+   * For the session's teachers: holds the class in its class room ('builtin')
+   * or in Zoom. Gives back `{ meetingProvider, zoomMeeting }`.
+   */
+  async setMeetingProvider(id, meetingProvider) {
+    const { data } = await api.put(`/sessions/${id}/meeting-provider`, { meetingProvider });
+    return data.data;
+  },
+
+  /**
+   * For the teachers of a class held in Zoom: makes its Zoom meeting, or finds
    * the one it has, and gives back Zoom's host link as `url`.
    */
   async openZoom(id) {

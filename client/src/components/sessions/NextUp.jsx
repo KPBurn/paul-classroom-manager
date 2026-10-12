@@ -1,6 +1,7 @@
 import { Video } from 'lucide-react';
 import Button from '../common/Button.jsx';
 import Card, { SectionLabel } from '../common/Card.jsx';
+import { meetingProviderOf } from '../../utils/meetingProvider.js';
 import { formatTime, isSameLocalDay, timeUntil } from '../../utils/sessionTiming.js';
 import RoomPresence, { LiveStatusNote } from './RoomPresence.jsx';
 
@@ -25,6 +26,7 @@ export default function NextUp({ session, now, onJoin, emptyMessage }) {
     ? `Live now · ends at ${formatTime(session.endsAt)}`
     : `${today ? 'Today' : new Date(session.startsAt).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })} · ${formatTime(session.startsAt)}–${formatTime(session.endsAt)}`;
   const startsIn = !live && timeUntil(session.startsAt, now);
+  const inZoom = meetingProviderOf(session) === 'zoom';
 
   return (
     <Card
@@ -40,9 +42,11 @@ export default function NextUp({ session, now, onJoin, emptyMessage }) {
         <h2 id="next-up-heading" className="mt-1.5 truncate font-display text-2xl font-medium tracking-[-0.02em] text-ink-900">{session.title}</h2>
         <p className="mt-1 text-sm text-ink-600">
           {session.classroom?.name} · {when}
+          {inZoom && ' · In Zoom'}
           {startsIn && <span className="font-medium text-ink-900"> · Starts {startsIn}</span>}
         </p>
-        <RoomPresence sessionId={session.id} always={live} className="mt-2" />
+        {/* Who is in the class room means nothing for a class held in Zoom. */}
+        {!inZoom && <RoomPresence sessionId={session.id} always={live} className="mt-2" />}
         <LiveStatusNote className="mt-2" />
       </div>
       <Button size="lg" className="shrink-0" onClick={() => onJoin(session)}>

@@ -5,7 +5,13 @@ import { env } from '../config/environment.js';
 import { Classroom } from '../models/Classroom.js';
 import { SystemSettings } from '../models/SystemSettings.js';
 import { User } from '../models/User.js';
-import { canManageSession, classroomsTaughtBy, isEnrolledIn, teachesClassroom } from '../authz/policies.js';
+import {
+  canManageSession,
+  canUseMeetingProvider,
+  classroomsTaughtBy,
+  isEnrolledIn,
+  teachesClassroom,
+} from '../authz/policies.js';
 import * as sessionService from '../services/session.service.js';
 import { AppError } from '../utils/AppError.js';
 import { verifyToken } from '../utils/jwt.js';
@@ -171,6 +177,15 @@ export function attachSessionSocket(httpServer) {
     sessionTimingChanged: (sessionId) => {
       if (rooms.has(sessionId)) openAttendanceAtStart(sessionId).catch(logAttendanceStartError);
     },
+    // Moved to Zoom: everyone but the people who run the class goes back to the lobby, which offers Zoom.
+    // Leaving closes their attendance and tells the others, as any departure does.
+    sessionProviderChanged: async (sessionId, session) => {
+      for (const socket of socketsInRoom(sessionId)) {
+        if (canUseMeetingProvider(session, socket.data.user, 'builtin')) continue;
+        await socket.data.leaveRoom().catch((error) => console.error('Unable to record a participant leaving', error));
+        socket.emit('room:provider-changed', { sessionId, meetingProvider: session.meetingProvider });
+      }
+    },
     classroomPeopleChanged: (classroom) => {
       for (const socket of io.sockets.sockets.values()) {
         if (socket.data.watching && socket.data.user.role !== 'admin') followClassroom(socket, classroom);
@@ -324,6 +339,9 @@ export function attachSessionSocket(httpServer) {
         const session = await sessionService.getSessionForParticipant(sessionId, socket.data.user);
         if (session.status === 'cancelled') throw new AppError(400, 'This session has been cancelled');
         sessionService.assertCanEnterRoom(session, socket.data.user);
+        if (!canUseMeetingProvider(session, socket.data.user, 'builtin')) {
+          throw new AppError(409, sessionService.HELD_IN_ZOOM);
+        }
         const canManageRoom = canManageSession(session, socket.data.user);
         const moderation = canManageRoom
           ? {
@@ -377,6 +395,20 @@ export function attachSessionSocket(httpServer) {
         socket.join(room);
         state.participants.set(socket.id, participant);
         state.classroomId = String(session.classroom._id);
+        // The class may have moved to Zoom while this join was being recorded. Moves from now on find
+        // this connection in the room and take it out; one already made is caught by reading again here.
+        let movedAway;
+        try {
+          session.meetingProvider = await sessionService.meetingProviderNow(sessionId);
+          movedAway = !canUseMeetingProvider(session, socket.data.user, 'builtin');
+        } catch (error) {
+          await leaveRoom();
+          throw error;
+        }
+        if (movedAway) {
+          await leaveRoom();
+          throw new AppError(409, sessionService.HELD_IN_ZOOM);
+        }
         socket.to(room).emit('room:participant-joined', participant);
         if (!alreadyPresent) publishPresence(sessionId, state, 'joined', participant);
         if (beforeStart && !state.startTimer) openAttendanceAtStart(sessionId).catch(logAttendanceStartError);

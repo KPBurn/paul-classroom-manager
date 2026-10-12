@@ -35,7 +35,7 @@ services:
       # The sender, on a domain verified in Resend, such as "School Name <enrollment@school.edu>".
       - key: MAIL_FROM
         sync: false
-      # Optional Zoom, offered beside the class room: a Server-to-Server OAuth app on the school's Zoom account.
+      # Optional Zoom, which teachers can choose instead of the class room: a Server-to-Server OAuth app on the school's Zoom account.
       # Set all three or none. See README, "Zoom".
       - key: ZOOM_ACCOUNT_ID
         sync: false

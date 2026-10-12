@@ -21,6 +21,7 @@ import { useNow } from '../../hooks/useNow.js';
 import { classroomService } from '../../services/classroom.service.js';
 import { sessionService } from '../../services/session.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { meetingProviderOf } from '../../utils/meetingProvider.js';
 import { periodParams } from '../../utils/period.js';
 import {
   formatTime,
@@ -227,6 +228,7 @@ export default function ClassroomDetail() {
               <ul className="divide-y divide-ink-200">
                 {upcoming.map((session) => {
                   const joinNow = session.phase === 'live' || session.phase === 'soon';
+                  const inZoom = meetingProviderOf(session) === 'zoom';
                   return (
                     <li key={session.id} className="flex items-center justify-between gap-3 px-5 py-3">
                       <div className="min-w-0">
@@ -237,7 +239,9 @@ export default function ClassroomDetail() {
                         {session.phase !== 'upcoming' && (
                           <Badge tone={PHASE_TONES[session.phase]} className="mt-1.5">{PHASE_LABELS[session.phase]}</Badge>
                         )}
-                        {session.phase !== 'closed' && (
+                        {/* Held in Zoom: the class room and who is in it do not apply. */}
+                        {inZoom && <Badge tone="info" className="mt-1.5 ml-1">Zoom</Badge>}
+                        {session.phase !== 'closed' && !inZoom && (
                           <RoomPresence sessionId={session.id} always={session.phase === 'live'} className="mt-1.5" />
                         )}
                       </div>

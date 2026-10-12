@@ -42,6 +42,11 @@ export async function openZoom(req, res) {
   sendSuccess(res, { status: data.created ? 201 : 200, data });
 }
 
+export async function setMeetingProvider(req, res) {
+  const data = await sessionService.setMeetingProvider(req.params.id, req.body.meetingProvider, req.user, { ipAddress: req.ip });
+  sendSuccess(res, { data });
+}
+
 export async function zoomLink(req, res) {
   const data = await sessionService.getZoomJoinLink(req.params.id, req.user);
   sendSuccess(res, { data });

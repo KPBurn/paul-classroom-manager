@@ -111,15 +111,18 @@ export async function resolveIceServers() {
 }
 
 /**
- * The Zoom app classrooms use to offer Zoom beside the class room, or null
- * when it is not offered. It is offered while the classroom integration is
- * set to Zoom; the class room itself stays as it is. As for the relay,
+ * The Zoom app classes held in Zoom use, or null when Zoom is not offered.
+ * It is offered while the classroom integration is set to Zoom; each class's
+ * teacher then chooses between its class room and Zoom. As for the relay,
  * credentials saved in the admin console win over the server environment:
  * all three saved values, otherwise the ZOOM_* variables.
+ *
+ * `evenIfSwitchedOff` gives the app while Zoom is switched off, only to end or
+ * delete meetings that were already made.
  */
-export async function resolveZoomSettings() {
+export async function resolveZoomSettings({ evenIfSwitchedOff = false } = {}) {
   const settings = await SystemSettings.findById('system').select('classroomIntegration zoom').lean();
-  if (settings?.classroomIntegration !== 'zoom') return null;
+  if (settings?.classroomIntegration !== 'zoom' && !evenIfSwitchedOff) return null;
   const [accountId, clientId, clientSecret] = ['accountId', 'clientId', 'clientSecret']
     .map((key) => settings?.zoom?.[key]?.trim());
   const credentials = accountId && clientId && clientSecret ? { accountId, clientId, clientSecret } : env.zoom;

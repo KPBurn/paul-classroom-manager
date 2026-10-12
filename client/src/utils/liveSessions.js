@@ -1,3 +1,5 @@
+import { withMeetingProvider } from './meetingProvider.js';
+
 /**
  * Applies a live session event to a list of sessions already on the page, so
  * the page changes without asking the API again. Returns the same list when
@@ -18,6 +20,10 @@ export function applySessionEvent(sessions, type, payload, accept = () => true) 
       // Keep what is the reader's own, such as their attendance.
       ? sessions.map((item) => (item === existing ? { ...existing, ...session, attendance: existing.attendance } : item))
       : [...sessions, session];
+  }
+  if (type === 'provider-changed') {
+    if (!sessions.some((item) => item.id === payload.sessionId)) return sessions;
+    return sessions.map((item) => (item.id === payload.sessionId ? withMeetingProvider(item, payload.meetingProvider) : item));
   }
   if (type === 'ended' || type === 'reopened') {
     if (!sessions.some((item) => item.id === payload.sessionId)) return sessions;

@@ -1,5 +1,8 @@
 import mongoose from 'mongoose';
 
+/** Where a class can be held: its own class room, or Zoom. */
+export const MEETING_PROVIDERS = ['builtin', 'zoom'];
+
 const attendanceSchema = new mongoose.Schema(
   {
     student: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -29,8 +32,11 @@ const classSessionSchema = new mongoose.Schema(
     endedAt: { type: Date, default: null },
     // People a teacher removed from the room; they cannot rejoin this session unless allowed back.
     removedParticipants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-    // A Zoom meeting a teacher added as another way into the class, beside its own room.
-    // The join link carries the passcode, so it is only read for people allowed into the class.
+    // Where the class is held, as its teacher chose: its own class room or Zoom. Students only
+    // see and enter that one (see meetingProviderOf in authz/policies.js for older sessions).
+    meetingProvider: { type: String, enum: MEETING_PROVIDERS, default: 'builtin' },
+    // The Zoom meeting of a class held in Zoom. The join link carries the passcode, so it is
+    // only read for people allowed into the class.
     zoomMeeting: {
       meetingId: { type: String },
       joinUrl: { type: String, select: false },

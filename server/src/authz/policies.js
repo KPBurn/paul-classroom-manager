@@ -57,3 +57,20 @@ export const canManageSession = (session, user) => isRole(user, 'admin') || isSe
 export const canJoinSession = (session, user) => canManageSession(session, user)
   || isSessionStudent(session, user)
   || Boolean(session.classroom?.openAccess);
+
+// Meetings
+
+/**
+ * Where a session is held: its own class room ('builtin') or Zoom, as its
+ * teacher chose. Sessions from before there was a choice, and any value that
+ * is not a provider, are held in the class room, which was the only one.
+ */
+export const meetingProviderOf = (session) => (session?.meetingProvider === 'zoom' ? 'zoom' : 'builtin');
+
+/**
+ * Students and other participants only use the meeting the teacher chose. The
+ * session's teachers and administrators may use either, so moving a class
+ * between them never locks out the people who run it.
+ */
+export const canUseMeetingProvider = (session, user, provider) => canManageSession(session, user)
+  || meetingProviderOf(session) === provider;

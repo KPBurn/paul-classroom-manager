@@ -22,6 +22,7 @@ import { useAuth } from '../../hooks/useAuth.js';
 import { useNow } from '../../hooks/useNow.js';
 import { ROLES } from '../../utils/roles.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { meetingProviderOf } from '../../utils/meetingProvider.js';
 import { addDays, dateInputToDate, dateInputValue, periodParams, startOfDay } from '../../utils/period.js';
 import {
   formatTime,
@@ -800,7 +801,19 @@ function SessionForm({ classrooms, actor, onCancel, onSave }) {
   );
 }
 
+/**
+ * How someone attended. A class held in Zoom only records when they opened it
+ * (there is no time in the class room to count), unless they were in the room
+ * before it moved to Zoom.
+ */
+function attendanceSummary(item, inZoom) {
+  if (!item.checkInAt) return inZoom ? 'Did not open Zoom' : 'Did not join the class room';
+  if (inZoom && !item.durationMs) return `Opened Zoom ${dateTime(item.checkInAt)}`;
+  return `Joined ${dateTime(item.checkInAt)} · ${Math.floor((item.durationMs ?? 0) / 60_000)} min attended`;
+}
+
 function AttendancePanel({ session }) {
+  const inZoom = meetingProviderOf(session) === 'zoom';
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -850,9 +863,7 @@ function AttendancePanel({ session }) {
               <span className="ml-2 text-xs font-normal capitalize text-ink-500">{item.role ?? item.participant?.role}</span>
             </p>
             <p className="text-xs text-ink-500">
-              {item.checkInAt
-                ? `Joined ${dateTime(item.checkInAt)} · ${Math.floor((item.durationMs ?? 0) / 60_000)} min attended`
-                : 'Did not join the class room'}
+              {attendanceSummary(item, inZoom)}
             </p>
           </div>
           <SelectField

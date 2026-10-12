@@ -375,8 +375,8 @@ export default function Settings() {
                     Account ID, Client ID and Client Secret below.
                   </li>
                   <li>
-                    Classes keep their own room. In a class’s lobby, its teacher can also press
-                    Start in Zoom; students then get a Join in Zoom button.
+                    In each class’s lobby, its teacher chooses to hold it in the class room or in
+                    Zoom. Students only see and enter the one chosen.
                   </li>
                   <li>
                     Attendance is still only recorded in the class room. On a free Zoom account,

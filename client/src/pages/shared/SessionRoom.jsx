@@ -42,6 +42,7 @@ import { sessionService } from '../../services/session.service.js';
 import { connectToSessionRoom, SESSION_EVENTS } from '../../services/sessionRoom.service.js';
 import { tokenStorage } from '../../utils/tokenStorage.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { meetingProviderOf, withMeetingProvider } from '../../utils/meetingProvider.js';
 
 const formatTime = (value) => new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 // Each peer connection carries these media sections in this fixed order.
@@ -172,12 +173,8 @@ export default function SessionRoom() {
     setMediaError(messageText);
   }, []);
 
-  const leaveRoom = useCallback(() => {
-    const socket = socketRef.current;
-    wantsRoomRef.current = false;
-    socket?.emit('room:leave');
-    socket?.disconnect();
-    socketRef.current = null;
+  /** Closes every media connection and stops this device's microphone, camera and screen. */
+  const releaseMedia = useCallback(() => {
     for (const peer of peersRef.current.values()) peer.pc.close();
     peersRef.current.clear();
     for (const track of localAudioStreamRef.current?.getTracks() ?? []) track.stop();
@@ -192,6 +189,15 @@ export default function SessionRoom() {
     }
   }, []);
 
+  const leaveRoom = useCallback(() => {
+    const socket = socketRef.current;
+    wantsRoomRef.current = false;
+    socket?.emit('room:leave');
+    socket?.disconnect();
+    socketRef.current = null;
+    releaseMedia();
+  }, [releaseMedia]);
+
   useEffect(() => {
     mountedRef.current = true;
     let cancelled = false;
@@ -200,15 +206,12 @@ export default function SessionRoom() {
     async function openRoom() {
       setLoading(true);
       setError('');
-      try {
-        const [current, history, sharedFiles] = await Promise.all([
-          sessionService.room(id),
-          sessionService.messages(id),
-          sessionService.files(id),
-        ]);
-        if (current.status === 'cancelled') throw new Error('This session has been cancelled.');
+      // The class room's chat, files and relay credentials. A class held in Zoom has none for its
+      // students, so they are loaded once the room applies: here, or when joining after a move back.
+      let roomDataLoaded = false;
+      const loadRoomData = async (current) => {
+        const [history, sharedFiles] = await Promise.all([sessionService.messages(id), sessionService.files(id)]);
         if (cancelled) return;
-        setSession(current);
         setMessages(history);
         setLastSeenMessageId(history.at(-1)?.id ?? null);
         setFiles(sharedFiles);
@@ -216,6 +219,16 @@ export default function SessionRoom() {
         iceServersRef.current = current.iceServers?.length
           ? current.iceServers
           : [{ urls: 'stun:stun.l.google.com:19302' }];
+        roomDataLoaded = true;
+      };
+
+      try {
+        const current = await sessionService.room(id);
+        if (current.status === 'cancelled') throw new Error('This session has been cancelled.');
+        if (cancelled) return;
+        setSession(current);
+        if (current.canManageRoom || meetingProviderOf(current) === 'builtin') await loadRoomData(current);
+        if (cancelled) return;
 
         if (!tokenStorage.get()) throw new Error('Your session has ended. Please sign in again.');
         socket = connectToSessionRoom();
@@ -370,6 +383,7 @@ export default function SessionRoom() {
           setJoining(true);
           setError('');
           try {
+            if (!roomDataLoaded) await loadRoomData(await sessionService.room(id));
             const result = await emitAck(socket, 'room:join', id);
             if (cancelled) return;
             localParticipantId.current = socket.id;
@@ -438,6 +452,26 @@ export default function SessionRoom() {
         // A teacher added a Zoom meeting: the lobby offers it without a refresh.
         socket.on(SESSION_EVENTS.zoomAdded, ({ sessionId }) => {
           if (sessionId === id) setSession((current) => current && { ...current, zoomMeeting: true });
+        });
+        // A teacher moved the class between its room and Zoom: the lobby offers only the one chosen.
+        socket.on(SESSION_EVENTS.providerChanged, ({ sessionId, meetingProvider }) => {
+          if (sessionId === id) setSession((current) => current && withMeetingProvider(current, meetingProvider));
+        });
+        // Moved to Zoom while in the room: the server has taken this person out of it. Back to the
+        // lobby, still connected, where Zoom is offered; nothing reconnects them to the room.
+        socket.on('room:provider-changed', ({ meetingProvider } = {}) => {
+          wantsRoomRef.current = false;
+          releaseMedia();
+          setCameraStream(null);
+          setScreenStream(null);
+          setMuted(true);
+          setScreenSharerId(null);
+          setParticipants([]);
+          setRemoteMedia({});
+          setSpeakingParticipantIds(new Set());
+          setJoined(false);
+          if (meetingProvider) setSession((current) => current && withMeetingProvider(current, meetingProvider));
+          toast('Your teacher moved this class to Zoom.', { id: `provider-${id}` });
         });
         socket.on(SESSION_EVENTS.ended, setEndedAt);
         socket.on(SESSION_EVENTS.reopened, setEndedAt);
@@ -588,7 +622,7 @@ export default function SessionRoom() {
       }
       mountedRef.current = false;
     };
-  }, [id, refreshFiles, user.firstName, user.id, user.lastName, user.role]);
+  }, [id, refreshFiles, releaseMedia, user.firstName, user.id, user.lastName, user.role]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -888,6 +922,19 @@ export default function SessionRoom() {
     leaveRoom();
     navigate(user.role === 'admin' ? '/admin' : user.role === 'teacher' ? '/teacher' : '/student');
   };
+  // Teachers hold the class in its room or in Zoom; the saved choice comes back and is shown.
+  const [choosingProvider, setChoosingProvider] = useState(false);
+  const chooseProvider = async (meetingProvider) => {
+    setChoosingProvider(true);
+    try {
+      const saved = await sessionService.setMeetingProvider(id, meetingProvider);
+      setSession((current) => current && { ...current, ...saved });
+    } catch (chooseError) {
+      toast.error(readableError(chooseError, 'Unable to change where the class is held.'));
+    } finally {
+      setChoosingProvider(false);
+    }
+  };
   // Teachers of this lesson can go straight from the room to its feedback list.
   const feedbackPath = user.role === 'teacher' && session?.canManageRoom && session.classroom?.id
     ? `/teacher/feedback?class=${session.classroom.id}&lesson=${id}`
@@ -1014,6 +1061,8 @@ export default function SessionRoom() {
         reconnecting={everConnected}
         joining={joining}
         error={error}
+        choosingProvider={choosingProvider}
+        onChooseProvider={chooseProvider}
         onJoin={() => joinRoomRef.current?.()}
         onBack={exitRoom}
       />

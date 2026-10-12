@@ -21,6 +21,12 @@ export const socketServer = () => io;
 /** A session's start time changed: people already waiting in its room may now be in class. */
 export const sessionTimingChanged = (sessionId) => roomHooks.sessionTimingChanged?.(String(sessionId));
 
+/**
+ * A session moved between its class room and Zoom: people no longer allowed in the room leave it.
+ * `session` carries its new `meetingProvider` and its people, for the access rule.
+ */
+export const sessionProviderChanged = (session) => roomHooks.sessionProviderChanged?.(String(session._id), session);
+
 /** A classroom's people changed: connected accounts follow it, or stop following it, straight away. */
 export const classroomPeopleChanged = (classroom) => roomHooks.classroomPeopleChanged?.(classroom);
 
