@@ -5,7 +5,7 @@ const systemSettingsSchema = new mongoose.Schema(
     _id: { type: String, default: 'system' },
     roleTestingEnabled: { type: Boolean, default: false },
     // Which integration powers live classrooms. 'webrtc' is the built-in peer-to-peer
-    // room; 'zoom' is stored for the planned Zoom meeting integration.
+    // room; 'zoom' keeps that room and also offers each class a Zoom meeting from its lobby.
     classroomIntegration: { type: String, enum: ['webrtc', 'zoom'], default: 'webrtc' },
     // Credentials used to build the WebRTC ICE list (resolved in systemSettings.service).
     // An empty value falls back to the corresponding server environment variable.
@@ -14,8 +14,8 @@ const systemSettingsSchema = new mongoose.Schema(
       meteredTurnApiKey: { type: String, default: '' },
       iceServersJson: { type: String, default: '' },
     },
-    // Zoom Server-to-Server OAuth app credentials. Saved now so an administrator can
-    // declare them; not yet used by classrooms until the Zoom integration lands.
+    // Zoom Server-to-Server OAuth app credentials, used while the integration is 'zoom'.
+    // When not all three are saved, the ZOOM_* environment variables are used instead.
     zoom: {
       accountId: { type: String, default: '' },
       clientId: { type: String, default: '' },

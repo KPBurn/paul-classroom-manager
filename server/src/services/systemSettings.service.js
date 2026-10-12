@@ -109,3 +109,20 @@ export async function resolveIceServers() {
   }
   return env.iceServers;
 }
+
+/**
+ * The Zoom app classrooms use to offer Zoom beside the class room, or null
+ * when it is not offered. It is offered while the classroom integration is
+ * set to Zoom; the class room itself stays as it is. As for the relay,
+ * credentials saved in the admin console win over the server environment:
+ * all three saved values, otherwise the ZOOM_* variables.
+ */
+export async function resolveZoomSettings() {
+  const settings = await SystemSettings.findById('system').select('classroomIntegration zoom').lean();
+  if (settings?.classroomIntegration !== 'zoom') return null;
+  const [accountId, clientId, clientSecret] = ['accountId', 'clientId', 'clientSecret']
+    .map((key) => settings?.zoom?.[key]?.trim());
+  const credentials = accountId && clientId && clientSecret ? { accountId, clientId, clientSecret } : env.zoom;
+  if (!credentials) return null;
+  return { ...credentials, hostUser: env.zoomHostUser, timeLimitMinutes: env.zoomMeetingTimeLimitMinutes };
+}

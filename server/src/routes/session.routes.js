@@ -7,12 +7,14 @@ import {
   create,
   list,
   messages,
+  openZoom,
   room,
   startNow,
   downloadFile,
   listFiles,
   uploadFile,
   update,
+  zoomLink,
 } from '../controllers/session.controller.js';
 import { authenticateUser } from '../middleware/auth.middleware.js';
 import { requireRole } from '../middleware/role.middleware.js';
@@ -39,6 +41,9 @@ router.get('/', requireRole('admin', 'teacher', 'student'), validate({ query: li
 router.post('/', requireRole('admin', 'teacher'), validate({ body: createSessionSchema }), create);
 router.post('/start', requireRole('admin', 'teacher'), validate({ body: startSessionSchema }), startNow);
 router.get('/:id/room',validate({ params: sessionIdParamsSchema }), room);
+// Zoom, offered beside the class room: teachers add the meeting, everyone allowed in gets its link.
+router.post('/:id/zoom', requireRole('admin', 'teacher'), validate({ params: sessionIdParamsSchema }), openZoom);
+router.get('/:id/zoom', validate({ params: sessionIdParamsSchema }), zoomLink);
 router.get('/:id/files', validate({ params: sessionIdParamsSchema }), listFiles);
 router.post(
   '/:id/files',

@@ -29,6 +29,13 @@ const classSessionSchema = new mongoose.Schema(
     endedAt: { type: Date, default: null },
     // People a teacher removed from the room; they cannot rejoin this session unless allowed back.
     removedParticipants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    // A Zoom meeting a teacher added as another way into the class, beside its own room.
+    // The join link carries the passcode, so it is only read for people allowed into the class.
+    zoomMeeting: {
+      meetingId: { type: String },
+      joinUrl: { type: String, select: false },
+      createdAt: { type: Date },
+    },
     seriesId: { type: String, default: null, index: true },
     timezone: { type: String, default: 'UTC' },
     status: { type: String, enum: ['scheduled', 'cancelled'], default: 'scheduled', required: true },

@@ -3,7 +3,8 @@ import Alert from '../common/Alert.jsx';
 import Button from '../common/Button.jsx';
 import { useNow } from '../../hooks/useNow.js';
 import { describePresence } from '../../utils/liveSessions.js';
-import { formatTime, sessionPhase, timeUntil } from '../../utils/sessionTiming.js';
+import { formatTime, isJoinable, sessionPhase, timeUntil } from '../../utils/sessionTiming.js';
+import ZoomOption from './ZoomOption.jsx';
 
 /** What the lobby says about each state a session can be in, and whether the room can be entered. */
 function lobbyState(session, phase, now, canManageRoom) {
@@ -118,6 +119,9 @@ export default function SessionLobby({ session, presence, canManageRoom, connect
             <ArrowLeft className="size-4" aria-hidden="true" /> Back
           </Button>
         </div>
+
+        {/* Another way into a class that is on or still to come; the class room stays the default. */}
+        {isJoinable(phase) && <ZoomOption session={session} canManageRoom={canManageRoom} />}
       </div>
     </main>
   );

@@ -363,26 +363,24 @@ export default function Settings() {
             <div className="mt-5 space-y-4 border-t border-ink-200 pt-5">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-semibold text-ink-900">Zoom credentials</h3>
-                <Badge tone="warning">Planned — not yet in use</Badge>
               </div>
 
               <Alert tone="info">
-                <p className="font-medium">How the Zoom integration will work</p>
+                <p className="font-medium">How Zoom works here</p>
                 <ol className="mt-1 list-decimal space-y-1 pl-4">
                   <li>
-                    Create a Server-to-Server OAuth app in the Zoom Marketplace and save its
+                    Create a Server-to-Server OAuth app in the Zoom Marketplace with the scopes
+                    meeting:write:meeting:admin, meeting:read:meeting:admin,
+                    meeting:update:status:admin and meeting:delete:meeting:admin, and save its
                     Account ID, Client ID and Client Secret below.
                   </li>
                   <li>
-                    The server exchanges them for an access token and creates a Zoom meeting for
-                    every class session.
+                    Classes keep their own room. In a class’s lobby, its teacher can also press
+                    Start in Zoom; students then get a Join in Zoom button.
                   </li>
                   <li>
-                    The class room embeds the Zoom Meeting SDK and joins with the meeting number
-                    and a signature generated on the server.
-                  </li>
-                  <li>
-                    Attendance and records stay in this app; Zoom only carries the audio and video.
+                    Attendance is still only recorded in the class room. On a free Zoom account,
+                    meetings end after 40 minutes.
                   </li>
                 </ol>
               </Alert>

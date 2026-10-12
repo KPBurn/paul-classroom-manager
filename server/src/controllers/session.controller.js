@@ -37,6 +37,16 @@ export async function room(req, res) {
   sendSuccess(res, { data: { session } });
 }
 
+export async function openZoom(req, res) {
+  const data = await sessionService.openZoomMeeting(req.params.id, req.user, { ipAddress: req.ip });
+  sendSuccess(res, { status: data.created ? 201 : 200, data });
+}
+
+export async function zoomLink(req, res) {
+  const data = await sessionService.getZoomJoinLink(req.params.id, req.user);
+  sendSuccess(res, { data });
+}
+
 export async function listFiles(req, res) {
   const data = await sessionService.listSessionFiles(req.params.id, req.user);
   sendSuccess(res, { data });

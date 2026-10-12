@@ -128,7 +128,7 @@ After that, every push to `master` that changes `client/` redeploys the site (`.
 
 ## Environment variables
 
-**Server** (`server/.env`): `PORT`, `NODE_ENV`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN` (default `1d`), `CLIENT_URL` (comma-separated allowed origins), `TRUST_PROXY` (set to `1` behind Render/Railway/Nginx), `WEBRTC_ICE_SERVERS` (optional JSON array with STUN/TURN definitions), `METERED_TURN_HOST` and `METERED_TURN_API_KEY` (configure both with the TURN domain and the API key for an active TURN credential), `SEED_*`, `APP_URL`, `RESEND_API_KEY`, `MAIL_FROM` and `ENROLLMENT_RETENTION_DAYS` (see Email and Enrollment below). The Metered TURN API key is never sent to the browser; only the ICE server credentials needed by authenticated room participants are returned. When TURN is configured, classroom media uses relay-only ICE to work through restrictive networks; this relays media traffic through the TURN provider and counts against its quota. Without TURN credentials, rooms use normal ICE and show a warning because direct connections can fail on restrictive networks.
+**Server** (`server/.env`): `PORT`, `NODE_ENV`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN` (default `1d`), `CLIENT_URL` (comma-separated allowed origins), `TRUST_PROXY` (set to `1` behind Render/Railway/Nginx), `WEBRTC_ICE_SERVERS` (optional JSON array with STUN/TURN definitions), `METERED_TURN_HOST` and `METERED_TURN_API_KEY` (configure both with the TURN domain and the API key for an active TURN credential), `SEED_*`, `APP_URL`, `RESEND_API_KEY`, `MAIL_FROM` and `ENROLLMENT_RETENTION_DAYS` (see Email and Enrollment below), and the optional `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`, `ZOOM_HOST_USER` and `ZOOM_MEETING_TIME_LIMIT_MINUTES` (see Zoom below). The Metered TURN API key is never sent to the browser; only the ICE server credentials needed by authenticated room participants are returned. When TURN is configured, classroom media uses relay-only ICE to work through restrictive networks; this relays media traffic through the TURN provider and counts against its quota. Without TURN credentials, rooms use normal ICE and show a warning because direct connections can fail on restrictive networks.
 
 **Client** (`client/.env`): `VITE_API_URL` only. Everything in the client bundle is public, so database credentials and JWT secrets must never go there.
 
@@ -240,6 +240,20 @@ Opening a room shows a lobby first: the class, its teacher, its time, whether it
 Attendance is the time spent in the room while the class is on, measured by the server. Each stay is an interval: entering opens it and leaving adds its length to the total, so leaving and returning adds up. Time before the start or after the end is not counted, a second tab is not counted twice, and repeating a join or leave changes nothing. A connection that drops closes the interval when the server notices (up to about 45 seconds later) and a return opens a new one. Intervals left open by a server restart are closed when it starts again.
 
 Who is in a room is held in the memory of the one API process. Running more than one instance would need the Socket.IO Redis adapter, sticky sessions and shared presence.
+
+### Zoom (optional)
+
+A class can also be held in Zoom, beside its own room; the room stays the default and keeps working as before. While the classroom integration in **Admin → Settings** is set to Zoom and a Zoom app is set up, the lobby of a session that is on or still to come shows **Start in Zoom** to its teachers (and administrators). The first press makes a Zoom meeting for that session and opens it as host in a new tab; later presses open the same meeting with a fresh host link (`POST /api/sessions/:id/zoom`). The class's pages are told at once (`session:zoom-added`), and its students' lobbies then show **Join in Zoom**, which opens the meeting's join link (`GET /api/sessions/:id/zoom`). The link is only given to people allowed into the class room, on the same terms: not after a teacher ended the class or removed them. Ending the class from the room also ends the Zoom meeting, and cancelling the session deletes it. Anyone with the link can enter the meeting at any time, before the host too, so it can be joined early.
+
+What Zoom does not do here: **time in Zoom is not attendance** (attendance is still the time spent in the class room; a teacher can correct it), the room's presence, chat, files and moderation do not cover people in Zoom, and moving a session's time does not move its Zoom meeting (the meeting can be entered at any time anyway).
+
+With a free (Basic) Zoom account, Zoom ends every meeting after **40 minutes**, allows 100 people, and a host has one meeting at a time. The lobby says so; set `ZOOM_MEETING_TIME_LIMIT_MINUTES=0` once the host has a paid licence.
+
+To set it up (once):
+
+1. Sign in to the school's Zoom account at [marketplace.zoom.us](https://marketplace.zoom.us) → **Develop → Build App → Server-to-Server OAuth App**.
+2. Under **Scopes**, add these four: `meeting:write:meeting:admin` (create the meeting), `meeting:read:meeting:admin` (fresh host link), `meeting:update:status:admin` (end it with the class) and `meeting:delete:meeting:admin` (delete it with a cancelled session). A missing scope shows in the API's log as Zoom's error message. Then **Activate** the app.
+3. In **Admin → Settings → Classroom integration**, choose **Zoom** and save the app's **Account ID**, **Client ID** and **Client Secret** there. Alternatively put them in the Render service's environment as `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET` and redeploy; values saved in Settings win. Never put them in the client or in GitHub. Choosing **WebRTC** again stops offering Zoom. Meetings are hosted by the account that made the app; `ZOOM_HOST_USER` (an email or Zoom user id) picks another user of the same account.
 
 ### Authentication and authorization (RBAC)
 

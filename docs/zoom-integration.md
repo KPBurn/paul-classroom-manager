@@ -1,5 +1,11 @@
 # Zoom integration plan
 
+> **Status:** Zoom is now offered *beside* the class room rather than replacing it. With the
+> integration set to Zoom, a teacher can press **Start in Zoom** in a class's lobby (a meeting is
+> made through Server-to-Server OAuth and opens in a new tab) and students get **Join in Zoom**.
+> The WebRTC room, its presence and attendance are unchanged. See README, "Zoom". Embedding the
+> Meeting SDK (steps 3–5 below) has not been done.
+
 Live classrooms currently run on the built-in **WebRTC** room (peer-to-peer media with an
 optional TURN relay). This document plans how the same rooms can instead run on **Zoom**,
 selected with the *Classroom integration* switch in **Admin → System Settings**.

@@ -435,6 +435,10 @@ export default function SessionRoom() {
         const setEndedAt = ({ sessionId, endedAt }) => {
           if (sessionId === id) setSession((current) => current && { ...current, endedAt: endedAt ?? null });
         };
+        // A teacher added a Zoom meeting: the lobby offers it without a refresh.
+        socket.on(SESSION_EVENTS.zoomAdded, ({ sessionId }) => {
+          if (sessionId === id) setSession((current) => current && { ...current, zoomMeeting: true });
+        });
         socket.on(SESSION_EVENTS.ended, setEndedAt);
         socket.on(SESSION_EVENTS.reopened, setEndedAt);
         socket.on('disconnect', (reason) => {

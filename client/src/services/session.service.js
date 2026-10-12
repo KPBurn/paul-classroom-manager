@@ -28,6 +28,21 @@ export const sessionService = {
     return data.data.session;
   },
 
+  /**
+   * For the session's teachers: adds a Zoom meeting to the session, or finds
+   * the one it has, and gives back Zoom's host link as `url`.
+   */
+  async openZoom(id) {
+    const { data } = await api.post(`/sessions/${id}/zoom`);
+    return data.data;
+  },
+
+  /** The session's Zoom join link as `url`, once a teacher has added a meeting. */
+  async zoomLink(id) {
+    const { data } = await api.get(`/sessions/${id}/zoom`);
+    return data.data;
+  },
+
   async files(id) {
     const { data } = await api.get(`/sessions/${id}/files`);
     return data.data.items;

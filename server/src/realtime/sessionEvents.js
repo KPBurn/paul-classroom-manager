@@ -19,6 +19,9 @@
  * `session:schedule-changed` — sessions of a classroom were scheduled, edited or cancelled.
  * @typedef {{ classroomId: string }} ScheduleChanged
  *
+ * `session:zoom-added` — a teacher added a Zoom meeting to a session; the link is asked for separately.
+ * @typedef {{ sessionId: string, classroomId: string }} ZoomAdded
+ *
  * `session:presence` — who is in a session's room, sent whenever someone enters or leaves.
  * It is the whole state, not a difference, so a missed event is put right by the next one.
  * @typedef {{
@@ -34,6 +37,7 @@ export const SESSION_EVENTS = {
   ended: 'session:ended',
   reopened: 'session:reopened',
   scheduleChanged: 'session:schedule-changed',
+  zoomAdded: 'session:zoom-added',
   presence: 'session:presence',
 };
 

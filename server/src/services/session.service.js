@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { Classroom } from '../models/Classroom.js';
 import { ClassSession } from '../models/ClassSession.js';
@@ -20,7 +20,8 @@ import { attendanceStatusForCheckIn } from '../utils/attendancePolicy.js';
 import { LIST_BATCH_SIZE } from '../config/database.js';
 import { sessionTimingChanged } from '../realtime/connections.js';
 import { publishToClassroom, SESSION_EVENTS } from '../realtime/sessionEvents.js';
-import { resolveIceServers } from './systemSettings.service.js';
+import { resolveIceServers, resolveZoomSettings } from './systemSettings.service.js';
+import { createZoomClient } from './zoom.service.js';
 
 const MINUTE_MS = 60 * 1000;
 /** How long a class started on the spot runs unless the teacher says otherwise. */
@@ -331,6 +332,8 @@ function sessionResult(session, user) {
     status: session.status,
     endedAt: session.endedAt ?? null,
     seriesId: session.seriesId ?? null,
+    // Only whether there is one: the link is given out by `getZoomJoinLink` to people allowed in.
+    zoomMeeting: Boolean(session.zoomMeeting?.meetingId),
     assignments: {
       teachers: (session.assignedTeachers ?? classroomTeacherIds(session.classroom ?? {})).map((teacher) => ({
         id: String(teacher._id ?? teacher),
@@ -541,12 +544,13 @@ export function assertCanEnterRoom(session, user) {
 export async function getRoomSession(id, user) {
   const session = await getSessionForParticipant(id, user);
   assertCanEnterRoom(session, user);
-  const iceServers = await resolveIceServers();
+  const [iceServers, zoom] = await Promise.all([resolveIceServers(), zoomApp()]);
   const hasTurnServer = iceServers.some(({ urls }) => (Array.isArray(urls) ? urls : [urls])
     .some((url) => /^(turn|turns):/i.test(url)));
   return {
     ...sessionResult(session, user),
     canManageRoom: canManageSession(session, user),
+    zoom: zoom ? { enabled: true, timeLimitMinutes: zoom.timeLimitMinutes } : { enabled: false },
     iceServers,
     iceServersWarning: hasTurnServer
       ? null
@@ -622,6 +626,118 @@ export async function setRoomEnded(id, ended, user) {
     endedAt: session.endedAt,
     by: personResult(user),
   });
+  // Ending the class ends its Zoom meeting too. The class is already ended here, so a failure is only logged.
+  if (ended && session.zoomMeeting?.meetingId) {
+    zoomApp()
+      .then((zoom) => zoom?.client.endMeeting(session.zoomMeeting.meetingId))
+      .catch((error) => console.error('Unable to end the Zoom meeting of an ended class', error.message));
+  }
+}
+
+let zoomClient = null;
+let zoomClientKey = null;
+
+/**
+ * The Zoom app classrooms use now (`{ client, timeLimitMinutes }`), or null
+ * when none is set up. Changed credentials get a new client, so a token made
+ * with the old ones is never sent.
+ */
+async function zoomApp() {
+  const settings = await resolveZoomSettings();
+  if (!settings) return null;
+  const key = createHash('sha256')
+    .update(JSON.stringify([settings.accountId, settings.clientId, settings.clientSecret, settings.hostUser]))
+    .digest('hex');
+  if (key !== zoomClientKey) {
+    zoomClient = createZoomClient(settings);
+    zoomClientKey = key;
+  }
+  return { client: zoomClient, timeLimitMinutes: settings.timeLimitMinutes };
+}
+
+/** A Zoom meeting is another way into a class that is still to come or going on. Gives the client to use. */
+async function zoomFor(session) {
+  const zoom = await zoomApp();
+  if (!zoom) throw new AppError(404, 'Zoom is not set up for this school.');
+  if (session.status === 'cancelled') throw new AppError(400, 'This session has been cancelled');
+  if (session.endsAt <= new Date()) throw new AppError(400, 'This session is over.');
+  return zoom.client;
+}
+
+const storedZoomMeeting = async (id) => (await ClassSession.findById(id).select('+zoomMeeting.joinUrl').lean())
+  ?.zoomMeeting;
+
+/**
+ * Gives a session a Zoom meeting beside its own room, and gives the teacher
+ * Zoom's host link. Only the session's teachers and administrators do this.
+ * Asking again gives the same meeting; host links are fetched fresh each time
+ * and never stored. The class is told, so its pages offer Zoom straight away.
+ *
+ * Time in Zoom is not attendance: attendance is still taken in the class room.
+ */
+export async function openZoomMeeting(id, user, { ipAddress } = {}) {
+  const session = await getSession(id);
+  assertAssignedTeacher(session, user);
+  const zoom = await zoomFor(session);
+
+  const existing = await storedZoomMeeting(session._id);
+  if (existing?.meetingId) {
+    try {
+      const { startUrl } = await zoom.getMeeting(existing.meetingId);
+      return { meetingId: existing.meetingId, url: startUrl, created: false };
+    } catch (error) {
+      if (error.statusCode !== 404) throw error;
+      // Deleted in Zoom itself: forget it, unless someone has already put a new one in its place, and make another.
+      await ClassSession.updateOne(
+        { _id: session._id, 'zoomMeeting.meetingId': existing.meetingId },
+        { $unset: { zoomMeeting: '' } },
+      );
+    }
+  }
+
+  const now = new Date();
+  const meeting = await zoom.createMeeting({
+    topic: `${session.classroom.name}: ${session.title}`,
+    startsAt: session.startsAt > now ? session.startsAt : now,
+    endsAt: session.endsAt,
+    timezone: session.timezone || 'UTC',
+  });
+  const { modifiedCount } = await ClassSession.updateOne(
+    { _id: session._id, 'zoomMeeting.meetingId': null },
+    { $set: { zoomMeeting: { meetingId: meeting.id, joinUrl: meeting.joinUrl, createdAt: now } } },
+  );
+  if (!modifiedCount) {
+    // Another teacher added one at the same moment: keep theirs and remove this one.
+    zoom.deleteMeeting(meeting.id).catch((error) => {
+      console.error('Unable to remove a duplicate Zoom meeting', error.message);
+    });
+    return openZoomMeeting(id, user, { ipAddress });
+  }
+
+  await logActivity({
+    actorId: user._id,
+    action: 'session.zoom-added',
+    entityType: 'ClassSession',
+    entityId: session._id,
+    description: `${user.fullName} added a Zoom meeting to "${session.title}"`,
+    ipAddress,
+  });
+  const classroomId = String(session.classroom._id);
+  publishToClassroom(classroomId, SESSION_EVENTS.zoomAdded, { sessionId: String(session._id), classroomId });
+  return { meetingId: meeting.id, url: meeting.startUrl, created: true };
+}
+
+/**
+ * The Zoom join link, for the people allowed into the class room on the same
+ * terms: not after a teacher ended the class or removed them from it.
+ */
+export async function getZoomJoinLink(id, user) {
+  const session = await getSessionForParticipant(id, user);
+  assertCanEnterRoom(session, user);
+  await zoomFor(session);
+  const meeting = await storedZoomMeeting(session._id);
+  if (!meeting?.meetingId) throw new AppError(404, 'Your teacher has not opened this class in Zoom.');
+  return { meetingId: meeting.meetingId, url: meeting.joinUrl };
 }
 
 function sessionFileResult(file) {
@@ -986,6 +1102,14 @@ export async function cancelSession(id, scope, user, { ipAddress }) {
     : { _id: session._id };
   await ClassSession.updateMany(filter, { $set: { status: 'cancelled' } });
   await SessionFile.deleteMany({ session: { $in: await ClassSession.find(filter).distinct('_id') } });
+  // Their Zoom meetings go too, so the links stop working. The sessions are already cancelled, so a failure is only logged.
+  const meetingIds = await ClassSession.find({ ...filter, 'zoomMeeting.meetingId': { $ne: null } }).distinct('zoomMeeting.meetingId');
+  if (meetingIds.length) {
+    zoomApp()
+      .then((zoom) => zoom && Promise.all(meetingIds.map((meetingId) => zoom.client.deleteMeeting(meetingId)
+        .catch((error) => console.error('Unable to remove the Zoom meeting of a cancelled session', error.message)))))
+      .catch((error) => console.error('Unable to remove the Zoom meetings of cancelled sessions', error.message));
+  }
   await logActivity({
     actorId: user._id,
     action: 'session.cancelled',

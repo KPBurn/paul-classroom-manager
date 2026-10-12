@@ -38,6 +38,22 @@ function parseMeteredTurnHost(value) {
   return host;
 }
 
+/**
+ * A Zoom Server-to-Server OAuth app from the environment: all three values or none. Credentials
+ * saved in System Settings win over these (see systemSettings.service, resolveZoomSettings).
+ */
+function parseZoom() {
+  const accountId = process.env.ZOOM_ACCOUNT_ID?.trim();
+  const clientId = process.env.ZOOM_CLIENT_ID?.trim();
+  const clientSecret = process.env.ZOOM_CLIENT_SECRET?.trim();
+  const configured = [accountId, clientId, clientSecret].filter(Boolean).length;
+  if (configured === 0) return null;
+  if (configured !== 3) {
+    throw new Error('ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET must all be configured');
+  }
+  return { accountId, clientId, clientSecret };
+}
+
 const meteredTurnHost = parseMeteredTurnHost(process.env.METERED_TURN_HOST);
 const meteredTurnApiKey = process.env.METERED_TURN_API_KEY?.trim() || null;
 if (Boolean(meteredTurnHost) !== Boolean(meteredTurnApiKey)) {
@@ -55,6 +71,11 @@ export const env = {
   iceServers: parseIceServers(process.env.WEBRTC_ICE_SERVERS),
   meteredTurnHost,
   meteredTurnApiKey,
+  zoom: parseZoom(),
+  // The Zoom user who hosts the meetings; `me` is the account that made the app.
+  zoomHostUser: process.env.ZOOM_HOST_USER?.trim() || 'me',
+  // Zoom ends meetings hosted on a free (Basic) account after 40 minutes. 0 means the account has no limit.
+  zoomMeetingTimeLimitMinutes: Math.max(0, toInt(process.env.ZOOM_MEETING_TIME_LIMIT_MINUTES, 40)),
   // Where the web app is opened, for links in emails. Defaults to the first allowed origin.
   appUrl: (process.env.APP_URL || toList(process.env.CLIENT_URL || 'http://localhost:5173')[0]).replace(/\/+$/, ''),
   // Email is sent through Resend's API. Without a key, emails are skipped and the server says so in its log.
